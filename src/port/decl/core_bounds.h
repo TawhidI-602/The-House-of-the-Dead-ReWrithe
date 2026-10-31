@@ -1,0 +1,86 @@
+// Declarations of class Game, included inside its body (port/game.h, docs/port.md "Adding a kind"): the boundaries
+// (routines not ported yet: virtual stubs the proof harness overrides, docs/proof.md).
+    // --- boundaries (not ported yet) ---
+    virtual void task_exit() {}                                                 // 0x150D0 (does not return)
+    virtual uint32_t task_create_child(uint32_t routine, uint32_t size);       // 0x14FA0 (tasks.cpp)
+    virtual uint32_t task_create(uint32_t routine, uint32_t size);             // 0x14EA0 (tasks.cpp)
+    virtual void task_clear_work(uint32_t task);                                // 0x15080 (tasks.cpp)
+    virtual void text_cursor(int column, int row) {}                            // 0x17660
+    virtual void text_printf(uint32_t format, int32_t arg = 0) {}               // 0xA4EC0 (one argument at most here)
+    virtual void walk_to_attack_position(uint32_t obj, float step);           // 0x1CA50 (virtual: older captures recorded it as a boundary)
+    uint32_t pc_bite_frame_lookup(uint32_t obj);                              // PC 0x4A323C (arcade: inline)
+    float pc_fast_sqrt4(float x);                                             // PC 0x445A8C (PC only)
+    float pc_fast_sqrt5(float x);                                             // PC 0x4A198C (PC only)
+    void pc_vec_angles3(float x, float y, float z, uint32_t& yaw, uint32_t& pitch);   // PC 0x445338
+    void pc_matrix_transform3(float x, float y, float z, float& ox, float& oy, float& oz);   // PC 0x4A1150
+    virtual void debug_halt() { for (;;) {} }                                             // the original's endless loop after an error text
+    virtual void shadow_setup(float y);                                         // 0x6C760 (shadow.cpp)
+    virtual void geo_draw_model(uint32_t model) {}                              // 0x14120
+    virtual void part_damage_callback(uint32_t routine, uint32_t part) {}       // table 0xC66A0 (per type)
+    virtual void eyeball_pop_spawn(int player, float x, float y, float z);      // 0x43B90 (blow_off.cpp)
+    virtual void part_blow_off(int player, uint32_t part);                      // 0x69550 (blow_off.cpp)
+    // part_hit_class17 0x43860: ported in ch3_kinds.cpp (decl/ch3_kinds.h, worker "ch3own")
+    virtual void sound_cue(uint32_t cue) {}                                     // 0x154D0
+    virtual void pc_gun_input(uint32_t player_rec, uint32_t gun) {}          // PC 0x4358CC (PC only)
+    virtual uint32_t pc_time_ms() { return 0; }                              // PC: timeGetTime (winmm)
+    virtual void pc_matrix_rotate_b(uint32_t angle) { pmx_rotate_z(angle); }                        // PC 0x4D7604 (PC only)
+    virtual void pc_matrix_translate(float x, float y, float z) { pmx_translate(x, y, z); }            // PC 0x4D72DC (PC only)
+    virtual void pc_debug_print() {}                                          // PC 0x4182E4 (cdecl, PC only)
+    virtual float pc_view_test(float x, float y, float z, float radius) { return pm_view_test(x, y, z, radius); }   // PC 0x4A2808 (PC only; PC Mode: pm::view_test)
+    virtual void pc_matrix_translate2(float x, float y, float z) { pmx_translate(x, y, z); }           // PC 0x503944 (PC only)
+    virtual void pc_matrix_translate5(float x, float y, float z) { pmx_translate(x, y, z); }           // PC 0x4F5004 (PC only, frog file)
+    virtual void pc_matrix_rotate_b2(uint32_t angle) { pmx_rotate_z(angle); }                       // PC 0x4F532C (PC only, frog file)
+    virtual void pc_matrix_rotate_x(uint32_t angle) { pmx_rotate_x(angle); }                        // PC 0x4F54B8 (PC only, frog file)
+    // indirect calls through a routine table (the routine at `routine`, argument obj)
+    virtual void call_routine(uint32_t routine, uint32_t obj) {}
+    virtual void shadow_update(uint32_t obj);                                   // 0x6C9E0 (blow_off.cpp)
+    virtual uint32_t mem_alloc(uint32_t size);                                  // 0x14710 (tasks.cpp)
+    virtual uint32_t projectile_hit_player(uint32_t point, int a, int b);     // 0x6640 (0 = missed; player_support.cpp)
+    virtual void spin_axis_from_velocity(uint32_t vel, uint32_t out);          // 0x33EC0 (support_c.cpp)
+    virtual void call_routine_f(uint32_t routine, uint32_t obj, float v) {}    // callx (object, float)
+    virtual void tumble_corners(uint32_t block);                               // 0x6A970 (support_c.cpp)
+    virtual void tumble_update(uint32_t obj, uint32_t block);                  // 0x6ADD0 (support_c.cpp)
+    void tumble_start(uint32_t obj, uint32_t box);                             // 0x6AF70 (support_c.cpp)
+    void pm_tumble_update(uint32_t obj, uint32_t box);                         // PC 0x4C5B1C for PC Mode (support_c.cpp)
+    virtual void tumble_bounce(uint32_t obj, uint32_t box) {}                  // 0x6B380 (the runtime's: coprocessor 0x85 not modelled)
+    virtual uint32_t pc_crand() { return 0; }                                  // PC 0x578A6B (the C library's rand)
+    virtual void pc_vec_angles9(float x, float y, float z, uint32_t yaw, uint32_t pitch) { pmx_vec_angles(x, y, z, yaw, pitch); }   // PC 0x4DB798 (PC only)
+    virtual void pc_matrix_translate9(float x, float y, float z) { pmx_translate(x, y, z); }            // PC 0x4DB894 (PC only)
+    virtual void pc_matrix_rotate_z9(uint32_t angle) { pmx_rotate_z(angle); }                        // PC 0x4DBBBC (PC only)
+    virtual void pc_matrix_rotate_y9(uint32_t angle) { pmx_rotate_y(angle); }                        // PC 0x4DBAB4 (PC only)
+    virtual void pc_matrix_rotate_x9(uint32_t angle) { pmx_rotate_x(angle); }                        // PC 0x4DBD48 (PC only)
+    virtual void hw_write32(uint32_t addr, uint32_t v) {}                      // a Model 2 hardware register (not RAM; the proof does not record them)
+    // obj_velocity_clear 0x2E870 / area_heading_pick 0x2E550 / frog_splash_spawn 0x308B0 / point_clip_to_depth 0x34920:
+    // ported in ch2_kinds.cpp (decl/ch2_kinds.h, worker "ch2play")
+    virtual void pc_matrix_translate4(float x, float y, float z) { pmx_translate(x, y, z); }           // PC 0x4BB344 (PC only)
+    virtual void draw_fade_begin(int alpha) {}                                 // 0x2320
+    virtual void geo_send_words(uint32_t a, uint32_t b, uint32_t c) {}         // 0x1A80
+    virtual void researcher_rescue_bonus();                                    // 0x70960 (player_support.cpp)
+    virtual void researcher_gift_spawn(uint32_t obj);                          // 0x707E0 (player_support.cpp; proofs-10: p10_gift)
+    virtual uint32_t researcher_reached_camera(uint32_t obj);                  // 0x708E0 (player_support.cpp)
+    virtual void geo_matrix_position(uint32_t model, uint32_t out) {}         // 0x14200 (writes x, y, z at out)
+    // iron_ball_hand_pos 0x49B60: ported in ch3_kinds.cpp (decl/ch3_kinds.h, worker "ch3own")
+    // iron_chain_start 0x490E0: ported in ch3_kinds.cpp (decl/ch3_kinds.h, worker "ch3own")
+    virtual void pc_matrix_mul8(uint32_t matrix) { pmx_mul(matrix); }                           // PC 0x4E251C (PC only, kind 32 file)
+    virtual void pc_matrix_translate8(float x, float y, float z) { pmx_translate(x, y, z); }           // PC 0x4E1C50 (PC only, kind 32 file)
+    virtual void pc_matrix_rotate_z8(uint32_t angle) { pmx_rotate_z(angle); }                       // PC 0x4E1F78 (PC only, kind 32 file)
+    virtual void pc_matrix_rotate_x8(uint32_t angle) { pmx_rotate_x(angle); }                       // PC 0x4E2104 (PC only, kind 32 file)
+    virtual void pc_matrix_identity8() { pmx_identity(); }                                     // PC 0x4E24C0 (PC only, kind 32 file)
+    virtual void pc_matrix_angles8(uint32_t outA, uint32_t outB, uint32_t outC) { pmx_matrix_angles8(outA, outB, outC); }   // PC 0x4E2E84 (PC only, kind 32 file; PC Mode: pm::matrix_angles8)
+    void pc_matrix_transform8(float x, float y, float z, uint32_t ox, uint32_t oy, uint32_t oz);   // PC 0x4E1A6C (PC only)
+    // iron_ball_in_reach 0x49DA0: ported in ch3_kinds.cpp (decl/ch3_kinds.h, worker "ch3own")
+    virtual void pc_matrix_identity3() { pmx_identity(); }                                     // PC 0x48B084 (PC only, iron-ball file)
+    virtual void pc_matrix_rotate_y8(uint32_t angle) { pmx_rotate_y(angle); }                       // PC 0x48AA34 (PC only, iron-ball file)
+    virtual void pc_matrix_rotate_y7(uint32_t angle) { pmx_rotate_y(angle); }                       // PC 0x4E1E70 (PC only, kind 32 file)
+    virtual float pc_view_test2(float x, float y, float z, float radius) { return pm_view_test(x, y, z, radius); }   // PC 0x4E3124 (PC only; PC Mode: pm::view_test)
+    virtual void pc_draw_state(int a) {}                                       // PC 0x42CE70 (PC only, empty)
+    virtual void pc_matrix_position_draw(uint32_t model, uint32_t out) {}     // PC 0x43D870 (PC only)
+    virtual void pc_matrix_translate6(float x, float y, float z) { pmx_translate(x, y, z); }           // PC 0x4E7904 (PC only, bats file)
+    virtual void pc_matrix_rotate_y6(uint32_t angle) { pmx_rotate_y(angle); }                       // PC 0x4E7B24 (PC only, bats file)
+    virtual void pc_matrix_rotate_b3(uint32_t angle) { pmx_rotate_z(angle); }                       // PC 0x4E7C2C (PC only, bats file)
+    virtual void pc_matrix_rotate_x2(uint32_t angle) { pmx_rotate_x(angle); }                       // PC 0x4E7DB8 (PC only, bats file)
+    virtual void pc_matrix_mul_stored(uint32_t matrix) {}                     // PC 0x4E8374 (PC only, bats file)
+    // the original's frame pointer of the routine being run from outside (the proof harness: the captured routine's);
+    // fpAdjust: the deeper frames the port has entered since (only where an original reads its own stale locals)
+    virtual uint32_t orig_fp() { return 0; }
+    uint32_t fpAdjust = 0;

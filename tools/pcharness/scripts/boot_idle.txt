@@ -1,0 +1,2 @@
+# menuboot: no input (boot order)
+999999 dik 0x39 0

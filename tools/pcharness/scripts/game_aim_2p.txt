@@ -1,0 +1,12 @@
+# Arcade Mode game with two players: game_aim.txt, then player 2 joins (space at tick 800) and only stands there (run_pc.ps1 -TwoPlayers -InfLives keeps its lives)
+200 dik 0x1C 1
+205 dik 0x1C 0
+300 dik 0xD0 1
+324 dik 0xD0 0
+330 dik 0xCD 1
+363 dik 0xCD 0
+380 dik 0x1C 1
+385 dik 0x1C 0
+650 autoaim 1
+800 dik 0x39 1
+805 dik 0x39 0

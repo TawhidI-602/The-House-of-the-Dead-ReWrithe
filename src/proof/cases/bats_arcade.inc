@@ -1,0 +1,19 @@
+// Cases of runRoutine (the arcade: routine address -> the port), included inside its switch (proof/main.cpp): kinds
+// 66-68, the bats (enemy_bats.cpp).
+    case 0x83330: a.kind66_bat(regs[0]); return true;
+    case 0x83350: a.kind67_bat_swarm(regs[0]); return true;
+    case 0x83370: a.kind68_bat(regs[0]); return true;
+    case 0x83390: a.bat_frame(regs[0]); return true;
+    case 0x83590: a.bat_st1_hanging(regs[0]); return true;
+    case 0x83660: a.bat_st2_take_off(regs[0]); return true;
+    case 0x837C0: a.bat_st3_circle(regs[0]); return true;
+    case 0x83A30: a.bat_st4_dive(regs[0]); return true;
+    case 0x84180: a.bat_st5_shot(regs[0]); return true;
+    case 0x843B0: a.bat_st6_fall(regs[0]); return true;
+    case 0x844A0: a.bat_setup_flying(regs[0]); return true;
+    case 0x846B0: a.bat_setup_flying_low(regs[0]); return true;
+    case 0x84940: a.bat_swarm_frame(regs[0]); return true;
+    case 0x84A80: a.bat_st9_swarm_circle(regs[0]); return true;
+    case 0x84CD0: a.bat_st10_swarm_dive(regs[0]); return true;
+    case 0x84590: a.bat_setup_group5(); return true;
+    case 0x84790: a.bat_setup_hangedman_swarm(); return true;

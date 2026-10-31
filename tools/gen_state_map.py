@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""
+gen_state_map.py - the differential checker's state map (docs/decompilation.md "Differential checker (plan)", step 1).
+
+Builds tools/state_map.tsv from tools/ghidra/types.tsv (typed globals, struct sizes) and tools/ghidra/names.tsv (named
+globals): every global of the game state with its arcade and PC address and size. The arcade recorder
+(tools/mame_state_rec.lua) dumps these ranges every frame; the diff tool (tools/state_diff.py) names the field that
+differs. Objects (tasks) are not in the map: the recorder dumps every task run in the frame whole (its heap block) and
+the diff tool names their fields from the Obj struct in types.tsv.
+
+  py tools/gen_state_map.py            writes tools/state_map.tsv and prints a summary
+
+Columns: name, arcade address, arcade size, PC address, PC size, type, source (types = typed in types.tsv; names =
+named only, size from SIZES below or 4 = guess). '-' = not in that version (or not found yet).
+Only arcade work RAM (0x500000-0x5FFFFF) is recorded; ROM tables and I/O are not state.
+"""
+import os, re
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+TYPES = os.path.join(HERE, "ghidra", "types.tsv")
+NAMES = os.path.join(HERE, "ghidra", "names.tsv")
+OUT = os.path.join(HERE, "state_map.tsv")
+
+BASE = {"char": 1, "byte": 1, "uchar": 1, "bool": 1, "short": 2, "ushort": 2, "int": 4, "uint": 4, "float": 4,
+        "code": 4, "undefined4": 4}
+
+# sizes of named-only globals, read from the code (default 4 = a guess, marked in the source column)
+SIZES = {
+    "chapter": 1, "event_index": 1, "game_settings": 5, "blood_color": 1, "attract_sound": 1, "sky_index": 1,
+    "sky_mode": 1, "gun_shot": 2, "gun_shot_buffered": 2, "name_entry_players": 24, "eeprom_image": 0x58,
+    "name_entry_timer": 2, "name_entry_done": 1, "player_targeted": 8, "camera_pos": 12, "evt_cctb_ring": 64,
+    "rand_state": 4, "frame_counter": 4, "game_mode": 4, "enemy_count": 2,
+}
+# whole-struct entries already covered by a typed global (skip the named sub-fields inside them)
+SKIP_INSIDE = True
+
+
+def parse_types():
+    structs, globals_ = {}, []
+    for line in open(TYPES, encoding="utf-8"):
+        if line.startswith("#") or not line.strip():
+            continue
+        c = line.rstrip("\n").split("\t")
+        if c[0] == "struct":
+            structs[c[1]] = (int(c[2], 16), int(c[3], 16) if c[3] != "-" else None)
+        elif c[0] == "global":
+            globals_.append((c[1], c[2], c[3]))
+    return structs, globals_
+
+
+def type_size(t, structs, pc):
+    m = re.match(r"^(\w+)(\**)(?:\[(\d+)\])?$", t.strip())
+    if not m:
+        return None
+    base, ptr, n = m.group(1), m.group(2), int(m.group(3) or 1)
+    if ptr:
+        s = 4
+    elif base in BASE:
+        s = BASE[base]
+    elif base in structs:
+        s = structs[base][1 if pc else 0]
+        if s is None:
+            return None
+    else:
+        return None
+    return s * n
+
+
+def main():
+    structs, globals_ = parse_types()
+    rows = {}   # arcade addr (or pc key) -> row
+    for pc, ar, t in globals_:
+        a = int(ar, 16) if ar != "-" else None
+        p = int(pc, 16) if pc != "-" else None
+        key = a if a is not None else ("pc", p)
+        rows[key] = {"name": None, "a": a, "as": type_size(t, structs, False) if a is not None else None,
+                     "p": p, "ps": type_size(t, structs, True) if p is not None else None, "type": t, "src": "types"}
+    for line in open(NAMES, encoding="utf-8"):
+        c = line.rstrip("\n").split("\t")
+        if len(c) < 4 or c[0] != "data":
+            continue
+        p = int(c[1], 16) if c[1] != "-" else None
+        a = int(c[2], 16) if c[2] != "-" else None
+        name = c[3]
+        key = a if a is not None else ("pc", p)
+        if key in rows:
+            rows[key]["name"] = name
+            if rows[key]["p"] is None and p is not None:
+                rows[key]["p"] = p
+            continue
+        size = SIZES.get(name)
+        rows[key] = {"name": name, "a": a, "as": size or 4 if a is not None else None, "p": p,
+                     "ps": size or 4 if p is not None else None, "type": "-", "src": "names" if size else "names, size guessed"}
+    out = []
+    for key, r in rows.items():
+        if r["a"] is None or not (0x500000 <= r["a"] < 0x600000):
+            continue   # arcade work RAM only (the PC-only state comes with the PC harness)
+        if r["name"] is None:
+            r["name"] = "g_%x" % r["a"]
+        out.append(r)
+    out.sort(key=lambda r: r["a"])
+    # drop named globals that lie inside a typed array / struct global (the whole range is already recorded)
+    kept = []
+    for r in out:
+        inside = any(o is not r and o["src"] == "types" and o["a"] <= r["a"] and r["a"] + r["as"] <= o["a"] + (o["as"] or 0)
+                     for o in out)
+        if SKIP_INSIDE and inside and r["src"] != "types":
+            continue
+        kept.append(r)
+    with open(OUT, "w", encoding="utf-8", newline="\n") as f:
+        f.write("# generated by tools/gen_state_map.py from tools/ghidra/types.tsv + names.tsv: do not edit\n")
+        f.write("# name\tarcade\tarcade_size\tpc\tpc_size\ttype\tsource\n")
+        for r in kept:
+            f.write("%s\t%x\t%x\t%s\t%s\t%s\t%s\n" % (r["name"], r["a"], r["as"], "%x" % r["p"] if r["p"] is not None else "-",
+                                                   "%x" % r["ps"] if r["ps"] else "-", r["type"], r["src"]))
+    total = sum(r["as"] for r in kept)
+    guessed = sum(1 for r in kept if "guessed" in r["src"])
+    print("state map: %d globals, %d bytes per frame (arcade), %d with a guessed size -> %s" % (len(kept), total, guessed, OUT))
+
+
+if __name__ == "__main__":
+    main()

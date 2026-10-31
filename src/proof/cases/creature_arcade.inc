@@ -1,0 +1,31 @@
+// Cases of runRoutine (the arcade: routine address -> the port), included inside its switch (proof/main.cpp): the
+// creature core (creature.cpp).
+    case 0x38BD0: a.body_init(regs[0], int32_t(regs[1]), regs[2]); return true;
+    case 0x36750: a.part_init(regs[0], regs[1], regs[2]); return true;
+    case 0x36880: a.body_part_alloc(regs[0], regs[1], int32_t(regs[2])); return true;
+    case 0x67CF0: a.creature_type_setup(regs[0]); return true;
+    case 0x67C90: a.creature_part_types_set(regs[0]); return true;
+    case 0x32C70: a.obj_clear_37c(regs[0]); return true;
+    case 0x211F0: a.skin_template_copy(regs[0]); return true;
+    case 0x21800: a.sophie_skin_template_copy(regs[0]); return true;
+    case 0x39180: a.set_motion(regs[0], regs[1]); return true;
+    case 0x391C0: a.set_motion2(regs[0], regs[1]); return true;
+    case 0x381D0: a.set_motion_blend(regs[0], regs[1], int(regs[2]), int(regs[3])); return true;
+    case 0x38490: a.set_motion_at_frame(regs[0], regs[1], int(regs[2]), int(regs[3])); return true;
+    case 0x38750: a.turn_motion_set_speed(regs[0], regs[1], int(regs[2]), int(regs[3]), regs[4]); return true;
+    case 0x388A0: a.set_motion2_at_frame(regs[0], regs[1], int(regs[2]), int(regs[3])); return true;
+    case 0x38A20: a.set_motion_blend_hold(regs[0], regs[1], int(regs[2]), int(regs[3]), int(regs[4])); return true;
+    case 0x39220: a.body_second_motion(regs[0], int(regs[1])); return true;
+    case 0x39330: a.set_motion2_blend(regs[0], int(regs[1])); return true;
+    case 0x37FF0: a.body_pose_copy(regs[0], regs[1], regs[2]); return true;
+    case 0x38060: a.body_pose_set_rec(regs[0], regs[1]); return true;
+    case 0x368F0: a.body_motion2_frame_flags(regs[0]); return true;
+    case 0x369E0: a.body_motion_advance(regs[0]); return true;
+    case 0x36B80: a.body_motion2_advance(regs[0]); return true;
+    case 0x36CA0: a.body_pose(regs[0]); return true;
+    case 0x67DF0: a.object_draw(regs[0]); return true;
+    case 0x67F60: a.object_draw_model(regs[0]); return true;
+    case 0x37720: a.body_draw(regs[0]); return true;
+    case 0x36240: a.part_draw(regs[0]); return true;
+    case 0x9CBD0: a.part_hit_mark(regs[0]); return true;
+    case 0x9EE20: a.body_hook_angle_ease(regs[0]); return true;

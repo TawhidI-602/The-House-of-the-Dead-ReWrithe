@@ -1,0 +1,256 @@
+# Release builds of The House of the Dead: ReWrithe (docs/release/build_release.md "CI").
+# Runs on a version tag (git tag v1.0.0 && git push origin v1.0.0) or by hand (Actions -> release -> Run workflow).
+# Builds Windows x64, Linux x64 (also the SteamOS / Steam Deck build), macOS universal (arm64 + x86_64, unsigned),
+# runs the tests that need no game data (--version, --mods-test, hotd_nettest; --gl-check on Mesa's software driver) and uploads each package as an artifact.
+# NO GAME DATA is used or packaged. Nothing is published: making the GitHub Release from the artifacts stays manual.
+#
+# Third-party sources fetched at build time (pinned; licences in NOTICE.md): SDL3 release-3.2.10 (zlib), stb_vorbis
+# (public domain), dr_mp3 51e61d3 (public domain), Musashi 313ebf1 (MIT; its m68kfpu.c / m68kmmu.h / softfloat are
+# removed: not used, other licences), MAME mame0289 scsp*.cpp / .h (BSD-3-Clause).
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SDL3_TAG: release-3.2.10
+  MUSASHI_COMMIT: 313ebf1bd9f4d0d93341eb5ce21fd8a119e9dbdd
+  DR_LIBS_COMMIT: 51e61d308dde6b437fce0c5fabb32cd86b40f4d7
+  MAME_TAG: mame0289
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch third-party sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p deps && cd deps
+          git clone -q https://github.com/kstenerud/Musashi musashi
+          git -C musashi checkout -q "$MUSASHI_COMMIT"
+          rm -rf musashi/m68kfpu.c musashi/m68kmmu.h musashi/softfloat musashi/.git
+          git clone -q https://github.com/mackron/dr_libs dr_libs
+          git -C dr_libs checkout -q "$DR_LIBS_COMMIT"
+          git clone -q --depth 1 https://github.com/nothings/stb stb
+          mkdir -p mame_scsp
+          for f in scsp.cpp scsp.h scspdsp.cpp scspdsp.h; do
+            curl -fsSL -o "mame_scsp/$f" "https://raw.githubusercontent.com/mamedev/mame/$MAME_TAG/src/devices/sound/$f"
+          done
+      # angle (docs/renderer_backends.md): ANGLE built by vcpkg's "angle" port from Google's sources (BSD): the DirectX
+      # renderer's libEGL.dll / libGLESv2.dll / z.dll. Optional: without it the package is OpenGL only (a warning)
+      - name: ANGLE (vcpkg)
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$VCPKG_INSTALLATION_ROOT/vcpkg.exe" install angle:x64-windows --disable-metrics
+          mkdir -p deps/angle
+          for f in libEGL.dll libGLESv2.dll z.dll; do cp "$VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/$f" deps/angle/; done
+      - name: Configure
+        shell: bash
+        run: >
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DHOTD_ANGLE_DIR="$PWD/deps/angle"
+          -DHOTD_LOCAL_ICON=OFF -DHOTD_FETCH_SDL3=ON -DHOTD_SDL3_TAG=$SDL3_TAG
+          -DHOTD_STB_DIR="$PWD/deps/stb" -DHOTD_DR_LIBS_DIR="$PWD/deps/dr_libs"
+          -DHOTD_ARCADE_SOUND=ON -DHOTD_MUSASHI_DIR="$PWD/deps/musashi" -DHOTD_SCSP_DIR="$PWD/deps/mame_scsp"
+      - name: Build
+        run: cmake --build build --config Release --parallel --target hotd hotd_viewer hotd_nettest
+      - name: Tests (no game data)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HOTD_PREF_DIR="$RUNNER_TEMP/pref"
+          build/Release/hotd.exe --version | tee version.txt
+          grep -q "v${GITHUB_REF_NAME#v}" version.txt || [ "$GITHUB_REF_TYPE" != tag ]
+          build/Release/hotd.exe --mods-test
+          build/Release/hotd_nettest.exe
+      - name: Graphics test on Mesa's software driver (no game data)
+        # compat (2026-10-29): mesa-dist-win's llvmpipe (strict OpenGL, no GPU on the runner) next to a copy of hotd.exe:
+        # --gl-check compiles every start-up shader, draws the CRT filter and fails on any GL error / debug message
+        shell: bash
+        env:
+          MESA_DIST_WIN: "26.2.4"
+          GALLIUM_DRIVER: llvmpipe
+        run: |
+          set -euo pipefail
+          export HOTD_PREF_DIR="$RUNNER_TEMP/pref_mesa"
+          curl -fsSL -o "$RUNNER_TEMP/mesa.7z" "https://github.com/pal1000/mesa-dist-win/releases/download/$MESA_DIST_WIN/mesa3d-$MESA_DIST_WIN-release-msvc.7z"
+          7z x -y -o"$RUNNER_TEMP/mesa" "$RUNNER_TEMP/mesa.7z" "x64/opengl32.dll" "x64/libgallium_wgl.dll" "x64/dxil.dll" > /dev/null
+          mkdir -p "$RUNNER_TEMP/mesa_run"
+          cp build/Release/hotd.exe build/Release/SDL3.dll "$RUNNER_TEMP"/mesa/x64/*.dll "$RUNNER_TEMP/mesa_run/"
+          "$RUNNER_TEMP/mesa_run/hotd.exe" --version
+          "$RUNNER_TEMP/mesa_run/hotd.exe" --gl-check | tee gl-check.txt
+          grep -q "llvmpipe" gl-check.txt
+          MESA_GL_VERSION_OVERRIDE=3.3 MESA_GLSL_VERSION_OVERRIDE=330 "$RUNNER_TEMP/mesa_run/hotd.exe" --gl-check
+      - name: Package
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:GITHUB_WORKSPACE "pkg\HOTD ReWrithe"
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools\make_portable_hotd.ps1 -Build build -Out $out -NoBuild
+          if ($LASTEXITCODE -ne 0) { throw "packaging failed" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: |
+            pkg/*.zip
+            pkg/SHA256SUMS.txt
+          if-no-files-found: error
+
+  linux:
+    name: Linux x64 / SteamOS
+    runs-on: ubuntu-latest
+    # Valve's Steam Runtime 3 "sniper" SDK (Debian 11, glibc 2.31): the binary then runs on SteamOS 3 and older desktop
+    # distributions too (docs/porting.md "SteamOS package")
+    container: registry.gitlab.steamos.cloud/steamrt/sniper/sdk:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch third-party sources
+        run: |
+          set -euo pipefail
+          mkdir -p deps && cd deps
+          git clone -q https://github.com/kstenerud/Musashi musashi
+          git -C musashi checkout -q "$MUSASHI_COMMIT"
+          rm -rf musashi/m68kfpu.c musashi/m68kmmu.h musashi/softfloat musashi/.git
+          git clone -q https://github.com/mackron/dr_libs dr_libs
+          git -C dr_libs checkout -q "$DR_LIBS_COMMIT"
+          git clone -q --depth 1 https://github.com/nothings/stb stb
+          mkdir -p mame_scsp
+          for f in scsp.cpp scsp.h scspdsp.cpp scspdsp.h; do
+            curl -fsSL -o "mame_scsp/$f" "https://raw.githubusercontent.com/mamedev/mame/$MAME_TAG/src/devices/sound/$f"
+          done
+      - name: Configure
+        # sniper's default GCC 10 lacks parts of C++20: use its newer GCC (gcc-12; change if the SDK ships another)
+        run: >
+          cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=gcc-12 -DCMAKE_CXX_COMPILER=g++-12
+          -DHOTD_FETCH_SDL3=ON -DHOTD_SDL3_TAG=$SDL3_TAG
+          -DHOTD_STB_DIR="$PWD/deps/stb" -DHOTD_DR_LIBS_DIR="$PWD/deps/dr_libs"
+          -DHOTD_ARCADE_SOUND=ON -DHOTD_MUSASHI_DIR="$PWD/deps/musashi" -DHOTD_SCSP_DIR="$PWD/deps/mame_scsp"
+      - name: Build
+        run: cmake --build build-linux --parallel --target hotd hotd_viewer hotd_nettest
+      - name: Tests (no game data)
+        run: |
+          set -euo pipefail
+          export HOTD_PREF_DIR="$RUNNER_TEMP/pref"
+          ./build-linux/hotd --version
+          ./build-linux/hotd --mods-test
+          ./build-linux/hotd_nettest
+      - name: Graphics test on Mesa's software driver (no game data)
+        # compat (2026-10-29): the distribution's Mesa llvmpipe under a virtual X display. continue-on-error: the
+        # container's package mirror is outside this project (a failed install must not stop a release); a real
+        # --gl-check failure shows as this step's red mark in the run
+        continue-on-error: true
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          GALLIUM_DRIVER: llvmpipe
+        run: |
+          set -euo pipefail
+          export HOTD_PREF_DIR="$RUNNER_TEMP/pref_mesa"
+          apt-get update -qq && apt-get install -y -qq xvfb xauth libgl1-mesa-dri > /dev/null
+          xvfb-run -a -s "-screen 0 1280x720x24" ./build-linux/hotd --gl-check | tee gl-check.txt
+          grep -q "llvmpipe" gl-check.txt
+      - name: Package
+        run: |
+          set -euo pipefail
+          tools/make_linux_package.sh -b build-linux -o "$GITHUB_WORKSPACE/pkg/HOTD ReWrithe Linux" --no-build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64
+          path: |
+            pkg/*.tar.gz
+            pkg/SHA256SUMS-linux.txt
+          if-no-files-found: error
+
+  macos:
+    name: macOS universal
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch third-party sources
+        run: |
+          set -euo pipefail
+          mkdir -p deps && cd deps
+          git clone -q https://github.com/kstenerud/Musashi musashi
+          git -C musashi checkout -q "$MUSASHI_COMMIT"
+          rm -rf musashi/m68kfpu.c musashi/m68kmmu.h musashi/softfloat musashi/.git
+          git clone -q https://github.com/mackron/dr_libs dr_libs
+          git -C dr_libs checkout -q "$DR_LIBS_COMMIT"
+          git clone -q --depth 1 https://github.com/nothings/stb stb
+          mkdir -p mame_scsp
+          for f in scsp.cpp scsp.h scspdsp.cpp scspdsp.h; do
+            curl -fsSL -o "mame_scsp/$f" "https://raw.githubusercontent.com/mamedev/mame/$MAME_TAG/src/devices/sound/$f"
+          done
+      - name: Configure
+        run: >
+          cmake -S . -B build-mac -G Ninja -DCMAKE_BUILD_TYPE=Release
+          "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          -DHOTD_FETCH_SDL3=ON -DHOTD_SDL3_TAG=$SDL3_TAG
+          -DHOTD_STB_DIR="$PWD/deps/stb" -DHOTD_DR_LIBS_DIR="$PWD/deps/dr_libs"
+          -DHOTD_ARCADE_SOUND=ON -DHOTD_MUSASHI_DIR="$PWD/deps/musashi" -DHOTD_SCSP_DIR="$PWD/deps/mame_scsp"
+      - name: Build
+        run: cmake --build build-mac --parallel --target hotd hotd_viewer hotd_nettest
+      - name: Tests (no game data)
+        run: |
+          set -euo pipefail
+          export HOTD_PREF_DIR="$RUNNER_TEMP/pref"
+          ./build-mac/hotd --version
+          ./build-mac/hotd --mods-test
+          ./build-mac/hotd_nettest
+          lipo -archs build-mac/hotd | grep -q "x86_64 arm64\|arm64 x86_64"
+      - name: Package (folder + a small unsigned .app that starts bin/hotd)
+        run: |
+          set -euo pipefail
+          ver="$(sed -n 's/^CMAKE_PROJECT_VERSION:STATIC=//p' build-mac/CMakeCache.txt)"
+          root="$GITHUB_WORKSPACE/pkg"; out="$root/HOTD ReWrithe macOS"
+          mkdir -p "$out/bin"
+          cp build-mac/hotd build-mac/hotd_viewer "$out/bin/"
+          sdl="$(find build-mac/_deps -name 'libSDL3.0.dylib' | head -1)"
+          cp -L "$sdl" "$out/bin/libSDL3.0.dylib"
+          echo "The House of the Dead: ReWrithe, portable package (no game data)." > "$out/hotd_package.txt"
+          for d in ui fonts lang mods; do mkdir -p "$out/data/$d"; cp -R "data/$d/." "$out/data/$d/"; done
+          mkdir -p "$out/data/arcade" "$out/data/pc" "$out/data/music"
+          echo "Put your own arcade ROM zip here (MAME's 'hotd' set, Revision A)." > "$out/data/arcade/put the arcade ROM zip here.txt"
+          echo "Put your own 1998 PC game here (its installed folder's contents, or a .zip of it)." > "$out/data/pc/put the PC game here.txt"
+          echo "Optional: the PC CD's music, Track02.ogg ... Track12.ogg (or .mp3)." > "$out/data/music/put the music here.txt"
+          cp LICENSE "$out/LICENSE.txt"; cp NOTICE.md "$out/NOTICE.txt"; cp docs/release/CREDITS.txt "$out/CREDITS.txt"; cp docs/online_howto.md "$out/ONLINE HOWTO.txt"
+          cp README.md "$out/README.md"
+          printf '#!/bin/sh\ncd "$(dirname "$0")" || exit 1\nexec ./bin/hotd "$@"\n' > "$out/hotd.command"
+          app="$out/HOTD ReWrithe.app"; mkdir -p "$app/Contents/MacOS"
+          printf '#!/bin/sh\n# starts bin/hotd of the folder this .app sits in\ncd "$(dirname "$0")/../../.." || exit 1\nexec ./bin/hotd "$@"\n' > "$app/Contents/MacOS/hotd-launcher"
+          chmod +x "$out/hotd.command" "$app/Contents/MacOS/hotd-launcher" "$out/bin/hotd" "$out/bin/hotd_viewer"
+          cat > "$app/Contents/Info.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleExecutable</key><string>hotd-launcher</string>
+            <key>CFBundleIdentifier</key><string>io.github.hotd-rewrithe.launcher</string>
+            <key>CFBundleName</key><string>HOTD ReWrithe</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>${ver}</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          EOF
+          # ad-hoc signatures (not a Developer ID: Gatekeeper still asks; README / release notes say how to open it)
+          codesign --force -s - "$out/bin/libSDL3.0.dylib" "$out/bin/hotd" "$out/bin/hotd_viewer"
+          codesign --force -s - "$app"
+          # no game data
+          ! find "$out" -type f \( -iname '*.zip' -o -iname '*.ogg' -o -iname '*.mp3' -o -iname '*.wav' -o -iname '*.rbh' -o -iname '*.bin' -o -iname 'thotd.exe' \) | grep -q .
+          (cd "$root" && ditto -c -k --keepParent "HOTD ReWrithe macOS" "hotd-rewrithe-v${ver}-macos-universal.zip" \
+            && shasum -a 256 "hotd-rewrithe-v${ver}-macos-universal.zip" > SHA256SUMS-macos.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal
+          path: |
+            pkg/*.zip
+            pkg/SHA256SUMS-macos.txt
+          if-no-files-found: error

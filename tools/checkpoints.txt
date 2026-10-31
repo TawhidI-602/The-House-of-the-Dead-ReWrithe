@@ -1,0 +1,111 @@
+# Chapter 1 playability checkpoints (tools\checkpoints.ps1, hotd --checkpoints). Lines:
+#   run <name> <hotd options...>   starts a run: the checkpoints below it are shot in one hotd window per model source
+#   <name> event <E> <F>           F frames after event E began
+#   <name> clear <F>               F frames after the chapter-clear results began
+#   <name> mode <M> <S> <F>        F frames after game mode M sub-mode S first began (4 4 = the CONTINUE countdown,
+#                                  5 1 = the game over scene, 5 3 = the route map, 5 5 = GAME OVER)
+# tools\checkpoint_sheet.py finds the MAME reference of the same place in the script (fullgame_us: route 0 1 3 4 5 6
+# 19 = --default-route; inflives1: events 9 / 11; life_scan: CONTINUE / game over) and the real PC harness capture
+# (private\screenshots\pc_look\fw2, the opening only).
+
+# the default route, as the MAME fullgame_us replay played it (events 0 1 3 4 5 6 19)
+run main --autofire --lives-kept 1 --default-route
+c01_title_card      event 0 90
+c02_opening_car     event 0 300
+c03_scientist_bite  event 0 765
+c04_event1_hall     event 1 300
+c05_courtyard_gate  event 3 300
+c06_shoot_three     event 4 150
+c07_chandelier      event 4 400
+c08_event5          event 5 300
+c09_event6          event 6 300
+c10_chariot_intro   event 19 600
+c11_chariot_fight   event 19 1500
+c12_results         clear 120
+# polish2: more of each event (its busy middle), the opening's courtyard (feet), the zombie close-up (eyes), the boss
+c19_courtyard_feet  event 0 1606
+c20_zombie_face     event 1 248
+c21_event3_middle   event 3 1000
+c22_event3_late     event 3 1700
+c23_event4_middle   event 4 1000
+c24_event4_doors    event 4 1450
+c25_event5_middle   event 5 900
+c26_event6_a        event 6 1200
+c27_event6_b        event 6 2500
+c28_event6_c        event 6 3800
+c29_chariot_b       event 19 2400
+c30_chariot_c       event 19 3300
+
+# a branch route: 0 2 3 9 10 14 19
+run branch --autofire --lives-kept 1 --default-route --route 1:0,1:3
+c13_branch_event2   event 2 300
+c14_branch_event9   event 9 300
+
+# a bot that loses its lives: CONTINUE, the game over scene, the route map, GAME OVER
+run die --bot 3 --bot-gameovers 1
+# c15 at +15: the bot continues 20-1100 frames into the countdown (game/bot.cpp); at +120 it had already continued
+# (polish3_base: frame 5956 showed play again)
+c15_continue        mode 4 4 15
+c16_gameover_scene  mode 5 1 60
+c17_route_map       mode 5 3 120
+c18_game_over       mode 5 5 60
+
+# ---- the whole game (2026-10-19): Chapters 2-4 and the ending, each its own run from --chapter N on the default route.
+# Names are <chapter>_NN_<what>; checkpoint_sheet.py makes one section per run. Event numbers = the events of the default
+# route as played headless: Chapter 2 0 1 2 3 4 5 7 8 9 15 (15 = the Hangedman), Chapter 3 0 1 3 6 7 (7 = the Hermit),
+# Chapter 4 0 1 2 4 (0 = the Chariot rematch, 4 = the Magician), the ending 0 3 4 (the end screen after it is not shot: the run ends there).
+run ch2 --chapter 2 --autofire --lives-kept 1 --default-route
+ch2_01_title_card   event 0 90
+ch2_02_opening      event 0 700
+ch2_03_event1       event 1 300
+ch2_04_event2       event 2 300
+ch2_05_event2_late  event 2 1500
+ch2_06_event3       event 3 600
+ch2_07_event4       event 4 600
+ch2_08_event5       event 5 300
+ch2_09_event7       event 7 300
+ch2_10_event9       event 9 300
+ch2_11_hanged_intro event 15 300
+ch2_12_hanged_fight event 15 1800
+ch2_13_hanged_late  event 15 3600
+ch2_14_hanged_end   event 15 5200
+ch2_15_results      clear 120
+
+run ch3 --chapter 3 --autofire --lives-kept 1 --default-route
+ch3_01_title_card   event 0 90
+ch3_02_opening      event 0 2500
+ch3_03_opening_late event 0 5000
+ch3_04_event1       event 1 300
+ch3_05_event1_late  event 1 3500
+ch3_06_event3       event 3 300
+ch3_07_event3_mid   event 3 4500
+ch3_08_event3_late  event 3 8000
+ch3_09_event6       event 6 300
+ch3_10_hermit_intro event 7 300
+ch3_11_hermit_fight event 7 1800
+ch3_12_hermit_late  event 7 3300
+ch3_13_results      clear 120
+
+run ch4 --chapter 4 --autofire --lives-kept 1 --default-route
+ch4_01_title_card   event 0 90
+ch4_02_chariot      event 0 900
+ch4_03_chariot_late event 0 3000
+ch4_04_event1       event 1 300
+ch4_05_event2       event 2 300
+ch4_06_event2_mid   event 2 4000
+ch4_07_event2_late  event 2 8000
+ch4_08_magician_in  event 4 300
+ch4_09_magician_a   event 4 4000
+ch4_10_magician_b   event 4 9000
+ch4_11_magician_c   event 4 14000
+ch4_12_magician_d   event 4 19000
+
+run ending --chapter 4 --ending --autofire --lives-kept 1 --default-route
+end_01_rogan        event 0 90
+end_02_rogan_late   event 0 1000
+end_03_roll_start   event 3 200
+end_04_roll_a       event 3 1200
+end_05_roll_b       event 3 2500
+end_06_roll_c       event 3 3800
+end_07_final_room   event 4 100
+end_08_final_late   event 4 500

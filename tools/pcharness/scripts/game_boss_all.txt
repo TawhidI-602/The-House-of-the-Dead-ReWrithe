@@ -1,0 +1,14 @@
+# Boss Mode (pccap): menu item 3 (Boss Mode, screen 7) -> the centre picture (All Bosses), then auto-aim
+200 dik 0x1C 1
+205 dik 0x1C 0
+300 dik 0xD0 1
+324 dik 0xD0 0
+330 dik 0xCD 1
+363 dik 0xCD 0
+370 dik 0xD0 1
+380 dik 0xD0 0
+400 dik 0x1C 1
+405 dik 0x1C 0
+500 dik 0x1C 1
+505 dik 0x1C 0
+800 autoaim 1

@@ -1,0 +1,16 @@
+# Never commit or share anything in private/ (arcade dump, exports, PC game files)
+/private/
+
+# Build output
+/build/
+/out/
+CMakeUserPresets.json
+
+# Python
+__pycache__/
+
+# IDEs
+/.vs/
+/.vscode/
+*.user
+/build-*/

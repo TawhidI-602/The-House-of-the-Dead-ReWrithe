@@ -1,0 +1,9 @@
+# menuart: attract -> main menu (Enter), the cursor onto "Options" (down 35 polls, right 33), Enter: the Options screen
+200 dik 0x1C 1
+205 dik 0x1C 0
+300 dik 0xD0 1
+335 dik 0xD0 0
+340 dik 0xCD 1
+373 dik 0xCD 0
+380 dik 0x1C 1
+385 dik 0x1C 0

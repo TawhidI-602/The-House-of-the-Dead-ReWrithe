@@ -1,0 +1,426 @@
+cmake_minimum_required(VERSION 3.21)
+
+# THE version (a release: change this line only): the exes' VERSIONINFO, the main menu's corner, hotd --version
+project(hotd_m2 VERSION 1.0.0 LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# SDL3: by default use an installed copy (set CMAKE_PREFIX_PATH or SDL3_DIR to it).
+# HOTD_FETCH_SDL3=ON downloads and builds SDL3 from GitHub instead.
+option(HOTD_FETCH_SDL3 "Download and build SDL3 with FetchContent" OFF)
+set(HOTD_SDL3_TAG "release-3.2.10" CACHE STRING "SDL3 git tag used when HOTD_FETCH_SDL3 is ON")
+
+if(HOTD_FETCH_SDL3)
+    include(FetchContent)
+    set(SDL_SHARED ON CACHE BOOL "" FORCE)
+    set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+    set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(SDL3
+        GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+        GIT_TAG ${HOTD_SDL3_TAG}
+        GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(SDL3)
+else()
+    find_package(SDL3 REQUIRED CONFIG COMPONENTS SDL3-shared)
+endif()
+
+add_executable(hotd
+    src/main.cpp
+    src/util/crash_log.cpp
+    src/game/host.cpp
+    src/game/boot.cpp
+    src/game/attract.cpp
+    src/game/name_entry.cpp
+    src/game/runtime.cpp
+    src/game/chapter.cpp
+    src/game/diff_replay.cpp
+    src/game/stand_ins.cpp
+    src/game/creature.cpp
+    src/game/enemy_support.cpp
+    src/game/t1_bounds.cpp
+    src/game/palette.cpp
+    src/game/palette_anim.cpp
+    src/game/view.cpp
+    src/game/audio.cpp
+    src/game/flow.cpp
+    src/game/hud.cpp
+    src/game/players.cpp
+    src/game/clear.cpp
+    src/game/ending.cpp
+    src/game/sprites.cpp
+    src/game/files_check.cpp
+    src/game/launcher.cpp
+    src/game/frontend.cpp
+    src/game/gallery_remake.cpp
+    src/game/gallery_re.cpp
+    src/game/frontend_pcmode.cpp
+    src/game/frontend_jukebox.cpp
+    src/game/frontend_remake.cpp
+    src/game/frontend_range.cpp
+    src/game/frontend_remake_pages.cpp
+    src/game/jukebox.cpp
+    src/game/jukebox_measure.cpp
+    src/game/pcmode_scores.cpp
+    src/game/bossmode.cpp
+    src/game/menu_pages.cpp
+    src/game/ragdoll.cpp
+    src/game/pause.cpp
+    src/game/pads.cpp
+    src/game/lightguns.cpp
+    src/game/pads_test.cpp
+    src/game/keybinds.cpp
+    src/game/pad_prompts.cpp
+    src/game/menu_cursor.cpp
+    src/game/keybinds_test.cpp
+    src/game/bot.cpp
+    src/game/scene_view.cpp
+    src/net/net_game.cpp
+    src/net/online_menu.cpp
+    src/net/rollback.cpp)
+
+# Netplay (docs/netplay.md): UDP + Monocypher 4.0.3 (src/third_party/monocypher, CC0 / BSD-2-Clause) on every system,
+# so every PC speaks the same protocol (cross-play); random bytes from the OS
+add_library(hotd_net STATIC src/net/socket.cpp src/net/session.cpp src/net/lobby.cpp src/net/upnp.cpp src/net/crypto.cpp
+            src/third_party/monocypher/monocypher.c)
+target_include_directories(hotd_net PUBLIC src)
+if(WIN32)
+    target_link_libraries(hotd_net PUBLIC ws2_32 bcrypt iphlpapi)
+endif()
+target_link_libraries(hotd PRIVATE hotd_net)
+# the netplay tests without the game: crypto, the handshake, replay / tamper rejection, a parser fuzz (127.0.0.1 only)
+add_executable(hotd_nettest src/net/nettest.cpp)
+target_link_libraries(hotd_nettest PRIVATE hotd_net)
+if(MSVC)   # (its main holds many Sessions on the stack: 8 MB, not Windows' 1 MB default)
+    target_link_options(hotd_nettest PRIVATE /STACK:8388608)
+endif()
+# shake to reload (src/game/shake.h) against synthetic sensor traces, offline (relpad)
+add_executable(hotd_shaketest src/game/shake_test.cpp)
+target_include_directories(hotd_shaketest PRIVATE src)
+
+# OGG music (Music\TrackNN.ogg) needs stb_vorbis: HOTD_STB_DIR = a folder with stb_vorbis.c, or HOTD_FETCH_STB=ON to
+# download nothings/stb from GitHub. Without it the game builds and runs without music (the cues are logged).
+option(HOTD_FETCH_STB "Download stb (stb_vorbis, OGG music) with FetchContent" OFF)
+set(HOTD_STB_DIR "" CACHE PATH "Folder with stb_vorbis.c (OGG music)")
+if(HOTD_FETCH_STB AND NOT HOTD_STB_DIR)
+    include(FetchContent)
+    FetchContent_Declare(stb GIT_REPOSITORY https://github.com/nothings/stb.git GIT_TAG master GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(stb)
+    set(HOTD_STB_DIR ${stb_SOURCE_DIR})
+endif()
+if(HOTD_STB_DIR AND EXISTS ${HOTD_STB_DIR}/stb_vorbis.c)
+    add_library(hotd_vorbis STATIC src/game/vorbis.c)
+    target_include_directories(hotd_vorbis PUBLIC ${HOTD_STB_DIR})
+    target_compile_definitions(hotd_vorbis PUBLIC HOTD_HAVE_STB_VORBIS)
+    if(MSVC)
+        target_compile_options(hotd_vorbis PRIVATE /w)
+    endif()
+    target_link_libraries(hotd PRIVATE hotd_vorbis)
+    message(STATUS "OGG music: stb_vorbis from ${HOTD_STB_DIR}")
+else()
+    message(STATUS "OGG music: off (set HOTD_STB_DIR or HOTD_FETCH_STB=ON)")
+endif()
+
+# MP3 music (the player's own CD rips as .mp3) needs dr_mp3: HOTD_DR_LIBS_DIR = a folder with dr_mp3.h (mackron/dr_libs,
+# a pinned commit; private\deps\dr_libs\COMMIT.txt). Without it only .ogg tracks play.
+set(HOTD_DR_LIBS_DIR "" CACHE PATH "Folder with dr_mp3.h (MP3 music)")
+if(NOT HOTD_DR_LIBS_DIR AND EXISTS ${CMAKE_SOURCE_DIR}/private/deps/dr_libs/dr_mp3.h)
+    set(HOTD_DR_LIBS_DIR ${CMAKE_SOURCE_DIR}/private/deps/dr_libs CACHE PATH "Folder with dr_mp3.h (MP3 music)" FORCE)
+endif()
+if(HOTD_DR_LIBS_DIR AND EXISTS ${HOTD_DR_LIBS_DIR}/dr_mp3.h)
+    add_library(hotd_mp3 STATIC src/game/mp3.c)
+    target_include_directories(hotd_mp3 PUBLIC ${HOTD_DR_LIBS_DIR})
+    target_compile_definitions(hotd_mp3 PUBLIC HOTD_HAVE_DR_MP3)
+    if(MSVC)
+        target_compile_options(hotd_mp3 PRIVATE /w)
+    endif()
+    target_link_libraries(hotd PRIVATE hotd_mp3)
+    message(STATUS "MP3 music: dr_mp3 from ${HOTD_DR_LIBS_DIR}")
+else()
+    message(STATUS "MP3 music: off (set HOTD_DR_LIBS_DIR)")
+endif()
+
+# The arcade sound board (68000 + SCSP, src/audio/sound_board.*, docs/teaser_status/sound_board.md): Musashi (MIT-style,
+# HOTD_MUSASHI_DIR) and MAME's SCSP (BSD-3-Clause, HOTD_SCSP_DIR), both supplied at build time (not committed).
+set(HOTD_MUSASHI_DIR "" CACHE PATH "Folder with Musashi's m68kcpu.c / m68kmake.c / m68k_in.c (arcade sound)")
+set(HOTD_SCSP_DIR "" CACHE PATH "Folder with MAME's scsp.cpp / scspdsp.cpp (arcade sound)")
+if(NOT HOTD_MUSASHI_DIR AND EXISTS ${CMAKE_SOURCE_DIR}/private/deps/musashi/m68kcpu.c)
+    set(HOTD_MUSASHI_DIR ${CMAKE_SOURCE_DIR}/private/deps/musashi CACHE PATH "Musashi folder (arcade sound)" FORCE)
+endif()
+if(NOT HOTD_SCSP_DIR AND EXISTS ${CMAKE_SOURCE_DIR}/private/deps/mame_scsp/scsp.cpp)
+    set(HOTD_SCSP_DIR ${CMAKE_SOURCE_DIR}/private/deps/mame_scsp CACHE PATH "MAME SCSP folder (arcade sound)" FORCE)
+endif()
+set(HOTD_ARCADE_SOUND_DEFAULT OFF)
+if(HOTD_MUSASHI_DIR AND EXISTS ${HOTD_MUSASHI_DIR}/m68kmake.c AND HOTD_SCSP_DIR AND EXISTS ${HOTD_SCSP_DIR}/scsp.cpp)
+    set(HOTD_ARCADE_SOUND_DEFAULT ON)
+endif()
+option(HOTD_ARCADE_SOUND "Build the arcade sound board (needs HOTD_MUSASHI_DIR and HOTD_SCSP_DIR)" ${HOTD_ARCADE_SOUND_DEFAULT})
+if(HOTD_ARCADE_SOUND AND NOT HOTD_ARCADE_SOUND_DEFAULT)
+    message(WARNING "HOTD_ARCADE_SOUND: Musashi or the SCSP sources not found; arcade sound off")
+    set(HOTD_ARCADE_SOUND OFF)
+endif()
+if(HOTD_ARCADE_SOUND)
+    # m68kmake generates m68kops.c / m68kops.h from m68k_in.c
+    add_executable(hotd_m68kmake ${HOTD_MUSASHI_DIR}/m68kmake.c)
+    if(MSVC)
+        target_compile_options(hotd_m68kmake PRIVATE /w /Od)   # its Release (/O2) build drops opcode-mask bit 14
+        target_compile_definitions(hotd_m68kmake PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
+    set(HOTD_M68K_GEN ${CMAKE_CURRENT_BINARY_DIR}/m68kgen)
+    file(MAKE_DIRECTORY ${HOTD_M68K_GEN})
+    add_custom_command(OUTPUT ${HOTD_M68K_GEN}/m68kops.c ${HOTD_M68K_GEN}/m68kops.h
+        COMMAND hotd_m68kmake ${HOTD_M68K_GEN} ${HOTD_MUSASHI_DIR}/m68k_in.c
+        DEPENDS hotd_m68kmake ${HOTD_MUSASHI_DIR}/m68k_in.c
+        COMMENT "Musashi: m68kmake (m68kops.c / m68kops.h)")
+    add_library(hotd_arcade_sound STATIC
+        ${HOTD_MUSASHI_DIR}/m68kcpu.c
+        ${HOTD_M68K_GEN}/m68kops.c
+        ${HOTD_SCSP_DIR}/scsp.cpp
+        ${HOTD_SCSP_DIR}/scspdsp.cpp
+        src/audio/sound_board.cpp)
+    # order matters: Musashi first, then our stand-ins (m68kfpu.c / m68kmmu.h / softfloat), then the SCSP and our MAME
+    # framework stand-in (src/audio/mame_shim: emu.h, dirom.h, diserial.h)
+    target_include_directories(hotd_arcade_sound PRIVATE
+        ${HOTD_MUSASHI_DIR} ${HOTD_M68K_GEN} ${CMAKE_SOURCE_DIR}/src/third_party/musashi_shims
+        ${HOTD_SCSP_DIR} ${CMAKE_SOURCE_DIR}/src/audio/mame_shim)
+    target_include_directories(hotd_arcade_sound PUBLIC ${CMAKE_SOURCE_DIR}/src)
+    target_compile_definitions(hotd_arcade_sound PUBLIC HOTD_HAVE_ARCADE_SOUND)
+    # the interrupt acknowledge callback (sound_board.cpp: the SCSP's HOLD_LINE interrupts end when the 68000 takes them)
+    target_compile_definitions(hotd_arcade_sound PRIVATE M68K_EMULATE_INT_ACK=M68K_OPT_ON)
+    if(MSVC)
+        set_source_files_properties(${HOTD_MUSASHI_DIR}/m68kcpu.c ${HOTD_M68K_GEN}/m68kops.c
+            ${HOTD_SCSP_DIR}/scsp.cpp ${HOTD_SCSP_DIR}/scspdsp.cpp PROPERTIES COMPILE_OPTIONS "/w")
+        target_compile_definitions(hotd_arcade_sound PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
+    target_link_libraries(hotd PRIVATE hotd_arcade_sound)
+    message(STATUS "Arcade sound: Musashi from ${HOTD_MUSASHI_DIR}, SCSP from ${HOTD_SCSP_DIR}")
+else()
+    message(STATUS "Arcade sound: off (set HOTD_MUSASHI_DIR and HOTD_SCSP_DIR)")
+endif()
+
+
+# Asset interface, loaders and renderer (shared by the game and the tools).
+add_library(hotd_engine STATIC
+    src/assets/assets.cpp
+    src/assets/archive.cpp
+    src/assets/pc_files.cpp
+    src/assets/camera_paths.cpp
+    src/assets/arcade_anim.cpp
+    src/assets/arcade_categories.cpp
+    src/assets/creature_pose.cpp
+    src/game/gallery.cpp
+    src/game/pm_portraits.cpp
+    src/game/gallery_cut.cpp
+    src/assets/arcade_loader.cpp
+    src/assets/arcade_palette_fx.cpp
+    src/assets/pc_loader.cpp
+    src/assets/sprites_arcade.cpp
+    src/assets/sprites_pc.cpp
+    src/game/event_script.cpp
+    src/render/gl.cpp
+    src/render/gl_backend.cpp
+    src/render/renderer.cpp
+    src/render/overlay.cpp
+    src/render/ttf.cpp
+    src/render/bidi.cpp
+    src/game/lang.cpp
+    src/render/crt.cpp
+    src/util/png.cpp
+    src/util/png_read.cpp
+    src/util/recolour.cpp
+    src/assets/mods.cpp
+    src/game/sights.cpp
+    src/game/sight_art.cpp
+    src/game/preview_art.cpp
+    src/util/pe_icon.cpp
+    src/util/window_icon.cpp
+    src/util/win_shell.cpp
+    src/util/update_check.cpp
+    src/util/game_exe.cpp
+    src/util/steam_shortcut.cpp
+    src/util/resolution.cpp)
+target_include_directories(hotd_engine PUBLIC src)
+target_link_libraries(hotd_engine PUBLIC SDL3::SDL3)
+if(MSVC)
+    target_compile_definitions(hotd_engine PUBLIC _CRT_SECURE_NO_WARNINGS)
+endif()
+
+# Free-camera viewer for the chapter worlds (PC / arcade sources).
+if(WIN32)   # the package's game exe stub (util/game_exe.h): no DLLs (static runtime)
+    add_executable(hotd_launch WIN32 src/launch/launch_main.cpp)
+    set_property(TARGET hotd_launch PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
+    add_dependencies(hotd hotd_launch)
+endif()
+add_executable(hotd_viewer src/viewer/main.cpp src/game/files_check.cpp)   # files_check: a package's ROM zip -> regions
+target_link_libraries(hotd_viewer PRIVATE hotd_engine)
+
+# Ported game logic (one routine per original function), no SDL: proven by hotd_proof against recorded runs.
+add_library(hotd_logic STATIC
+    src/port/game.cpp
+    src/port/tgp.cpp)
+target_include_directories(hotd_logic PUBLIC src)
+
+# The game: the runtime host runs the ported logic (docs/teaser_plan.md R1). Its logging overrides of the port's
+# boundaries are generated from src/port/decl/*.h (tools/gen_runtime_bounds.py).
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+file(GLOB HOTD_PORT_DECLS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/port/decl/*.h)
+set(HOTD_RUNTIME_BOUNDS ${CMAKE_CURRENT_BINARY_DIR}/generated/runtime_bounds.inc)
+add_custom_command(OUTPUT ${HOTD_RUNTIME_BOUNDS}
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_runtime_bounds.py ${HOTD_RUNTIME_BOUNDS}
+    DEPENDS ${HOTD_PORT_DECLS} ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_runtime_bounds.py
+    VERBATIM)
+target_sources(hotd PRIVATE ${HOTD_RUNTIME_BOUNDS})
+# The runtime's dispatch (routine address -> the port) includes every per-kind registry of the arcade
+# (src/proof/cases/*_arcade.inc), so a logic session's new kind file is picked up without editing src/game.
+file(GLOB HOTD_ARCADE_CASES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/proof/cases/*_arcade.inc)
+list(SORT HOTD_ARCADE_CASES)
+set(HOTD_DISPATCH_TEXT "// generated by CMakeLists.txt: every src/proof/cases/*_arcade.inc (the runtime's dispatch)\n")
+foreach(c ${HOTD_ARCADE_CASES})
+    get_filename_component(n ${c} NAME)
+    string(APPEND HOTD_DISPATCH_TEXT "#include \"proof/cases/${n}\"\n")
+endforeach()
+file(CONFIGURE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/dispatch_arcade.inc CONTENT "${HOTD_DISPATCH_TEXT}")
+target_include_directories(hotd PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
+configure_file(src/res/hotd_version.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/hotd_version.h @ONLY)
+target_link_libraries(hotd PRIVATE hotd_engine hotd_logic)
+if(WIN32)
+    target_link_libraries(hotd PRIVATE winhttp)   # util/update_check.cpp
+endif()
+
+# Windows resources of hotd.exe and hotd_viewer.exe: icon, version information, asInvoker manifest (src/res/hotd.rc.in).
+# Icon: our own neutral one (src/res/hotd.ico, drawn by tools/make_neutral_icon.py) unless a local build finds your own
+# THOTD.EXE: HOTD_LOCAL_ICON (default: private/pcharness/game/THOTD.EXE or $ENV{HOTD_PC_DIR}/THOTD.EXE if present;
+# -DHOTD_LOCAL_ICON=OFF forces the neutral icon). Then its icon group is extracted into the build folder at build time (read
+# only) and linked through the .rc. That icon stays in your build folder: never committed, never part of the package.
+set(HOTD_LOCAL_ICON "" CACHE STRING "Your own THOTD.EXE (its icon becomes the exes' Explorer icon in local builds), or OFF")
+if(WIN32)
+    # "OFF" is false to if(NOT ...), so test it before the search (else OFF still found THOTD.EXE).
+    set(_hotd_pc_exe "${HOTD_LOCAL_ICON}")
+    if(_hotd_pc_exe STREQUAL "OFF" OR _hotd_pc_exe STREQUAL "NO")
+        set(_hotd_pc_exe "")
+    elseif(_hotd_pc_exe STREQUAL "")
+        foreach(_c "${CMAKE_SOURCE_DIR}/private/pcharness/game/THOTD.EXE" "$ENV{HOTD_PC_DIR}/THOTD.EXE")
+            if(NOT _hotd_pc_exe AND EXISTS "${_c}")
+                set(_hotd_pc_exe "${_c}")
+            endif()
+        endforeach()
+    elseif(NOT EXISTS "${_hotd_pc_exe}")
+        message(FATAL_ERROR "HOTD_LOCAL_ICON: file not found: ${_hotd_pc_exe}")
+    endif()
+    enable_language(RC)
+    set(HOTD_RC_MANIFEST "${CMAKE_SOURCE_DIR}/src/res/hotd.manifest")
+    set(HOTD_VER_DOT "${PROJECT_VERSION}.0")
+    string(REPLACE "." "," HOTD_VER_COMMA "${HOTD_VER_DOT}")
+    set(HOTD_RC_ICON "${CMAKE_SOURCE_DIR}/src/res/hotd.ico")
+    set(_hotd_ico_deps "")
+    if(_hotd_pc_exe)
+        add_executable(hotd_exeicon src/util/exeicon_main.cpp src/util/pe_icon.cpp)
+        target_include_directories(hotd_exeicon PRIVATE src)
+        if(MSVC)
+            target_compile_definitions(hotd_exeicon PRIVATE _CRT_SECURE_NO_WARNINGS)
+        endif()
+        set(HOTD_RC_ICON "${CMAKE_BINARY_DIR}/local_icon/hotd.ico")
+        add_custom_command(OUTPUT "${HOTD_RC_ICON}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_BINARY_DIR}/local_icon"
+            COMMAND hotd_exeicon "${_hotd_pc_exe}" "${HOTD_RC_ICON}"
+            DEPENDS hotd_exeicon VERBATIM)
+        set(_hotd_ico_deps "${HOTD_RC_ICON}")
+        message(STATUS "exe icon: from ${_hotd_pc_exe} (local build; not for redistribution)")
+    else()
+        message(STATUS "exe icon: The House of the Dead: ReWrithe's neutral icon")
+    endif()
+    foreach(t hotd hotd_viewer)
+        set(HOTD_RC_NAME "${t}")
+        if(t STREQUAL "hotd")
+            set(HOTD_RC_DESC "The House of the Dead: ReWrithe")
+        else()
+            set(HOTD_RC_DESC "The House of the Dead: ReWrithe Model Viewer")
+        endif()
+        set(_rc "${CMAKE_BINARY_DIR}/res/${t}.rc")
+        configure_file(src/res/hotd.rc.in "${_rc}" @ONLY)
+        set_source_files_properties("${_rc}" PROPERTIES OBJECT_DEPENDS "${_hotd_ico_deps};${HOTD_RC_MANIFEST}")
+        target_sources(${t} PRIVATE "${_rc}")
+        if(MSVC)
+            target_link_options(${t} PRIVATE /MANIFEST:NO)   # the manifest is in the .rc
+            # firstrun: a .map next to the exe in the build folder (not shipped): turns a crash report's hotd.exe+0x... into a function
+            target_link_options(${t} PRIVATE /MAP)
+        endif()
+    endforeach()
+    target_link_libraries(hotd_engine PUBLIC ole32 shell32 uuid)
+endif()
+
+if(MSVC)
+    target_compile_options(hotd PRIVATE /wd4127)
+endif()
+
+# Differential checker: the port against MAME / PC-harness records (docs/proof.md).
+add_executable(hotd_proof src/proof/main.cpp)
+target_link_libraries(hotd_proof PRIVATE hotd_logic)
+if(MSVC)
+    target_compile_definitions(hotd_proof PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+
+foreach(t hotd hotd_engine hotd_viewer hotd_logic hotd_proof hotd_net hotd_nettest hotd_shaketest)
+    if(MSVC)
+        target_compile_options(${t} PRIVATE /W4 /utf-8)
+    else()
+        # the port's routines keep the original's parameter lists (many unused): GCC / Clang would list thousands
+        target_compile_options(${t} PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
+    endif()
+endforeach()
+
+# Linux / macOS (docs/porting.md): threads, dladdr (the crash report), and the exes find a libSDL3 next to themselves
+# (rpath $ORIGIN / @loader_path: a SteamOS / Linux package ships its own libSDL3.so.0 in bin/)
+if(NOT WIN32)
+    find_package(Threads REQUIRED)
+    target_link_libraries(hotd_engine PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+    target_link_libraries(hotd_net PUBLIC Threads::Threads)
+    if(APPLE)
+        set(_hotd_rpath "@loader_path")
+    else()
+        set(_hotd_rpath "$ORIGIN")
+    endif()
+    foreach(t hotd hotd_viewer)
+        set_target_properties(${t} PROPERTIES BUILD_RPATH "${_hotd_rpath}" INSTALL_RPATH "${_hotd_rpath}")
+    endforeach()
+endif()
+# netplay's float determinism (docs/netplay.md): the game logic with strict IEEE float arithmetic, no contraction into
+# fused multiply-adds. MSVC's default /fp:precise (said explicitly; x64 without /arch:AVX2 emits no FMA at all)
+foreach(t hotd hotd_logic hotd_proof)
+    if(MSVC)
+        target_compile_options(${t} PRIVATE /fp:precise)
+    else()
+        target_compile_options(${t} PRIVATE -ffp-contract=off -fno-fast-math)
+    endif()
+endforeach()
+# the port's routines test the version (P::pc) in ordinary conditions: constant per instantiation
+if(MSVC)
+    target_compile_options(hotd_logic PRIVATE /wd4127)
+    target_compile_options(hotd_proof PRIVATE /wd4127)
+endif()
+
+# Copy SDL3.dll next to the executable so it runs from the build folder.
+if(WIN32)
+    foreach(t hotd hotd_viewer)
+        add_custom_command(TARGET ${t} POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "$<TARGET_FILE:SDL3::SDL3-shared>" "$<TARGET_FILE_DIR:${t}>"
+            VERBATIM)
+    endforeach()
+    # angle (docs/renderer_backends.md): ANGLE's libEGL.dll / libGLESv2.dll / z.dll (built by vcpkg's "angle" port from
+    # Google's sources; never committed) beside hotd.exe: Video > Renderer's DirectX choice for graphics without OpenGL 3.3
+    set(HOTD_ANGLE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/private/downloads/angle" CACHE PATH "ANGLE's DLLs (libEGL.dll, libGLESv2.dll, z.dll)")
+    if(EXISTS "${HOTD_ANGLE_DIR}/libGLESv2.dll" AND EXISTS "${HOTD_ANGLE_DIR}/libEGL.dll")
+        message(STATUS "ANGLE (DirectX renderer): ${HOTD_ANGLE_DIR}")
+        foreach(f libEGL.dll libGLESv2.dll z.dll)
+            if(EXISTS "${HOTD_ANGLE_DIR}/${f}")
+                add_custom_command(TARGET hotd POST_BUILD
+                    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${HOTD_ANGLE_DIR}/${f}" "$<TARGET_FILE_DIR:hotd>"
+                    VERBATIM)
+            endif()
+        endforeach()
+    else()
+        message(STATUS "ANGLE (DirectX renderer): not found (HOTD_ANGLE_DIR); OpenGL only")
+    endif()
+endif()

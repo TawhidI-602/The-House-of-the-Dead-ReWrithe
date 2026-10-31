@@ -1,0 +1,34 @@
+// Cases of runRoutine (the arcade: routine address -> the port), included inside its switch (proof/main.cpp): kind
+// 64, the researchers (enemy_researchers.cpp).
+    case 0x6DAC0: a.kind64_kenkyu_researchers(regs[0]); return true;
+    case 0x6DBD0: a.kind64_frame(regs[0]); return true;
+    case 0x6DC30: a.kind64_set0_hanging(regs[0]); return true;
+    case 0x6DE10: a.kind64_st03_hang(regs[0]); return true;
+    case 0x6DF10: a.kind64_st04_climb_up(regs[0]); return true;
+    case 0x6E020: a.kind64_st05_remove(regs[0]); return true;
+    case 0x6E0A0: a.kind64_set1_sno(regs[0]); return true;
+    case 0x6E200: a.kind64_st13_shot(regs[0]); return true;
+    case 0x6E290: a.kind64_st14_rescue(regs[0]); return true;
+    case 0x6E540: a.kind64_st15_remove(regs[0]); return true;
+    case 0x6E5D0: a.kind64_set2_hanging_ladder(regs[0]); return true;
+    case 0x6E750: a.kind64_st17_hang(regs[0]); return true;
+    case 0x6E850: a.kind64_st18_ladder(regs[0]); return true;
+    case 0x6E930: a.kind64_st19_remove(regs[0]); return true;
+    case 0x6E9C0: a.kind64_set3(regs[0]); return true;
+    case 0x6EBE0: a.kind64_st07_rescue(regs[0]); return true;
+    case 0x6EE00: a.kind64_st08_remove(regs[0]); return true;
+    case 0x6EEC0: a.kind64_set4_crawl(regs[0]); return true;
+    case 0x6F100: a.kind64_set4_next(regs[0]); return true;
+    case 0x6F140: a.kind64_st10_run(regs[0]); return true;
+    case 0x6F1E0: a.kind64_st11_remove(regs[0]); return true;
+    case 0x6F280: a.kind64_set7_cell(regs[0]); return true;
+    case 0x6F480: a.kind64_set8_crawl(regs[0]); return true;
+    case 0x6F5D0: a.kind64_set5_hold_up(regs[0]); return true;
+    case 0x6F8F0: a.kind64_st21_talk(regs[0]); return true;
+    case 0x6F970: a.kind64_st22_message(regs[0]); return true;
+    case 0x6FB40: a.kind64_set6_sno(regs[0]); return true;
+    case 0x6FCB0: a.kind64_st24_shot(regs[0]); return true;
+    case 0x6FD60: a.kind64_st25_rescue(regs[0]); return true;
+    case 0x6FF50: a.kind64_st26_remove(regs[0]); return true;
+    case 0x6FFE0: a.kind64_st29_struck(regs[0]); return true;
+    case 0x6EB90: a.kind64_hit_check(regs[0]); return true;

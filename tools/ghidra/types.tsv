@@ -1,0 +1,1399 @@
+# Types for both Ghidra projects (ApplyTypes.java; format in its header). Offsets are hex. PC column '=' = the arcade
+# offset moved by the struct's pcshift; '-' = not in that version. Field names follow the developers' debug labels
+# where they exist (docs/decompilation.md "Arcade object structure"), else what the code does with them.
+#
+# Task header (task_create 0x14EA0 / PC 0x43E400): every task / object starts with it. The PC header has two more
+# words at +0x10, so every arcade field from +0x10 on is 8 bytes further on the PC (checked: prop_init 0x42740 / 0x483AD0).
+struct	Obj	3c8	3d0	a game object = a task (task_create(routine, size), usually size 0x3C8); +0x20.. is the work area cleared by task_clear_work
+pcshift	Obj	10	8
+field	Obj	0	=	code	routine	per-frame routine, called by task_group_run; objects switch state by storing another routine here
+field	Obj	4	=	code	exit_routine	called when the task ends (task_create sets 0x14E90)
+field	Obj	8	=	int	serial	task serial number (counter 0x5122A4)
+field	Obj	c	=	uint	magic	0x80018691
+field	Obj	-	10	int	pc_alloc	PC only: second result of mem_alloc (EDX)
+field	Obj	-	14	int	pc_zero	PC only: set to 0
+field	Obj	10	=	Obj*	prev	ring of the task group
+field	Obj	14	=	Obj*	next
+field	Obj	18	=	Obj*	group	the group's head task (current group 0x5122A8 at creation)
+field	Obj	1c	=	int	group_level	copied from the group head +8
+# Position and orientation (debug labels World.xp .. World.za)
+field	Obj	20	=	float[3]	pos	World.xp / yp / zp
+field	Obj	2c	=	int[3]	ang	World.xa / ya / za: 16-bit angles (0x10000 = 360 degrees) kept in ints
+field	Obj	38	=	float[3]	view_pos	position in camera space, written from the coprocessor when the object is drawn (z = depth: depth_list_add needs z >= 0, depth = z x 10); bullet impacts use it
+field	Obj	44	=	int[2]	work_ang	effect angles (shot flash: facing the camera)
+field	Obj	4c	=	int	work_4c	per-kind
+field	Obj	50	=	int	timer	frame counter of the current state (most routines count up or down here)
+field	Obj	54	=	int	model	model ID drawn (props, effects; animations step it per frame)
+field	Obj	58	=	uint	flags	bit 0 shootable (added to the depth list), bits 1 / 2 hit by player 1 / 2 this frame, bit 8 hit flash (Magician), bit 10 set with bit 0 by every set-up (0x401), bit 26 glow pass (props), bit 28 dying / used, bit 30 not shootable now (props); bits 19-23 and 31 per kind (decompilation.md); others unverified
+field	Obj	5c	=	short	state	main state (index into the kind's state table)
+field	Obj	5e	=	short	state2	secondary state (per kind)
+field	Obj	60	=	short	substate	step inside the state
+field	Obj	62	=	short	work_62	per-kind
+field	Obj	64	=	short	action	the spawn record's action code (record +0x22): picks the set-up / behaviour
+field	Obj	66	=	short	step	step counter of scripted states (0 = first frame of the state)
+field	Obj	68	=	short	draw_mode	object_draw: draw mode table 0xC6690[+0x68]
+field	Obj	6a	=	short	draw_param	set with the draw mode (0 / 1 / a count; props clear it): meaning unverified
+field	Obj	6c	=	ushort	flags2	bit 0 = the shot test checks its body parts one by one (shot_test_object -> shot_test_body), else the whole object is one sphere (view_pos, hit_radius); the gold frog's set-up toggles it; bit 1 cleared by kinds 96 / 150 at set-up and by kind 150's attack (meaning unverified)
+field	Obj	6e	=	short	work_6e	per-kind
+field	Obj	70	=	short	param	per-kind count / parameter: spawned from an ENTB record = the record's hit points (enemies: life); props: scenes to live; doors: model index; hits to break
+field	Obj	72	=	short	param_max	per-kind maximum for +0x70 (ENTB spawns: the starting hit points)
+field	Obj	74	=	float	speed	forward speed (obj_move_heading)
+field	Obj	78	=	float[3]	vel	velocity x / y / z per frame
+field	Obj	84	=	float[3]	accel	acceleration x / y / z per frame (+0x88 = gravity)
+field	Obj	90	=	float	hit_radius	radius for the shot test (props, simple objects)
+field	Obj	94	=	float	scale	draw scale
+field	Obj	a0	=	float	target_dist	distance to the target / camera (enemy AI)
+field	Obj	ba	=	char	target_player	player attacked (-1 none)
+field	Obj	c8	=	int	part_root	root of the body part tree (body_init)
+field	Obj	cc	=	short	type	creature type (BO_ table 0xC8A60) or prop sub-type / kind parameter
+field	Obj	ce	=	short	type2	second type parameter (props: event flag index)
+field	Obj	d0	=	short	motion	current motion (MO_ table 0xC8BE0)
+field	Obj	d2	=	short	motion_prev	previous motion
+field	Obj	d4	=	short	blend_frame	set_motion_blend: the frame the new motion starts at (start frame % frame count); body_motion_advance jumps there when the blend ends
+field	Obj	d6	=	short	blend_frames	set_motion_blend: blend length in frames (at least 1)
+field	Obj	d8	=	short*	frame_data	the current frame in the motion data (body_init: motion 0xC7540[motion]): root offset (3 words), then 3 angles per joint (joint count 0xC73C0[type])
+field	Obj	dc	=	short*	pose2	pose buffer (body_init allocates it with blend_from / blend_to)
+field	Obj	e0	=	short*	blend_from	set_motion_blend: copy of the pose when the blend started
+field	Obj	e4	=	short*	blend_to	set_motion_blend: the target motion's start frame (motion data 0xC7540[motion])
+field	Obj	e8	=	int	turn_rate	yaw added to ang[1] each frame by body_pose (turn motions: total / frames)
+field	Obj	102	=	short	motion2_frame_start	second motion: loop / start frame
+field	Obj	106	=	short	motion2_frame	second motion: frame
+field	Obj	108	=	short	motion2_frame_prev	second motion: frame of the last step (end test in body_motion2_frame_flags)
+field	Obj	10a	=	short	motion2_sub	second motion: sub-frame
+field	Obj	c0	=	int	w0c0	per-kind work (Hangedman: dive angle; Murrer groups: a float)
+field	Obj	2d4	=	float[3]	home_pos	hostages: the researcher's place (the rescue effects start there)
+field	Obj	2e0	=	short	fade	draw fade level (draw_fade_begin; 0xFF = drawn normally)
+field	Obj	2e4	=	byte	parts_lost	bit n set by part_hit when a part whose class has part_class_lost_bit n is destroyed (the guard actions test bit 1: which body region that is, unverified)
+field	Obj	2e9	=	char	w2e9	per-kind
+field	Obj	304	=	int	w304	per-kind work (kind 0 / enemy_ai: 1 = start the AI at once; Magician: attack counter)
+field	Obj	308	=	int	w308	per-kind work
+field	Obj	30c	=	float	w30c	per-kind work (props: spline t / camera frame limit)
+field	Obj	310	=	int	w310	per-kind work
+field	Obj	314	=	int	w314	per-kind work
+field	Obj	318	=	int	w318	per-kind work
+field	Obj	33c	=	int	w33c	per-kind work (event models: a saved routine; Chapter 3 machines: saved x as a float)
+field	Obj	340	=	int	w340	per-kind work (event models: a saved exit routine)
+field	Obj	344	=	float	w344	per-kind work (kind 146 balls: box centre x)
+field	Obj	348	=	float	w348	per-kind work (kind 146 balls: box centre z)
+field	Obj	34c	=	int	w34c	per-kind work (Hangedman: a saved angle / z; Magician: a scale)
+field	Obj	354	=	float	floor_offset	falling pieces: height above the floor where they stop / bounce
+field	Obj	358	=	float	bounce	falling pieces: bounce speed after hitting the floor (shrinks by 0.1 each bounce)
+field	Obj	360	=	int	w360	per-kind work
+field	Obj	3ac	=	float[3]	ref_pos	Hangedman: the reference point he moves with (camera / player position of the last frame)
+field	Obj	f4	=	short	frame	FrameNum: motion frame (set_motion clears +0xF4, +0xF6, +0xF8)
+field	Obj	f6	=	short	frame_sub	motion sub-frame
+field	Obj	f8	=	int	anim_time	frames played in the motion (many routines step it by one per frame)
+field	Obj	fe	=	short	motion2	second motion (WMotion, formats.md 23)
+field	Obj	10c	=	int	motion2_time	second motion frames
+field	Obj	100	=	short	motion_init	the motion body_init started with
+field	Obj	110	=	short*	motion2_data	the second motion's frame data (body_init: the first motion)
+field	Obj	114	=	short*	pose3	pose buffer (body_init)
+field	Obj	118	=	short*	pose4	pose buffer (body_init)
+field	Obj	120	=	Obj*[9]	attached	nine object slots cleared by body_init (held / attached objects; per kind)
+field	Obj	144	=	int	w144	cleared by body_init
+field	Obj	148	=	int	w148	cleared by body_init
+field	Obj	11c	=	code	part_draw_hook	called per body part while the body is drawn (body_part_draw_hook, chariot_part_draw_hook, hermit_part_draw_hook)
+field	Obj	14c	=	short	direction	Direction (16-bit angle)
+field	Obj	150	=	float	height	Height
+field	Obj	2e5	=	byte	ai_flags	per-kind AI flags (kind 70: bit 3 ...)
+field	Obj	2e6	=	char	slot	enemy slot / prop stack level / hidden flag (per kind)
+field	Obj	2e7	=	char	attack_slot	attack position taken (0x51F9F0 + 0x14 * slot), -1 none
+field	Obj	2e8	=	char	target	the player to attack (pick_target_player)
+field	Obj	2eb	=	char	killer	the player who killed / rescued it (score goes to him)
+field	Obj	2ec	=	int	w2ec	per-kind work (props: last scene number; hostages: scene / event at spawn)
+field	Obj	2f0	=	int	w2f0	per-kind work (props: visible; jumps: frames)
+field	Obj	2f4	=	int	w2f4	per-kind work (props: schedule position; Magician: blink timer)
+field	Obj	2f8	=	int	w2f8	per-kind work
+field	Obj	31c	=	int[3]	spin	angle speeds per frame (debris, pieces) / per-kind work
+field	Obj	328	=	int	w328	per-kind work
+field	Obj	32c	=	int	kit	held-object kit (kind 32) / damage step (props) / per-kind work
+field	Obj	330	=	int	w330	per-kind work (props: scenes lived)
+field	Obj	334	=	int	w334	per-kind work
+field	Obj	338	=	int	w338	per-kind work
+field	Obj	35c	=	Obj*	owner	the object this one belongs to (held objects, effects, parts)
+field	Obj	368	=	byte*	record	the spawn record (ENTB, 40 bytes; +0x22 action, byte 2 kit ...)
+field	Obj	37c	=	byte*	extra	extra block (boss scripts: Chariot / Hermit action script; enemy_free_extras frees it)
+field	Obj	390	=	Obj*	captor	hostages: the zombie holding the researcher
+field	Obj	394	=	float[3]	jump_from	jump_arc_step: start point
+field	Obj	3a0	=	float[3]	jump_to	jump_arc_step: end point
+field	Obj	3c4	=	byte	draw_flags	bit 0 hit flash, bit 2 hidden, bit 3 ..., bit 4 the generated skin is drawn (skin_draw)
+field	Obj	3c5	=	byte	motion_flags	bits 3-7: NoBias, MotFinish, MotFinishUp, SplFinish, SplFinishUp
+field	Obj	3c6	=	byte	motion_flags2	bits 0, 1, 2, 5, 6: FixMode, Supplement, SupplementU, WMotion, DevideEnd
+field	Obj	3c7	=	byte	motion_flags3	bits 0-2: DevideNoRep, Stay, StayUp
+#
+# The player task (InitSetPlayerTask: task_create(player state routine, 0x24)): the header and the player number.
+struct	PlayerTask	24	2c	a player's task: runs the player state routine (table 0xA8790); the state data is in Player
+pcshift	PlayerTask	10	8
+field	PlayerTask	0	=	code	routine	the player state routine
+field	PlayerTask	20	=	char	player	player number 0 / 1
+#
+# Player blocks: arcade 0x51F284, PC 0xD9F05C, 2 x 0xCC, same layout in both.
+struct	Player	cc	cc	one player's state (arcade 0x51F284 + 0xCC x player, PC 0xD9F05C)
+field	Player	0	0	int	state	player state (start routines table 0xA8790): 0 new game, 1 continued, 2 rejoin, 3 join, 4 out of lives (own continue countdown), 6 game over, 7 idle, 8 shoot only, 9 waiting, 10 paused, 11 / 12 operator gun test (decompilation.md "Player states"); verified: 9 through the attract demo run ch1_run1
+field	Player	4	4	uint	flags	bit 1 = fired a shot this frame (player_shoot; shot_resolve tests it)
+field	Player	8	8	int	score	score (add_score floors it at 0)
+field	Player	c	c	int	lives	lives left
+field	Player	10	10	int	lives_saved	set with lives by PlStartInit and copied from lives by player_in_game_frame; in the demo dumps it keeps 2 / 3 while lives change (meaning unverified)
+field	Player	14	14	int	rank	the rank of the last chapter results (0x9BE20), saved with the ranking entry
+field	Player	30	30	short[2]	shot_pos	screen position of the last shot (x, y)
+field	Player	34	34	short[2]	aim	gun screen position (x, y); 1000 = off screen (verified in the dumps)
+field	Player	38	38	short[2]	aim_recorded	aim from the mode-8 input stream
+field	Player	3c	3c	byte	on_screen	the gun points at the screen
+field	Player	3d	3d	byte	rounds	rounds left (6 = full; reload = trigger off screen); verified in the dumps (6 -> 2 -> 0)
+field	Player	3e	3e	byte	empty	set when the last round is fired, cleared by the reload; verified (1 at 0 rounds)
+field	Player	40	40	int	hud_timer	HUD frame counter (hud_ammo_draw blinks the reload prompt: % 60 < 45)
+field	Player	44	44	ushort	buttons	buttons this frame
+field	Player	46	46	ushort	buttons_prev	buttons last frame
+field	Player	48	48	ushort	pressed	buttons pressed this frame
+field	Player	4a	4a	ushort	released	buttons released this frame
+field	Player	56	56	byte	demo_trigger	attract demo stream: trigger
+field	Player	57	57	byte	demo_shot	attract demo stream: shot allowed
+field	Player	58	58	byte	demo_gun_mode	attract demo stream: gun mode (copied to 0x51F5EC)
+field	Player	59	59	byte	demo_on_screen	attract demo stream: gun on screen
+field	Player	5a	5a	short[2]	demo_aim	attract demo stream: aim x / y
+field	Player	60	60	int	timer	state timer (game over wait 120 frames, cut-scene waits)
+field	Player	64	64	int[4]	continue_save	snapshot of the credits (0x51F4B8..) taken by player_st4_out_of_lives; player_continue_frame compares it to see a coin inserted
+field	Player	80	80	int	next_state	the state player_start_check / player_paused return to
+field	Player	a0	a0	int	continue_timer	the player's own continue countdown (0x9FFF at the start)
+field	Player	a4	a4	PlayerTask*	task	the player's task (InitSetPlayerTask)
+field	Player	ac	ac	code	body_routine	per-frame routine of the player's body / camera drive (player_body_camdr, player_body_draw_camdr ...)
+field	Player	b0	b0	code	scene_routine	per-frame routine of the player's cut-scene action (CCTB 18)
+field	Player	b4	b4	int	hit	1 = hit this frame (the screen shake)
+field	Player	b8	b8	int	hit_side	which side the hit came from (player_hit / projectile_hit_player)
+field	Player	bc	bc	Obj*	body	the player's own character object (cut-scenes)
+field	Player	c0	c0	byte	cam_flags	bit 0 = CCTB 16 player flag
+field	Player	c4	c4	int	wc4	cleared by the camera modes 1 / 4, set by game over: unverified
+field	Player	c8	c8	int	gun_test	gun test state (test menu)
+global	d9f05c	51f284	Player[2]
+#
+# Light gun per player: arcade 0x51F574 + 0x1C x player
+struct	GunInput	1c	1c	one light gun's state (arcade 0x51F574, PC 0xD9F5E0 (mouse / keyboard), 2 x 0x1C)
+field	GunInput	0	-	short[2]	pos	screen position from gun_to_screen
+field	GunInput	-	4	short[2]	aim	PC: the aim point (screen x, y) the shot is taken at
+field	GunInput	14	-	byte	on_screen	the gun sees the screen
+field	GunInput	15	19	byte	trigger	trigger edge this frame (player_shoot)
+field	GunInput	16	-	byte	lockout	frames left before the trigger counts again (4 after a shot)
+field	GunInput	-	1a	byte	reload	PC: reload request this frame (player_shoot refills the rounds)
+global	d9f5e0	51f574	GunInput[2]
+#
+# Body part nodes (body_init: mem_alloc(0xD8) for the root and each part; part_init fills them).
+struct	BodyPart	d8	d8	one node of a creature's part tree (the root is obj->part_root)
+field	BodyPart	0	=	int	part_id	model / part ID (part data +0)
+field	BodyPart	4	=	float[3]	offset	offset from the parent (part data +4..+0xC)
+field	BodyPart	1c	=	int	depth	depth in the tree (root 0)
+field	BodyPart	20	=	BodyPart*	parent	parent node (the root for the first level)
+field	BodyPart	24	=	BodyPart**	children	child nodes (mem_alloc(4 x count))
+field	BodyPart	28	=	byte	marks	root: one byte per child (severed marks, part_hit_mark); parts: bit 0 = to be severed
+field	BodyPart	30	=	int	index	index among the parent's children
+field	BodyPart	34	=	int	child_count	number of children (part data +0x18)
+field	BodyPart	38	=	int	role	part role index (part data +0x14): row of the role tables 0x1184E0.. (8 bytes per role, 0xF8 per creature type)
+field	BodyPart	3c	=	uint	flags	0x201 at init; bits 1 / 2 hit by player 1 / 2 this frame, bit 8 hit, bit 20 / 21 severed marks (part_hit_mark), bit 31 may be severed
+field	BodyPart	40	=	Obj*	owner	the creature this part belongs to
+field	BodyPart	5c	=	float[3]	view_pos	the hit sphere's centre in camera space, written while the part is drawn (the shot test uses the drawn pose)
+field	BodyPart	74	=	float	hit_radius	hit-sphere radius (part data radius 0x520B1C x the type's scale 0x118060); 0.0 = the part is not tested (shot_test_part)
+field	BodyPart	78	=	byte	w78	cleared by part_init
+field	BodyPart	79	=	char	armour	hits left before the part counts (creature_type_setup: role table 0x1184E2; the Chariot's plates)
+field	BodyPart	d4	=	byte	side_flags	bit 4 from part data +0x10, bit 5 = the part is on the mirrored side
+param	36750	476f0c	1	BodyPart*	part
+param	36750	476f0c	2	BodyPart*	parent
+param	68010	4c3d58	1	BodyPart*	part
+param	68680	-	1	BodyPart*	part
+param	99870	-	1	BodyPart*	part
+param	99a30	51731c	1	BodyPart*	part
+param	99660	517070	1	BodyPart*	part
+param	9cbd0	-	1	BodyPart*	part
+param	45730	489e2c	1	BodyPart*	part
+#
+# Part roles: 8 bytes per role, 31 roles per creature type (arcade 0x1184E0); the PC packs them in 5 bytes (PC 0x523A58
+# + 0x9B x type + 5 x role; part_hit 0x4C3D58), the first 5 at the same offsets
+struct	PartRole	8	5	one part role of a creature type (part_roles 0x1184E0 + 0xF8 x type + 8 x role)
+field	PartRole	0	=	byte	hook	draw-hook id (e.g. the Hermit: 1 mouth, 27 second head)
+field	PartRole	1	=	byte	b1	unverified
+field	PartRole	2	=	char	armour	hits before the part counts (creature_type_setup copies it to the part's armour)
+field	PartRole	3	=	char	part_class	damage class (indexes the damage tables; classes 8 / 9 are the skin anchors A / B)
+field	PartRole	4	=	char	sever	1 = severing marks the parent, 2 = the part itself (part_hit_mark)
+field	PartRole	5	-	byte	b5	unverified
+field	PartRole	6	-	byte	b6	unverified
+field	PartRole	7	-	byte	b7	unverified
+global	523a58	1184e0	PartRole[2914]
+global	da0bb8	51fe2c	Obj*
+#
+# Shot test (arcade): depth list, candidates, results
+struct	DepthEntry	c	c	one shootable object of this frame (depth_list 0x541470)
+field	DepthEntry	0	=	int	depth	z of the object's hit point x 10 (only z >= 0 is added)
+field	DepthEntry	4	=	Obj*	obj	the object
+field	DepthEntry	8	=	uint	flags	the object's flags when it was added
+global	da2df0	541470	DepthEntry[256]
+struct	ShotCandidate	24	24	something the ray touched (shot_candidates 0x53F070)
+field	ShotCandidate	0	=	float[4]	hit	hit point x / y / z (to the shot result +0) and a 4th value (to the result +0x18; meaning unverified)
+field	ShotCandidate	10	=	float[2]	w10	two more values (to the shot result +0x1C / +0x20; meaning unverified)
+field	ShotCandidate	18	=	Obj*	target	the object, or the body part (flags bit 9) whose owner is at part +0x40
+field	ShotCandidate	1c	=	uint	flags	the object's flags for an object candidate (shot_test_object); shot_hit_nearest: bit 4 = a scene item (no bit set; the result gets its code), bit 9 = a body part (owner at part +0x40)
+field	ShotCandidate	20	=	int	code	scene item code (shot_results +0x24)
+global	da39f0	53f070	ShotCandidate[64]
+global	-	53e870	int[128]
+struct	ShotResult	28	28	a player's last shot (shot_results 0x520950)
+field	ShotResult	0	=	float[3]	hit	hit point
+field	ShotResult	18	=	float[3]	w18	the candidate's values +0xC..+0x14 (meaning unverified)
+field	ShotResult	24	=	int	code	0 = an object or part was hit, else the scene item code (4 = no flash spawned)
+global	d9ef60	520950	ShotResult[2]
+# The shot ray per player (shot_ray_setup, arcade 0x53E2B0 / PC 0xC723E0 + 0x68 x player). Arcade: built by the
+# coprocessor (0x0C normalize, 0x0F vector -> two angles, matrix 1 (0x74), 0x1A transform, 0x1B / 0x1C trig of the
+# negated angles; docs/decompilation.md "Geometry coprocessor maths"); PC: x87 maths, 1 / length, trig table 0x5697B0.
+# Angles: (a0, a1) = 0x0F(direction); when a1 leaves -0x4000..0x3FFF: a1 = 0x8000 - a1, a0 += 0x8000.
+struct	ShotRay	68	68	one player's shot ray (shot_ray_setup)
+field	ShotRay	0	0	int[2]	world_ang_neg	-a1, -a0 of the world direction's angles
+field	ShotRay	8	8	float[4]	world_trig	0x1B(-a1), 0x1C(-a1), 0x1B(-a0), 0x1C(-a0) (sin / cos: which is which unverified)
+field	ShotRay	18	18	float[3]	origin	ray start in the world (camera position through matrix 1)
+field	ShotRay	24	24	float[3]	dir	ray direction in the world (unit length)
+field	ShotRay	30	30	int[2]	cam_ang_neg	-a1, -a0 of the camera-space direction's angles
+field	ShotRay	38	38	float[4]	cam_trig	trig of cam_ang_neg, as world_trig
+field	ShotRay	48	48	float[3]	cam_origin	0, 0, 0
+field	ShotRay	54	54	float[3]	cam_dir	normalize(aim x, aim y, 496.0)
+field	ShotRay	60	60	float[2]	aim	the aim point the ray was built from (screen x, y)
+global	c723e0	53e2b0	ShotRay[2]
+global	-	51f5e0	int[2]
+#
+# Enemies (enemy_main / enemy_guard and the standard enemy kinds): Obj with the enemy work slots named
+struct	Enemy	3c8	3d0	a standard enemy (kind 0 and the scripted-start kinds; enemy_main, enemy_guard, enemy_ai ...)
+extends	Enemy	Obj
+field	Enemy	6e	=	short	death_style	& 3: 1 = MO 0x27C + Zombie_Dead, 2 = one of three death motions (0x76460), else the type's (0x762C0; 1 = one of five, 0x76440)
+field	Enemy	70	=	short	life	hit points from the ENTB record +0x22: enemy_check_death / enemy_scripted_hit subtract hit_damage; <= 0 = dead (80 points to the killer)
+field	Enemy	2ec	=	int	delay	enemy_ai: frames before it starts turning / moving (kind 0: record value x 10); scenery actions 1 / 20: the scene number they live in
+field	Enemy	304	=	int	ai_at_once	1 = start the AI at once (kind000_enemy_spawn), 0 = wait (enemy_ai)
+field	Enemy	308	=	int	one_hit_kill	nonzero: any hit (flags bit 8) kills
+field	Enemy	320	=	int	prey	index into the object table 0x520830: the researcher this zombie goes for (enemy_guard; unverified)
+field	Enemy	330	=	int	walk_variant	0 / 1 = the type's motion list (0xC6B60), >= 2 = a walk from the random walk sets 0x757B8 / 0x757D8 picked at the spawn (kind 0 actions 6 / 7 / 8)
+field	Enemy	334	=	int	players_seen	players in the game when targeted: 1 = go for the solo player, 2 = for player slot_wanted
+field	Enemy	338	=	int	slot_wanted	the target player in a 2-player game = the attack position it wants (positions 0 / 1 belong to players 0 / 1); guard actions: the researcher's id
+field	Enemy	348	=	float	walk_speed	speed for move_along_heading in the researcher-chasing actions
+field	Enemy	2e5	=	char	attack	attack choice 0-7: table 0xC6D30[type][action][(parts_lost & 7) x 10 + rand % 10] (lost parts change the choice; 7 = forced by ai_at_once)
+field	Enemy	3a0	=	float[3]	target_pos	the target: x / z of the target player's body (players[p].body +0x20 / +0x28) or from enemy_target_distance; z is tested against 70 / 40 / 25 (enemy_ai; frame of reference unverified)
+field	Enemy	380	=	int[3]	extras	extra blocks freed by enemy_free_extras
+#
+# Camera records (arcade 0x51EAB0, 5 x 0x154; a 6th would overlap camera_pos 0x51F250 / route_choice 0x51F270 / the players 0x51F284): record 0 is the game camera
+struct	CameraRecord	154	-	one camera record (camera_records 0x51EAB0 + 0x154 x n)
+field	CameraRecord	0	-	float[3]	eye	eye position
+field	CameraRecord	c	-	int[3]	ang	yaw / pitch / roll (16-bit angles)
+field	CameraRecord	18	-	float[3]	look_at	look-at point
+field	CameraRecord	4c	-	code	job	per-frame camera job routine (CCTB: cam_job_types 0xB00E0)
+field	CameraRecord	c0	-	byte[16]	operands	operands of the CCTB instruction that started the job
+field	CameraRecord	c8	-	int	path	camera path of the job (cam_job64_jump: one frame of path +0xC8)
+field	CameraRecord	ec	-	float	frame	current frame on the path (record 0: camera_frame 0x51EB9C)
+global	-	51eab0	CameraRecord[5]
+#
+# Enemy spawn records (ENTB / ENTB2 / ENTB3 lists of the event scripts, 40 bytes; evt_ENTB 0x315C0 copies them into
+# a new object). Some kinds (8, 162, ...) read their record (obj->record) with their own layout.
+struct	SpawnRecord	28	28	one enemy spawn record of an ENTB list (same in EVTALL.RBH on the PC)
+field	SpawnRecord	0	0	uint	kind	object kind (kind table 0xAFDE0: the new object's routine)
+field	SpawnRecord	4	4	uint	flags	the object's flags (| 1 = shootable); bit 31 seen in the scripts
+field	SpawnRecord	8	8	float[3]	pos	world position (placement mode 0) or a position relative to the camera (modes 1 / 2, through the coprocessor)
+field	SpawnRecord	14	14	int[3]	ang	angles x / y / z -> obj ang (y = the facing)
+field	SpawnRecord	20	20	ushort	place_mode	& 3: 0 = pos as given, 1 / 2 = relative to the camera (evt_ENTB)
+field	SpawnRecord	22	22	short	life	the enemy's hit points: copied to obj +0x70 (life) and +0x72; enemy_check_death subtracts hit_damage from it (verified with the replay dumps; formats.md's old note said appear frame)
+field	SpawnRecord	24	24	byte	type	creature type -> obj +0xCC
+field	SpawnRecord	25	25	byte	action	action code -> obj +0x64
+field	SpawnRecord	26	26	ushort	id_flags	high half of the record ID: behaviour flags (open)
+#
+# Attack positions (arcade 0x51F9F0, 16 x 0x14)
+struct	AttackSlot	14	14	an attack position: where one enemy may stand and attack (attack_slots)
+field	AttackSlot	0	0	byte	taken	1 = held by an enemy
+field	AttackSlot	4	4	Obj*	holder	the enemy holding it
+field	AttackSlot	8	8	float[3]	pos	position (0 / 1: camera + offsets each frame; y unused there)
+global	da0040	51f9f0	AttackSlot[16]
+#
+# Enemy behaviour tables (arcade; per creature type a pointer to per-action pointers)
+struct	MotionStep	8	8	one entry of a type's motion list (by sub-state): the motion and its forward speed
+field	MotionStep	0	0	int	motion	motion number (MO_ table)
+field	MotionStep	4	4	float	speed	forward speed per frame while it plays (0 = none)
+global	-	c6b60	MotionStep**[94]
+struct	EnemyAttack	18	18	one attack of a type / action (enemy_ai: attack record 0xC6F10[type][action][attack])
+field	EnemyAttack	0	0	int	motion	the attack motion (in reach)
+field	EnemyAttack	4	4	int	lunge_motion	the lunge motion (beyond the reach)
+field	EnemyAttack	8	8	float	lunge_speed	speed of the lunge
+field	EnemyAttack	c	c	float	reach	distance (target z) below which it attacks at once
+field	EnemyAttack	10	10	int	hit_frame	motion frame at which player_hit happens
+field	EnemyAttack	14	14	char	hit_side	side passed to player_hit (the screen shake direction)
+field	EnemyAttack	15	15	byte	needs_parts	parts_lost bits that cancel the hit (an arm it lost)
+global	-	c6f10	EnemyAttack**[94]
+global	-	c6d30	byte**[94]
+# BEGIN gen_param_types.py (generated: object parameters, see the tool)
+param	4ec0	434bfc	1	PlayerTask*	task
+param	4f80	434b70	1	PlayerTask*	task
+param	4fe0	-	1	PlayerTask*	task
+param	4ff0	-	1	PlayerTask*	task
+param	5008	-	1	PlayerTask*	task
+param	50b0	434c9c	1	PlayerTask*	task
+param	5260	434f38	1	PlayerTask*	task
+param	52c0	434f94	1	PlayerTask*	task
+param	5300	435018	1	PlayerTask*	task
+param	5470	4351b8	1	PlayerTask*	task
+param	5540	435264	1	PlayerTask*	task
+param	55e0	-	1	PlayerTask*	task
+param	5600	-	1	PlayerTask*	task
+param	5620	-	1	PlayerTask*	task
+param	5660	-	1	PlayerTask*	task
+param	5670	436b60	1	PlayerTask*	task
+param	57e0	-	1	PlayerTask*	task
+param	57f0	-	1	PlayerTask*	task
+param	5800	-	1	PlayerTask*	task
+param	5810	-	1	PlayerTask*	task
+param	5850	-	1	PlayerTask*	task
+param	5870	43557c	1	PlayerTask*	task
+param	5a80	4365c4	1	PlayerTask*	task
+param	5d30	4368ac	1	PlayerTask*	task
+param	6020	435368	1	PlayerTask*	task
+param	61c0	-	1	PlayerTask*	task
+param	61f0	-	1	PlayerTask*	task
+param	6220	-	1	PlayerTask*	task
+param	6240	436dc0	1	PlayerTask*	task
+param	6290	4caa50	1	PlayerTask*	task
+param	62c0	49452c	1	PlayerTask*	task
+param	6330	494580	1	PlayerTask*	task
+param	98d0	-	1	PlayerTask*	task
+param	4b7d0	-	1	PlayerTask*	task
+param	4b7f0	-	1	PlayerTask*	task
+param	4b810	-	1	PlayerTask*	task
+param	4b820	49406c	1	PlayerTask*	task
+param	4b830	-	1	PlayerTask*	task
+param	4b840	436e20	1	PlayerTask*	task
+param	4b850	4cac94	1	PlayerTask*	task
+param	4b980	494148	1	PlayerTask*	task
+param	4bab0	494264	1	PlayerTask*	task
+param	4baf0	4942a0	1	PlayerTask*	task
+param	4bba0	494364	1	PlayerTask*	task
+param	4bbe0	49661c	1	PlayerTask*	task
+param	4bde0	4945c4	1	PlayerTask*	task
+param	4bf50	494724	1	PlayerTask*	task
+param	4bfb0	494774	1	PlayerTask*	task
+param	4c0d0	494884	1	PlayerTask*	task
+param	4c110	4948c8	1	PlayerTask*	task
+param	4c210	4949d4	1	PlayerTask*	task
+param	4c280	494a40	1	PlayerTask*	task
+param	4c320	494ac4	1	PlayerTask*	task
+param	4c3a0	494bf4	1	PlayerTask*	task
+param	4c500	-	1	PlayerTask*	task
+param	4c550	494d90	1	PlayerTask*	task
+param	4c6c0	495a48	1	PlayerTask*	task
+param	4c700	494f30	1	PlayerTask*	task
+param	4c860	4955f0	1	PlayerTask*	task
+param	4c8e0	496664	1	PlayerTask*	task
+param	4c960	4966b4	1	PlayerTask*	task
+param	4c980	495190	1	PlayerTask*	task
+param	4cad0	4952e0	1	PlayerTask*	task
+param	4cb70	495368	1	PlayerTask*	task
+param	4cbb0	4953b0	1	PlayerTask*	task
+param	4cc00	4953fc	1	PlayerTask*	task
+param	4cd60	4966e4	1	PlayerTask*	task
+param	4cda0	4943a8	1	PlayerTask*	task
+param	4cdf0	4944c4	1	PlayerTask*	task
+param	4ce70	-	1	PlayerTask*	task
+param	4cfb0	49579c	1	PlayerTask*	task
+param	4cff0	4957f0	1	PlayerTask*	task
+param	4d050	49584c	1	PlayerTask*	task
+param	4d090	495894	1	PlayerTask*	task
+param	4d1a0	494b48	1	PlayerTask*	task
+param	4d240	49506c	1	PlayerTask*	task
+param	4d280	4950e8	1	PlayerTask*	task
+param	4d2c0	49515c	1	PlayerTask*	task
+param	4d2f0	495b18	1	PlayerTask*	task
+param	4d450	495c6c	1	PlayerTask*	task
+param	4d5c0	495dcc	1	PlayerTask*	task
+param	4d710	495f1c	1	PlayerTask*	task
+param	4d870	496058	1	PlayerTask*	task
+param	4d9b0	496190	1	PlayerTask*	task
+param	4da20	436e58	1	PlayerTask*	task
+param	4db30	496334	1	PlayerTask*	task
+param	4db90	496390	1	PlayerTask*	task
+param	4dbb0	4963c4	1	PlayerTask*	task
+param	4dc00	496414	1	PlayerTask*	task
+param	4dc60	496470	1	PlayerTask*	task
+param	4dc80	4964a4	1	PlayerTask*	task
+param	4de00	494edc	1	PlayerTask*	task
+param	4de50	495550	1	PlayerTask*	task
+param	4dea0	495598	1	PlayerTask*	task
+param	4e040	496858	1	PlayerTask*	task
+param	4e0b0	4968c8	1	PlayerTask*	task
+param	4e100	496918	1	PlayerTask*	task
+param	94430	-	1	PlayerTask*	task
+param	94490	50b3b0	1	PlayerTask*	task
+param	945d0	50b444	1	PlayerTask*	task
+param	94670	50b4e4	1	PlayerTask*	task
+param	94740	50b5b0	1	PlayerTask*	task
+param	949f0	50b7e4	1	PlayerTask*	task
+param	94cc0	50b9e8	1	PlayerTask*	task
+param	94f40	50bb64	1	PlayerTask*	task
+param	94fd0	50bbf0	1	PlayerTask*	task
+param	95270	50bf10	1	PlayerTask*	task
+param	2f50	431068	1	Obj*	obj
+param	2fc0	4310b0	1	Obj*	obj
+param	32b0	431330	1	Obj*	obj
+param	3390	43142c	1	Obj*	obj
+param	3520	431578	1	Obj*	obj
+param	35e0	431600	1	Obj*	obj
+param	3650	431678	1	Obj*	obj
+param	3970	43191c	1	Obj*	obj
+param	39a0	431938	1	Obj*	obj
+param	3a40	431a04	1	Obj*	obj
+param	3b90	431b24	1	Obj*	obj
+param	3be0	431b58	1	Obj*	obj
+param	3d80	431c74	1	Obj*	obj
+param	3dd0	431cf0	1	Obj*	obj
+param	3e90	431ed0	1	Obj*	obj
+param	40b0	43208c	1	Obj*	obj
+param	4240	432228	1	Obj*	obj
+param	4360	4322cc	1	Obj*	obj
+param	4430	4323a4	1	Obj*	obj
+param	44d0	4324a0	1	Obj*	obj
+param	44f0	432500	1	Obj*	obj
+param	4540	-	1	Obj*	obj
+param	4560	-	1	Obj*	obj
+param	4620	4e63ac	1	Obj*	obj
+param	4650	4e649c	1	Obj*	obj
+param	46e0	-	1	Obj*	obj
+param	4700	-	1	Obj*	obj
+param	4770	432714	1	Obj*	obj
+param	4810	4327c4	1	Obj*	obj
+param	4960	-	1	Obj*	obj
+param	49b0	-	1	Obj*	obj
+param	4af0	-	1	Obj*	obj
+param	4bf0	-	1	Obj*	obj
+param	4c90	-	1	Obj*	obj
+param	4d90	431d9c	1	Obj*	obj
+param	4e30	431e88	1	Obj*	obj
+param	162e0	440eb8	1	Obj*	obj
+param	1c670	447164	1	Enemy*	obj
+param	1c780	447288	1	Enemy*	obj
+param	1ca50	447450	1	Obj*	obj
+param	1cf90	44782c	1	Obj*	obj
+param	1d820	447d3c	1	Enemy*	obj
+param	1d850	447d64	1	Enemy*	obj
+param	1dcd0	-	1	Obj*	obj
+param	1e040	4483dc	1	Obj*	obj
+param	1e200	448588	1	Obj*	obj
+param	211f0	-	1	Obj*	obj
+param	21280	-	1	Obj*	obj
+param	214f0	-	1	Obj*	obj
+param	21800	-	1	Obj*	obj
+param	267c0	45ae88	1	Obj*	obj
+param	26830	-	1	Obj*	obj
+param	26ec0	45b4bc	1	Obj*	obj
+param	27240	45ae0c	1	Obj*	obj
+param	2da20	516e3c	1	Obj*	obj
+param	2da80	517828	1	Obj*	obj
+param	2db20	-	1	Obj*	obj
+param	2ddc0	4679c0	1	Obj*	obj
+param	2de20	4d5c04	1	Obj*	obj
+param	2e200	-	1	Obj*	obj
+param	2ef10	-	1	Obj*	obj
+param	2ef60	-	1	Obj*	obj
+param	2ef70	-	1	Obj*	obj
+param	2efc0	46a1cc	1	Obj*	obj
+param	2f2f0	46a91c	1	Obj*	obj
+param	2f330	46a984	1	Obj*	obj
+param	2f400	46aa70	1	Obj*	obj
+param	2f560	46ab60	1	Obj*	obj
+param	2f610	46ac40	1	Obj*	obj
+param	2f730	46ada0	1	Obj*	obj
+param	2f7b0	46ae0c	1	Obj*	obj
+param	2f830	46ae7c	1	Obj*	obj
+param	2f990	46af9c	1	Obj*	obj
+param	2fb80	46b130	1	Obj*	obj
+param	2fd30	46b27c	1	Obj*	obj
+param	2ff90	46b4a8	1	Obj*	obj
+param	30490	46b7ac	1	Obj*	obj
+param	304c0	46b7b4	1	Enemy*	obj
+param	305a0	46b854	1	Obj*	obj
+param	305d0	46b880	1	Obj*	obj
+param	30690	46b928	1	Obj*	obj
+param	30820	46ba6c	1	Obj*	obj
+param	30900	46bd48	1	Obj*	obj
+param	309e0	-	1	Obj*	obj
+param	30c00	43d834	1	Obj*	obj
+param	30e50	46beb0	1	Obj*	obj
+param	310b0	46c10c	1	Obj*	obj
+param	31160	46c1a8	1	Obj*	obj
+param	311f0	46c220	1	Obj*	obj
+param	31390	46c394	1	Obj*	obj
+param	31d80	46ea30	1	Obj*	obj
+param	31e60	46eaf0	1	Obj*	obj
+param	31f00	46eb2c	1	Obj*	obj
+param	32010	46ec08	1	Obj*	obj
+param	32160	46ed3c	1	Enemy*	obj
+param	32320	46ee90	1	Enemy*	obj
+param	32390	46eee0	1	Obj*	obj
+param	32c50	46f28c	1	Enemy*	obj
+param	32c70	46f2b8	1	Obj*	obj
+param	32c90	46f2d4	1	Enemy*	obj
+param	36240	-	1	Obj*	obj
+param	368f0	4770e4	1	Obj*	obj
+param	369e0	477228	1	Obj*	obj
+param	36b80	47863c	1	Obj*	obj
+param	36ca0	4776c8	1	Obj*	obj
+param	37720	477b00	1	Obj*	obj
+param	37d80	478094	1	Obj*	obj
+param	37ff0	-	1	Obj*	obj
+param	381d0	4784d4	1	Obj*	obj
+param	38490	-	1	Obj*	obj
+param	38750	47879c	1	Obj*	obj
+param	38780	-	1	Obj*	obj
+param	387b0	-	1	Obj*	obj
+param	388a0	4788cc	1	Obj*	obj
+param	38a20	478998	1	Obj*	obj
+param	38b10	478a74	1	Obj*	obj
+param	38bd0	478b64	1	Obj*	obj
+param	39030	478e54	1	Obj*	obj
+param	39180	478f08	1	Obj*	obj
+param	391c0	478f50	1	Obj*	obj
+param	39220	478fa8	1	Obj*	obj
+param	39330	47901c	1	Obj*	obj
+param	39930	47b2c4	1	Obj*	obj
+param	39ac0	-	1	Obj*	obj
+param	39bc0	47b4a0	1	Obj*	obj
+param	39d80	-	1	Obj*	obj
+param	39ea0	47b614	1	Obj*	obj
+param	39f60	47b6c4	1	Obj*	obj
+param	3a0f0	47b874	1	Obj*	obj
+param	3a1b0	47b93c	1	Obj*	obj
+param	3a400	-	1	Obj*	obj
+param	3a500	-	1	Obj*	obj
+param	3a5d0	47bb54	1	Obj*	obj
+param	3a780	47bd70	1	Obj*	obj
+param	3a980	47bfac	1	Obj*	obj
+param	3aaa0	-	1	Obj*	obj
+param	3ab50	47c0a0	1	Obj*	obj
+param	3ac90	47c1c4	1	Obj*	obj
+param	3b020	47c52c	1	Obj*	obj
+param	3b160	47c604	1	Obj*	obj
+param	3b910	47cce4	1	Obj*	obj
+param	3bc40	47cf94	1	Obj*	obj
+param	3bfa0	47d2c8	1	Obj*	obj
+param	3c0f0	47d3d8	1	Obj*	obj
+param	3c4a0	47d690	1	Obj*	obj
+param	3c6b0	47d870	1	Obj*	obj
+param	3c770	47d914	1	Obj*	obj
+param	3cb50	47dc20	1	Obj*	obj
+param	3cc90	47dd5c	1	Obj*	obj
+param	3d190	47e330	1	Obj*	obj
+param	3d260	47e3e0	1	Obj*	obj
+param	3d4f0	47e664	1	Obj*	obj
+param	3d680	47e7c4	1	Obj*	obj
+param	3d920	47ea88	1	Obj*	obj
+param	3da10	47eb60	1	Obj*	obj
+param	3db30	47ed98	1	Obj*	obj
+param	3dbe0	47ee50	1	Obj*	obj
+param	3dca0	47eed8	1	Obj*	obj
+param	3dfc0	47f228	1	Obj*	obj
+param	3e030	47f288	1	Obj*	obj
+param	3e2b0	47f4e8	1	Obj*	obj
+param	3e4e0	47f72c	1	Obj*	obj
+param	3e590	47f8bc	1	Obj*	obj
+param	3e5f0	47f910	1	Obj*	obj
+param	3e630	47f954	1	Obj*	obj
+param	3e7b0	47faa0	1	Obj*	obj
+param	3e800	47fadc	1	Obj*	obj
+param	3e880	47fb50	1	Obj*	obj
+param	3e8f0	47fb94	1	Obj*	obj
+param	3e9b0	47fc3c	1	Obj*	obj
+param	3eb90	47fd7c	1	Obj*	obj
+param	3ec90	47fe7c	1	Obj*	obj
+param	3ed70	47ff38	1	Obj*	obj
+param	3ee00	47ffb4	1	Obj*	obj
+param	3eee0	4800a0	1	Obj*	obj
+param	3ef60	480108	1	Obj*	obj
+param	3f0d0	480334	1	Obj*	obj
+param	3f3a0	480544	1	Obj*	obj
+param	3f3f0	480580	1	Obj*	obj
+param	3f480	-	1	Obj*	obj
+param	3f600	480730	1	Obj*	obj
+param	3f700	48081c	1	Obj*	obj
+param	3f800	4808dc	1	Obj*	obj
+param	3f840	480908	1	Obj*	obj
+param	3f880	480934	1	Obj*	obj
+param	3f8b0	480954	1	Obj*	obj
+param	3fa20	480acc	1	Obj*	obj
+param	3fa80	480b24	1	Obj*	obj
+param	3fae0	480b7c	1	Obj*	obj
+param	3fcb0	480ec4	1	Obj*	obj
+param	3fd80	-	1	Obj*	obj
+param	3fe90	4810ec	1	Obj*	obj
+param	3ff70	4811d0	1	Obj*	obj
+param	40070	4812e4	1	Obj*	obj
+param	40160	481484	1	Obj*	obj
+param	401d0	4815a4	1	Obj*	obj
+param	40290	4816a4	1	Obj*	obj
+param	403f0	481850	1	Obj*	obj
+param	40520	481958	1	Obj*	obj
+param	40980	481cec	1	Obj*	obj
+param	40bb0	481ed4	1	Obj*	obj
+param	40f50	482240	1	Obj*	obj
+param	40fb0	4822b8	1	Obj*	obj
+param	412c0	508d4c	1	Obj*	obj
+param	414d0	4827b0	1	Obj*	obj
+param	416a0	482970	1	Obj*	obj
+param	41900	482bf8	1	Obj*	obj
+param	41e20	48311c	1	Obj*	obj
+param	41ff0	4832e0	1	Obj*	obj
+param	42140	483460	1	Obj*	obj
+param	422b0	-	1	Obj*	obj
+param	42300	48368c	1	Obj*	obj
+param	42420	483790	1	Obj*	obj
+param	42460	483900	1	Obj*	obj
+param	42740	483ad0	1	Obj*	obj
+param	427e0	483c10	1	Obj*	obj
+param	428a0	483c98	1	Obj*	obj
+param	428a0	483c98	2	Obj*	obj2
+param	429b0	47ed04	1	Obj*	obj
+param	42ab0	47f7bc	1	Obj*	obj
+param	42ba0	-	1	Obj*	obj
+param	42c20	480d90	1	Obj*	obj
+param	42cf0	4813c4	1	Obj*	obj
+param	42d90	4814fc	1	Obj*	obj
+param	42e70	482214	1	Obj*	obj
+param	42ec0	4835d8	1	Obj*	obj
+param	42f20	4837ec	1	Obj*	obj
+param	435a0	4863fc	1	Obj*	obj
+param	437d0	4867b4	1	Obj*	obj
+param	43860	486950	1	Obj*	obj
+param	43970	486b6c	1	Obj*	obj
+param	43d50	486e9c	1	Obj*	obj
+param	43e50	486fb4	1	Obj*	obj
+param	43f00	487038	1	Obj*	obj
+param	43fb0	4870c4	1	Obj*	obj
+param	44b90	-	1	Obj*	obj
+param	44c60	-	1	Obj*	obj
+param	44cf0	485ef8	1	Obj*	obj
+param	44d80	4860b4	1	Obj*	obj
+param	44e70	4862ac	1	Obj*	obj
+param	44ef0	486568	1	Obj*	obj
+param	44fc0	-	1	Obj*	obj
+param	450b0	46bb74	1	Obj*	obj
+param	451a0	4869dc	1	Obj*	obj
+param	452c0	-	1	Obj*	obj
+param	45340	487b7c	1	Obj*	obj
+param	45480	489c18	1	Obj*	obj
+param	46f60	48c4e4	1	Obj*	obj
+param	470c0	48c6a4	1	Obj*	obj
+param	47130	48c71c	1	Obj*	obj
+param	47170	48c75c	1	Obj*	obj
+param	47200	48c7f0	1	Obj*	obj
+param	47260	48c83c	1	Obj*	obj
+param	47350	48c920	1	Obj*	obj
+param	474b0	48ca10	1	Obj*	obj
+param	47530	48ca94	1	Obj*	obj
+param	475a0	48caf8	1	Obj*	obj
+param	47630	48cb74	1	Obj*	obj
+param	476d0	48cc0c	1	Obj*	obj
+param	47750	48cc70	1	Obj*	obj
+param	477d0	48cce8	1	Obj*	obj
+param	478e0	48cdf4	1	Obj*	obj
+param	47950	48ce58	1	Obj*	obj
+param	479d0	48ceec	1	Obj*	obj
+param	47a00	48cf08	1	Obj*	obj
+param	47a40	48cf44	1	Obj*	obj
+param	47b00	48cffc	1	Obj*	obj
+param	47b60	48d058	1	Obj*	obj
+param	47c30	-	1	Obj*	obj
+param	47c50	-	1	Obj*	obj
+param	47c70	48d18c	1	Obj*	obj
+param	47e70	48d46c	1	Obj*	obj
+param	48170	48d740	1	Obj*	obj
+param	484d0	48da14	1	Obj*	obj
+param	48690	48dba4	1	Obj*	obj
+param	48920	48ddf4	1	Obj*	obj
+param	489f0	-	1	Obj*	obj
+param	48a50	48e5dc	1	Obj*	obj
+param	48c50	579af0	1	Obj*	obj
+param	48cf0	48e1bc	1	Obj*	obj
+param	48f20	48e344	1	Obj*	obj
+param	49050	48e49c	1	Obj*	obj
+param	490e0	48e528	2	Obj*	obj2
+param	491f0	48dfa0	1	Obj*	obj
+param	495c0	-	1	Obj*	obj
+param	49980	48ed18	1	Obj*	obj
+param	49a70	-	1	Obj*	obj
+param	4ee70	498f84	1	Obj*	obj
+param	4eeb0	498fa8	1	Obj*	obj
+param	4f000	49909c	1	Obj*	obj
+param	4f080	-	1	Obj*	obj
+param	4f0c0	499170	1	Obj*	obj
+param	4f960	499860	1	Obj*	obj
+param	4faa0	49995c	1	Obj*	obj
+param	4fc40	499b20	1	Obj*	obj
+param	4fdf0	499cf4	1	Obj*	obj
+param	500e0	-	1	Obj*	obj
+param	50110	49a03c	1	Obj*	obj
+param	503e0	49a300	1	Obj*	obj
+param	50700	49a634	1	Obj*	obj
+param	50930	49a84c	1	Obj*	obj
+param	509f0	49a914	1	Obj*	obj
+param	50c10	4d2e78	1	Obj*	obj
+param	51020	49ab08	1	Obj*	obj
+param	51290	4c529c	1	Obj*	obj
+param	515b0	49b908	1	Obj*	obj
+param	51b40	-	1	Obj*	obj
+param	51fa0	-	1	Obj*	obj
+param	527a0	49c980	1	Obj*	obj
+param	528d0	49ca74	1	Obj*	obj
+param	52c30	4d99a0	1	Obj*	obj
+param	52ce0	-	1	Obj*	obj
+param	52da0	-	1	Obj*	obj
+param	52e50	49ef2c	1	Obj*	obj
+param	52ea0	49ef78	1	Obj*	obj
+param	530a0	49f268	1	Obj*	obj
+param	53480	4a101c	1	Obj*	obj
+param	535f0	4a3064	1	Enemy*	obj
+param	53810	4a3294	1	Obj*	obj
+param	53910	4a360c	1	Enemy*	obj
+param	53aa0	4a3808	1	Enemy*	obj
+param	53ea0	4a3db4	1	Enemy*	obj
+param	54090	4a403c	1	Enemy*	obj
+param	541a0	4a414c	1	Enemy*	obj
+param	54290	4a4260	1	Enemy*	obj
+param	543b0	4a4418	1	Enemy*	obj
+param	54540	4a45ac	1	Enemy*	obj
+param	54720	4a4790	1	Enemy*	obj
+param	54960	4a4980	1	Enemy*	obj
+param	54b40	4a4b10	1	Enemy*	obj
+param	54d60	4a4cf0	1	Enemy*	obj
+param	54eb0	4a4e2c	1	Enemy*	obj
+param	54fe0	-	1	Enemy*	obj
+param	550a0	4a5180	1	Enemy*	obj
+param	55b00	4a578c	1	Enemy*	obj
+param	55b30	4a5850	1	Enemy*	obj
+param	55cf0	4a34b4	1	Enemy*	obj
+param	55de0	4a3578	1	Enemy*	obj
+param	55e50	4a5018	1	Enemy*	obj
+param	55ec0	4a507c	1	Enemy*	obj
+param	55f40	4a4fc0	1	Enemy*	obj
+param	55fa0	4a3364	1	Enemy*	obj
+param	56020	4a33d4	1	Obj*	obj
+param	560f0	4a35e4	1	Enemy*	obj
+param	56120	4a3794	1	Enemy*	obj
+param	561a0	4a3bbc	1	Obj*	obj
+param	56250	4a3c40	1	Enemy*	obj
+param	56320	4a4368	1	Enemy*	obj
+param	56360	4a4398	1	Enemy*	obj
+param	563e0	4a57c8	1	Enemy*	obj
+param	56460	4a79cc	1	Obj*	obj
+param	56510	4a7a78	1	Obj*	obj
+param	56540	4a7ab4	1	Obj*	obj
+param	565b0	4a7b18	1	Obj*	obj
+param	56630	4a7b84	1	Obj*	obj
+param	56660	4a7bac	1	Obj*	obj
+param	566e0	4a7c18	1	Obj*	obj
+param	56810	4a7cf4	1	Obj*	obj
+param	56840	4a7d1c	1	Obj*	obj
+param	568b0	4a7d80	1	Obj*	obj
+param	568d0	4a7d94	1	Obj*	obj
+param	56900	4a7e20	1	Obj*	obj
+param	56960	4a7e80	1	Obj*	obj
+param	569f0	-	1	Obj*	obj
+param	56c90	4a8290	1	Obj*	obj
+param	56d00	-	1	Obj*	obj
+param	56ef0	4a84e0	1	Obj*	obj
+param	56f30	4a8514	1	Obj*	obj
+param	56fc0	4a858c	1	Obj*	obj
+param	56fe0	4a85a0	1	Obj*	obj
+param	57010	4a85c8	1	Obj*	obj
+param	57090	4a8630	1	Obj*	obj
+param	57110	4a8698	1	Obj*	obj
+param	571f0	-	1	Obj*	obj
+param	57510	4a8b04	1	Obj*	obj
+param	57540	4a8b2c	1	Obj*	obj
+param	575b0	4a8b90	1	Obj*	obj
+param	576b0	4a8cc8	1	Obj*	obj
+param	57710	4a8d28	1	Obj*	obj
+param	57780	4a8d94	1	Obj*	obj
+param	57930	4a8f78	1	Obj*	obj
+param	579a0	4a8ff0	1	Obj*	obj
+param	57a20	4a9080	1	Obj*	obj
+param	57c80	4a92e4	1	Obj*	obj
+param	57ce0	4a9344	1	Obj*	obj
+param	57db0	-	1	Obj*	obj
+param	57ef0	4a9584	1	Obj*	obj
+param	57f70	4a9600	1	Obj*	obj
+param	57ff0	-	1	Obj*	obj
+param	58320	4a9a3c	1	Obj*	obj
+param	58380	4a9aac	1	Obj*	obj
+param	58410	-	1	Obj*	obj
+param	58650	4a9dc8	1	Obj*	obj
+param	586b0	4a9e28	1	Obj*	obj
+param	58730	-	1	Obj*	obj
+param	58a60	4aa278	1	Obj*	obj
+param	58ac0	4aa2c4	1	Obj*	obj
+param	58b40	4aa358	1	Obj*	obj
+param	58b90	4aa454	1	Obj*	obj
+param	58c40	4aa52c	1	Obj*	obj
+param	58cc0	-	1	Obj*	obj
+param	59090	4aa8b8	1	Obj*	obj
+param	59120	-	1	Obj*	obj
+param	595e0	4aad00	1	Obj*	obj
+param	59610	4aad8c	1	Obj*	obj
+param	59660	4aadfc	1	Obj*	obj
+param	596f0	-	1	Obj*	obj
+param	59a80	4ab148	1	Obj*	obj
+param	59b10	4ab200	1	Obj*	obj
+param	59dd0	4ab3c4	1	Obj*	obj
+param	59e10	4ab3fc	1	Obj*	obj
+param	59ef0	4ab4e4	1	Obj*	obj
+param	59f20	4ab564	1	Obj*	obj
+param	59f80	4ab5dc	1	Obj*	obj
+param	59fb0	4ab6e4	1	Obj*	obj
+param	5a020	-	1	Obj*	obj
+param	5a130	4ab804	1	Obj*	obj
+param	5a1e0	-	1	Obj*	obj
+param	5a210	4ca884	1	Obj*	obj
+param	5a290	-	1	Obj*	obj
+param	5a2e0	4aba08	1	Obj*	obj
+param	5a4b0	4abc4c	1	Obj*	obj
+param	5a860	4aa388	1	Obj*	obj
+param	5a970	4ac060	1	Obj*	obj
+param	5a9f0	4ac0e4	1	Obj*	obj
+param	5aab0	4ac2e0	1	Obj*	obj
+param	5ac90	4d5560	1	Obj*	obj
+param	5afe0	-	1	Obj*	obj
+param	5b4c0	-	1	Obj*	obj
+param	5b500	-	1	Obj*	obj
+param	5b540	-	1	Obj*	obj
+param	5b550	4acd28	1	Obj*	obj
+param	5b7d0	4acfb4	1	Obj*	obj
+param	5ba40	4ad250	1	Obj*	obj
+param	5bd30	4ad50c	1	Obj*	obj
+param	5be60	4ad5ac	1	Obj*	obj
+param	5bf80	4ad678	1	Obj*	obj
+param	5c0c0	4ad860	1	Obj*	obj
+param	5c3a0	-	1	Obj*	obj
+param	5c460	-	1	Obj*	obj
+param	5c4b0	-	1	Obj*	obj
+param	5c5c0	-	1	Obj*	obj
+param	5c600	51a3e0	1	Obj*	obj
+param	5c650	4aad30	1	Obj*	obj
+param	5c690	4ab514	1	Obj*	obj
+param	5c6c0	4ab60c	1	Obj*	obj
+param	5c700	4ab668	1	Obj*	obj
+param	5c770	-	1	Obj*	obj
+param	5c7c0	-	1	Obj*	obj
+param	5c870	-	1	Obj*	obj
+param	5c8b0	4ad75c	1	Obj*	obj
+param	5ccd0	4b1448	1	Obj*	obj
+param	5cf50	4b16d4	1	Obj*	obj
+param	5dab0	-	1	Obj*	obj
+param	5dfb0	4b45b0	1	Obj*	obj
+param	5e370	-	1	Obj*	obj
+param	5fb70	4b4494	1	Obj*	obj
+param	5fbe0	4b4734	1	Obj*	obj
+param	5fc60	4b47e8	1	Obj*	obj
+param	5fcf0	4b4a74	1	Obj*	obj
+param	5fd00	4b4948	1	Obj*	obj
+param	5fda0	4b6d04	1	Obj*	obj
+param	5ff60	4b6e64	1	Obj*	obj
+param	60330	4b7220	1	Obj*	obj
+param	606d0	4b750c	1	Obj*	obj
+param	60820	4b7670	1	Obj*	obj
+param	60e40	4b7c80	1	Obj*	obj
+param	61000	4b7de8	1	Obj*	obj
+param	610e0	4b7ea4	1	Obj*	obj
+param	61240	4b7fb8	1	Obj*	obj
+param	613d0	-	1	Obj*	obj
+param	61c10	-	1	Obj*	obj
+param	61dd0	4b89b0	1	Obj*	obj
+param	61e30	4b8a00	1	Obj*	obj
+param	61fd0	4b8bac	1	Obj*	obj
+param	62090	4b8c6c	1	Obj*	obj
+param	62290	4b8e6c	1	Obj*	obj
+param	62a20	4b94a4	1	Obj*	obj
+param	62eb0	4b98c8	1	Obj*	obj
+param	63200	4b9afc	1	Obj*	obj
+param	635d0	4b9d98	1	Obj*	obj
+param	638d0	4ba044	1	Obj*	obj
+param	63ac0	-	1	Obj*	obj
+param	64650	-	1	Obj*	obj
+param	64b10	-	1	Obj*	obj
+param	64bb0	4bd078	1	Obj*	obj
+param	64c40	4bd13c	1	Obj*	obj
+param	64cd0	4bd1c4	1	Obj*	obj
+param	64d50	4bd220	1	Obj*	obj
+param	64e10	4bd300	1	Obj*	obj
+param	64f00	4bd4a8	1	Obj*	obj
+param	64fc0	4bd5ec	1	Obj*	obj
+param	65010	4bd64c	1	Obj*	obj
+param	65050	4bd678	1	Obj*	obj
+param	65230	4bd7c4	1	Obj*	obj
+param	652a0	4bd878	1	Obj*	obj
+param	65330	4bd96c	1	Obj*	obj
+param	65360	4bd990	1	Obj*	obj
+param	65410	4bda14	1	Obj*	obj
+param	65450	4bda68	1	Obj*	obj
+param	65490	4bdac0	1	Obj*	obj
+param	654d0	4bdaec	1	Obj*	obj
+param	656a0	4bdca4	1	Obj*	obj
+param	656d0	4bdd04	1	Obj*	obj
+param	65740	4bdd90	1	Obj*	obj
+param	65770	4bddb4	1	Obj*	obj
+param	657d0	4bde08	1	Obj*	obj
+param	65810	4bde70	1	Obj*	obj
+param	65860	4bdee4	1	Obj*	obj
+param	658a0	4bdf2c	1	Obj*	obj
+param	658e0	4bdf78	1	Obj*	obj
+param	659a0	4bdfa4	1	Obj*	obj
+param	65a70	4be090	1	Obj*	obj
+param	65ad0	4be108	1	Obj*	obj
+param	65b60	4be1a0	1	Obj*	obj
+param	65bc0	4be1dc	1	Obj*	obj
+param	65c80	4be288	1	Obj*	obj
+param	65d10	4be30c	1	Obj*	obj
+param	65e10	4be438	1	Obj*	obj
+param	65f10	4be47c	1	Obj*	obj
+param	66000	4be4a8	1	Obj*	obj
+param	66150	4be57c	1	Obj*	obj
+param	66240	4be674	1	Obj*	obj
+param	66290	4be6c0	1	Obj*	obj
+param	662f0	4be718	1	Obj*	obj
+param	66310	4be740	1	Obj*	obj
+param	664a0	4be8cc	1	Obj*	obj
+param	66540	4be954	1	Obj*	obj
+param	66680	4bea18	1	Obj*	obj
+param	67cf0	4c3ad0	1	Obj*	obj
+param	67df0	4c3b80	1	Obj*	obj
+param	67f60	4c3c40	1	Obj*	obj
+param	684b0	4c4168	1	Enemy*	obj
+param	68630	4c4334	1	Obj*	obj
+param	68990	4c4608	1	Obj*	obj
+param	69730	4c4e08	1	Obj*	obj
+param	6a6c0	4c56c8	1	Obj*	obj
+param	6bdf0	4c6218	1	Obj*	obj
+param	6bf30	4c631c	1	Enemy*	obj
+param	6dac0	4cce44	1	Obj*	obj
+param	6dae0	4cce5c	1	Obj*	obj
+param	6dbd0	4ccf20	1	Obj*	obj
+param	6dc30	4ccf80	1	Obj*	obj
+param	6de10	4cd0b8	1	Obj*	obj
+param	6df10	4cd1a8	1	Obj*	obj
+param	6e020	4cd2a0	1	Obj*	obj
+param	6e0a0	4cd320	1	Obj*	obj
+param	6e200	4cd3bc	1	Obj*	obj
+param	6e290	4cd46c	1	Obj*	obj
+param	6e540	4cd6ec	1	Obj*	obj
+param	6e5d0	4cd774	1	Obj*	obj
+param	6e750	4cd834	1	Obj*	obj
+param	6e850	4cd924	1	Obj*	obj
+param	6e930	4cd9fc	1	Obj*	obj
+param	6e9c0	4cda9c	1	Obj*	obj
+param	6eb90	4cdb80	1	Obj*	obj
+param	6ebe0	4cdbf0	1	Obj*	obj
+param	6ee00	4cddfc	1	Obj*	obj
+param	6eec0	4cdec8	1	Obj*	obj
+param	6f100	4ce014	1	Obj*	obj
+param	6f140	4ce064	1	Obj*	obj
+param	6f1e0	4ce0ec	1	Obj*	obj
+param	6f280	4ce194	1	Obj*	obj
+param	6f480	4ce2a4	1	Obj*	obj
+param	6f5d0	4ce320	1	Obj*	obj
+param	6f8f0	4ce4f8	1	Obj*	obj
+param	6f970	4ce570	1	Obj*	obj
+param	6fb40	4ce6c0	1	Obj*	obj
+param	6fcb0	4ce76c	1	Obj*	obj
+param	6fd60	4ce834	1	Obj*	obj
+param	6ff50	4ce9ac	1	Obj*	obj
+param	6ffe0	4cea34	1	Obj*	obj
+param	70190	4cebc8	1	Obj*	obj
+param	70490	4ceea8	1	Obj*	obj
+param	70630	4cf070	1	Obj*	obj
+param	70870	4cf37c	1	Obj*	obj
+param	708e0	-	1	Obj*	obj
+param	70a30	-	1	Obj*	obj
+param	70ae0	4d14b8	1	Obj*	obj
+param	70e80	467c80	1	Obj*	obj
+param	71010	467d18	1	Obj*	obj
+param	71110	4d19a8	1	Obj*	obj
+param	71260	4d1af4	1	Obj*	obj
+param	712f0	4d1b70	1	Obj*	obj
+param	713d0	-	1	Obj*	obj
+param	71400	5852c0	1	Obj*	obj
+param	71490	-	1	Obj*	obj
+param	71590	-	1	Obj*	obj
+param	71620	4d1ee4	1	Obj*	obj
+param	71c80	-	1	Obj*	obj
+param	71f40	4d26e0	1	Obj*	obj
+param	72210	4d29f0	1	Obj*	obj
+param	72680	-	1	Obj*	obj
+param	72de0	-	1	Obj*	obj
+param	73010	4d37b8	1	Obj*	obj
+param	736c0	4d3dec	1	Obj*	obj
+param	738d0	4d403c	1	Obj*	obj
+param	739d0	41bad4	1	Obj*	obj
+param	73e60	4d45b0	1	Obj*	obj
+param	73ee0	-	1	Obj*	obj
+param	74030	4cfdac	1	Obj*	obj
+param	740d0	4d4910	1	Obj*	obj
+param	749f0	4d52d0	1	Obj*	obj
+param	749f0	4d52d0	2	Obj*	obj2
+param	74ad0	4d53a0	1	Obj*	obj
+param	74ec0	4d57f0	1	Obj*	obj
+param	74f20	4d594c	1	Obj*	obj
+param	74fc0	4d59f4	1	Obj*	obj
+param	750d0	4d5aec	1	Obj*	obj
+param	75200	48e944	1	Obj*	obj
+param	75410	480fb4	1	Obj*	obj
+param	75530	4d5840	1	Obj*	obj
+param	768f0	4d900c	1	Enemy*	obj
+param	76ae0	4d91a8	1	Obj*	obj
+param	76b30	-	1	Obj*	obj
+param	76b80	4d9270	1	Enemy*	obj
+param	76cb0	4d9394	1	Enemy*	obj
+param	76d60	4d9404	1	Enemy*	obj
+param	76e50	4d94b0	1	Enemy*	obj
+param	76fc0	4d95f8	1	Obj*	obj
+param	77070	4d9694	1	Obj*	obj
+param	77110	4d974c	1	Enemy*	obj
+param	77350	-	1	Enemy*	obj
+param	77410	4d9a90	1	Enemy*	obj
+param	777f0	4d9d28	1	Enemy*	obj
+param	778c0	4d9dfc	1	Enemy*	obj
+param	77b20	4da030	1	Enemy*	obj
+param	78b70	4dae90	1	Enemy*	obj
+param	78f50	4db344	1	Enemy*	obj
+param	78fc0	4d948c	1	Enemy*	obj
+param	7c9a0	4dd5c4	1	Obj*	obj
+param	7cba0	4dd808	1	Obj*	obj
+param	7cc00	4dd874	1	Obj*	obj
+param	7cc60	4dd8e0	1	Obj*	obj
+param	7ccc0	4dd954	1	Obj*	obj
+param	7ce20	4ddb00	1	Obj*	obj
+param	7d080	4dde40	1	Obj*	obj
+param	7d190	4ddfb4	1	Obj*	obj
+param	7d2b0	4de12c	1	Obj*	obj
+param	7d330	4de1b4	1	Obj*	obj
+param	7d460	4de28c	1	Obj*	obj
+param	7d780	4de4b8	1	Obj*	obj
+param	7d960	4de69c	1	Obj*	obj
+param	7dcb0	4dea08	1	Obj*	obj
+param	7ded0	4dec88	1	Obj*	obj
+param	7e270	4df044	1	Obj*	obj
+param	7e620	4df364	1	Obj*	obj
+param	7ea80	4df7bc	1	Obj*	obj
+param	7ede0	4e1984	1	Enemy*	obj
+param	7eeb0	4e3988	1	Obj*	obj
+param	7efc0	4e3ab8	1	Obj*	obj
+param	7f040	4e3b44	1	Obj*	obj
+param	7f0a0	4e3b98	1	Obj*	obj
+param	7f100	4e3be8	1	Obj*	obj
+param	7f170	4e3c6c	1	Obj*	obj
+param	7f1a0	4e3cb0	1	Obj*	obj
+param	7f310	4e3db0	1	Obj*	obj
+param	7f3b0	4e3e40	1	Obj*	obj
+param	7f400	4e3e9c	1	Obj*	obj
+param	7f560	4e405c	1	Obj*	obj
+param	7f580	4e406c	1	Obj*	obj
+param	7f5a0	4e40a4	1	Obj*	obj
+param	7f5d0	4e40d0	1	Obj*	obj
+param	7f700	-	1	Obj*	obj
+param	7f710	4e422c	1	Obj*	obj
+param	7f770	4e4280	1	Obj*	obj
+param	7f840	4e4354	1	Obj*	obj
+param	7f900	4e440c	1	Obj*	obj
+param	7f970	4e4494	1	Obj*	obj
+param	7f9d0	4e4520	1	Obj*	obj
+param	7f9f0	4e45ec	1	Obj*	obj
+param	7fa10	4e4624	1	Obj*	obj
+param	7fa40	4e4640	1	Obj*	obj
+param	7fae0	4e46a8	1	Obj*	obj
+param	7fba0	4e4738	1	Obj*	obj
+param	7fc70	4e4844	1	Obj*	obj
+param	7fc90	4e488c	1	Obj*	obj
+param	7fcd0	4e48f8	1	Obj*	obj
+param	7fd40	4e4960	1	Obj*	obj
+param	7fd90	4e49b8	1	Obj*	obj
+param	7fde0	4e4a08	1	Obj*	obj
+param	7fe20	4e4a48	1	Obj*	obj
+param	7feb0	4e4b04	1	Obj*	obj
+param	7ff30	-	1	Obj*	obj
+param	7ff40	4e4b44	1	Obj*	obj
+param	7ffc0	4e4ba8	1	Obj*	obj
+param	7fff0	4e4bc4	1	Obj*	obj
+param	80100	4e4c54	1	Obj*	obj
+param	80120	4e4c78	1	Obj*	obj
+param	80240	4e4d20	1	Obj*	obj
+param	80510	4e500c	1	Obj*	obj
+param	805a0	4e50cc	1	Obj*	obj
+param	80700	4e5224	1	Obj*	obj
+param	80840	4e5314	1	Obj*	obj
+param	80900	4e53e8	1	Obj*	obj
+param	80c80	4e56a8	1	Obj*	obj
+param	80f30	4e58ac	1	Obj*	obj
+param	81030	4e59c4	1	Obj*	obj
+param	81300	4e5be0	1	Obj*	obj
+param	814e0	4e5d74	1	Obj*	obj
+param	81670	4e5ec4	1	Obj*	obj
+param	81890	4e60bc	1	Obj*	obj
+param	81920	4e6144	1	Obj*	obj
+param	81990	4e61b0	1	Obj*	obj
+param	81a10	4e6228	1	Obj*	obj
+param	81b20	-	1	Obj*	obj
+param	81b40	-	1	Obj*	obj
+param	81c00	4325f0	1	Obj*	obj
+param	81c30	432648	1	Obj*	obj
+param	81ce0	4e9638	1	Obj*	obj
+param	81d20	-	1	Obj*	obj
+param	81db0	4e6730	1	Obj*	obj
+param	81f30	4e6880	1	Obj*	obj
+param	820b0	4e69b4	1	Obj*	obj
+param	82320	4e6b54	1	Obj*	obj
+param	82400	4e6c30	1	Obj*	obj
+param	82670	4e6dcc	1	Obj*	obj
+param	82790	4e6eac	1	Obj*	obj
+param	82c30	4e722c	1	Obj*	obj
+param	82e30	4e7390	1	Obj*	obj
+param	82e80	4e73d4	1	Obj*	obj
+param	82f00	4e455c	1	Obj*	obj
+param	82fe0	4e7498	1	Obj*	obj
+param	83030	4e74ec	1	Obj*	obj
+param	83230	4e509c	1	Obj*	obj
+param	83270	4e45fc	1	Obj*	obj
+param	832d0	4e669c	1	Obj*	obj
+param	83330	4e9688	1	Obj*	obj
+param	83350	4e96a0	1	Obj*	obj
+param	83370	4e96bc	1	Obj*	obj
+param	83390	4e96e4	1	Obj*	obj
+param	83590	4e9864	1	Obj*	obj
+param	83660	4e9904	1	Obj*	obj
+param	837c0	4e9a5c	1	Obj*	obj
+param	83a30	4e9c44	1	Obj*	obj
+param	84180	4ea23c	1	Obj*	obj
+param	843b0	4ea390	1	Obj*	obj
+param	844a0	4ea460	1	Obj*	obj
+param	846b0	4ea650	1	Obj*	obj
+param	84940	4ea8bc	1	Obj*	obj
+param	84a80	4ea9f8	1	Obj*	obj
+param	84cd0	4eab90	1	Obj*	obj
+param	85430	4ed0d8	1	Obj*	obj
+param	85550	4ed210	1	Obj*	obj
+param	85640	4ed2f8	1	Obj*	obj
+param	85700	4ed49c	1	Obj*	obj
+param	85b30	4ed7d0	1	Obj*	obj
+param	85be0	4ed8b0	1	Obj*	obj
+param	85c80	4ed978	1	Obj*	obj
+param	85d90	4eda90	1	Obj*	obj
+param	85e70	4edbc4	1	Obj*	obj
+param	86000	4edd44	1	Obj*	obj
+param	86070	4eddb8	1	Obj*	obj
+param	86100	4ede68	1	Obj*	obj
+param	86160	4edf04	1	Obj*	obj
+param	86430	4ee238	1	Obj*	obj
+param	86510	4ee32c	1	Obj*	obj
+param	866a0	4ee4c0	1	Obj*	obj
+param	86990	4ee7ec	1	Obj*	obj
+param	86ab0	4ee8e4	1	Obj*	obj
+param	86b20	4eeb34	1	Obj*	obj
+param	86cb0	4eec10	1	Obj*	obj
+param	87060	-	1	Obj*	obj
+param	870c0	432b3c	1	Obj*	obj
+param	871a0	-	1	Obj*	obj
+param	87770	4ef3a4	1	Obj*	obj
+param	878e0	-	1	Obj*	obj
+param	879e0	-	1	Obj*	obj
+param	87b50	-	1	Obj*	obj
+param	87bf0	-	1	Obj*	obj
+param	87c50	4f2e18	1	Obj*	obj
+param	87d10	4f2ea8	1	Obj*	obj
+param	87d80	4f2ef8	1	Obj*	obj
+param	87e20	4f2f7c	1	Obj*	obj
+param	87ef0	4f301c	1	Obj*	obj
+param	87f10	4f3030	1	Obj*	obj
+param	87f80	4f3094	1	Obj*	obj
+param	87fb0	4f30b8	1	Obj*	obj
+param	88000	4f30fc	1	Obj*	obj
+param	88050	4f3130	1	Obj*	obj
+param	88090	4f316c	1	Obj*	obj
+param	880d0	4f31a4	1	Obj*	obj
+param	88120	4f31f0	1	Obj*	obj
+param	88180	4f3230	1	Obj*	obj
+param	881c0	4f3264	1	Obj*	obj
+param	88210	4f6d38	1	Obj*	obj
+param	88230	4f6d5c	1	Obj*	obj
+param	88280	4f6da4	1	Obj*	obj
+param	88370	4f6e80	1	Obj*	obj
+param	883d0	4f6eec	1	Obj*	obj
+param	885e0	4f70cc	1	Obj*	obj
+param	88a50	4f7378	1	Obj*	obj
+param	88e30	4f7618	1	Obj*	obj
+param	892b0	4f7a14	1	Obj*	obj
+param	89600	4f7cb8	1	Obj*	obj
+param	89930	4f7f4c	1	Obj*	obj
+param	89bc0	4f81dc	1	Obj*	obj
+param	89fe0	4f85a8	1	Obj*	obj
+param	8a400	4fa878	1	Obj*	obj
+param	8a420	4fa890	1	Obj*	obj
+param	8a490	4fa8f8	1	Obj*	obj
+param	8a4f0	4fa950	1	Obj*	obj
+param	8a570	4fa9d8	1	Obj*	obj
+param	8a680	4faaf0	1	Obj*	obj
+param	8a830	4facd0	1	Obj*	obj
+param	8aa00	4fae1c	1	Obj*	obj
+param	8ab60	4faf10	1	Obj*	obj
+param	8ad90	4fb0d8	1	Obj*	obj
+param	8ae20	4fb180	1	Obj*	obj
+param	8b040	4fb350	1	Obj*	obj
+param	8b2e0	4fb56c	1	Obj*	obj
+param	8b470	4fb6d4	1	Obj*	obj
+param	8b8f0	4fba64	1	Obj*	obj
+param	8bcc0	4fbd30	1	Obj*	obj
+param	8bec0	4fde44	1	Obj*	obj
+param	8bf10	4fdea4	1	Obj*	obj
+param	8bfc0	4fdf4c	1	Obj*	obj
+param	8c090	4fdf68	1	Obj*	obj
+param	8c1a0	4fe098	1	Obj*	obj
+param	8c230	4fe118	1	Obj*	obj
+param	8c420	4fe320	1	Obj*	obj
+param	8c4c0	4fe3f4	1	Obj*	obj
+param	8c620	4fe53c	1	Obj*	obj
+param	8ca40	4fe8b8	1	Obj*	obj
+param	8ceb0	4fec58	1	Obj*	obj
+param	8d190	4fee84	1	Obj*	obj
+param	8d310	4fef90	1	Obj*	obj
+param	8d7a0	4ff1bc	1	Obj*	obj
+param	8d960	4ff30c	1	Obj*	obj
+param	8dc50	4ff59c	1	Obj*	obj
+param	8dd80	4ff6e0	1	Obj*	obj
+param	8df40	4ff870	1	Obj*	obj
+param	8e260	4ffadc	1	Obj*	obj
+param	8e340	4ffb88	1	Obj*	obj
+param	8e420	4ffc34	1	Obj*	obj
+param	8e530	4ffd38	1	Obj*	obj
+param	8e5a0	4ffdc4	1	Obj*	obj
+param	8e790	4fffa0	1	Obj*	obj
+param	8e9c0	500158	1	Obj*	obj
+param	8eee0	500628	1	Obj*	obj
+param	8f090	500800	1	Obj*	obj
+param	8f780	500cd4	1	Obj*	obj
+param	8f990	500e68	1	Obj*	obj
+param	8fc30	501000	1	Obj*	obj
+param	8fd90	5010d0	1	Obj*	obj
+param	8ff00	501194	1	Obj*	obj
+param	902f0	5014f8	1	Obj*	obj
+param	906c0	5017a0	1	Obj*	obj
+param	909f0	5019d4	1	Obj*	obj
+param	90d30	501ba0	1	Obj*	obj
+param	90f20	501d80	1	Obj*	obj
+param	90ff0	501e38	1	Obj*	obj
+param	914f0	502298	1	Obj*	obj
+param	915c0	502378	1	Obj*	obj
+param	91960	502600	1	Obj*	obj
+param	91de0	5028f4	1	Obj*	obj
+param	91f00	502a18	1	Obj*	obj
+param	92210	502ca4	1	Obj*	obj
+param	92380	502e14	1	Obj*	obj
+param	92930	503314	1	Obj*	obj
+param	92a00	5033f4	1	Obj*	obj
+param	92a90	503454	1	Obj*	obj
+param	92be0	50359c	1	Obj*	obj
+param	92c40	5035f4	1	Obj*	obj
+param	92d10	4fc018	1	Obj*	obj
+param	92d30	505674	1	Obj*	obj
+param	92dc0	505738	1	Obj*	obj
+param	92e10	505774	1	Obj*	obj
+param	92ee0	505858	1	Obj*	obj
+param	92f50	5058c8	1	Obj*	obj
+param	93030	505978	1	Obj*	obj
+param	93100	505a54	1	Enemy*	obj
+param	931a0	505b04	1	Enemy*	obj
+param	93340	505cc0	1	Enemy*	obj
+param	934b0	505df4	1	Enemy*	obj
+param	935a0	505eb8	1	Enemy*	obj
+param	93630	505f50	1	Enemy*	obj
+param	93720	506058	1	Obj*	obj
+param	937a0	5060d8	1	Obj*	obj
+param	93860	506160	1	Obj*	obj
+param	93930	50623c	1	Obj*	obj
+param	939a0	5062a8	1	Obj*	obj
+param	93a10	506320	1	Obj*	obj
+param	93b40	50642c	1	Obj*	obj
+param	93be0	5064b0	1	Obj*	obj
+param	93cc0	5065a4	1	Obj*	obj
+param	93db0	5066ec	1	Obj*	obj
+param	93ec0	506750	1	Enemy*	obj
+param	93fa0	506840	1	Enemy*	obj
+param	94040	506914	1	Enemy*	obj
+param	941e0	506ae0	1	Obj*	obj
+param	94290	506bc0	1	Obj*	obj
+param	942d0	506674	1	Obj*	obj
+param	95140	50be08	1	Obj*	obj
+param	95630	50bd70	1	Obj*	obj
+param	95710	50ddc4	1	Obj*	obj
+param	95770	50de70	1	Obj*	obj
+param	958d0	50df78	1	Obj*	obj
+param	95980	4354d0	1	Obj*	obj
+param	95b50	434ad4	1	Obj*	obj
+param	95d70	-	1	Obj*	obj
+param	95eb0	-	1	Obj*	obj
+param	95ee0	50e318	1	Obj*	obj
+param	95f50	50e300	1	Obj*	obj
+param	95fb0	-	1	Obj*	obj
+param	96020	-	1	Obj*	obj
+param	960a0	-	1	Obj*	obj
+param	96110	-	1	Obj*	obj
+param	96190	-	1	Obj*	obj
+param	961f0	-	1	Obj*	obj
+param	96230	-	1	Obj*	obj
+param	96280	-	1	Obj*	obj
+param	962e0	-	1	Obj*	obj
+param	96350	-	1	Obj*	obj
+param	963a0	-	1	Obj*	obj
+param	963f0	510588	1	Obj*	obj
+param	96440	5105d0	1	Obj*	obj
+param	96490	510608	1	Obj*	obj
+param	964d0	51063c	1	Obj*	obj
+param	96760	-	1	Obj*	obj
+param	967b0	-	1	Obj*	obj
+param	969d0	-	1	Obj*	obj
+param	96a80	-	1	Obj*	obj
+param	96c80	510ce0	1	Obj*	obj
+param	96dc0	510dc8	1	Obj*	obj
+param	96ec0	510e90	1	Obj*	obj
+param	970b0	510ff0	1	Obj*	obj
+param	97880	515400	1	Obj*	obj
+param	97a90	5155c8	1	Obj*	obj
+param	97c80	5157cc	1	Obj*	obj
+param	97ca0	5157e0	1	Obj*	obj
+param	97d20	51589c	1	Obj*	obj
+param	97fe0	51804c	1	Obj*	obj
+param	98130	5169cc	1	Obj*	obj
+param	982b0	515e84	1	Obj*	obj
+param	98450	515fac	1	Obj*	obj
+param	98560	51608c	1	Obj*	obj
+param	98720	5161f8	1	Obj*	obj
+param	987c0	516288	1	Obj*	obj
+param	98950	5163f0	1	Obj*	obj
+param	98a20	5165e8	1	Obj*	obj
+param	98b60	5166ec	1	Obj*	obj
+param	98c80	5164bc	1	Obj*	obj
+param	98d10	5135d4	1	Obj*	obj
+param	98db0	5167cc	1	Obj*	obj
+param	98e70	51684c	1	Obj*	obj
+param	98fa0	-	1	Obj*	obj
+param	99210	516c44	1	Obj*	obj
+param	99260	516c80	1	Obj*	obj
+param	992d0	516cf4	1	Obj*	obj
+param	993a0	-	1	Obj*	obj
+param	99450	-	1	Obj*	obj
+param	99500	516ef8	1	Obj*	obj
+param	99570	-	1	Obj*	obj
+param	9a890	517c9c	1	Obj*	obj
+param	9a8c0	517cc8	1	Obj*	obj
+param	9aa30	-	1	Obj*	obj
+param	9ab90	-	1	Obj*	obj
+param	9add0	-	1	Obj*	obj
+param	9ae20	-	1	Obj*	obj
+param	9af10	518200	1	Obj*	obj
+param	9afb0	519f80	1	Obj*	obj
+param	9b040	519fe4	1	Obj*	obj
+param	9b380	51a274	1	Obj*	obj
+param	9b4c0	-	1	Obj*	obj
+param	a13d0	522e64	1	Obj*	obj
+param	a1550	523014	1	Obj*	obj
+param	a15c0	52307c	1	Obj*	obj
+param	a1900	5232c4	1	Enemy*	obj
+param	a19d0	52339c	1	Enemy*	obj
+param	a1a40	523418	1	Enemy*	obj
+# END gen_param_types.py

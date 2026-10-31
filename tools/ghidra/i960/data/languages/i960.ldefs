@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<language_definitions>
+  <language processor="i960"
+            endian="little"
+            size="32"
+            variant="default"
+            version="1.0"
+            slafile="i960.sla"
+            processorspec="i960.pspec"
+            id="i960:LE:32:default">
+    <description>Intel i960KB (Sega Model 2 main CPU); written for the HOTD rewrite</description>
+    <compiler name="default" spec="i960.cspec" id="default"/>
+  </language>
+</language_definitions>

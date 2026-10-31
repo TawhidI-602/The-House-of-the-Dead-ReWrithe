@@ -1,0 +1,16 @@
+# PC Mode game with auto-aim: the menu of game_pm.txt, then auto-aim
+200 dik 0x1C 1
+205 dik 0x1C 0
+300 dik 0xD0 1
+324 dik 0xD0 0
+330 dik 0xCD 1
+363 dik 0xCD 0
+370 dik 0xD0 1
+377 dik 0xD0 0
+390 dik 0x1C 1
+395 dik 0x1C 0
+420 dik 0xD0 1
+440 dik 0xD0 0
+460 dik 0x1C 1
+465 dik 0x1C 0
+750 autoaim 1

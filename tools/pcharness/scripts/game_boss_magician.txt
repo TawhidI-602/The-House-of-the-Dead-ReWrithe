@@ -1,0 +1,18 @@
+# Boss Mode (pccap): menu item 3 (Boss Mode, screen 7) -> the bottom right (Magician) picture (cursor from (321, 285)), then auto-aim
+200 dik 0x1C 1
+205 dik 0x1C 0
+300 dik 0xD0 1
+324 dik 0xD0 0
+330 dik 0xCD 1
+363 dik 0xCD 0
+370 dik 0xD0 1
+380 dik 0xD0 0
+400 dik 0x1C 1
+405 dik 0x1C 0
+430 dik 0xCD 1
+454 dik 0xCD 0
+464 dik 0xD0 1
+479 dik 0xD0 0
+520 dik 0x1C 1
+525 dik 0x1C 0
+800 autoaim 1

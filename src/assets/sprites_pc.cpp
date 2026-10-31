@@ -1,0 +1,367 @@
+// The PC port's 2D sprites (sprites_pc.h). UNVERIFIED (teaser): the layout is read from the files and the PC code
+// (0x4434B0, 0x4432F0); not compared with the PC game's screen yet.
+#include "assets/sprites_pc.h"
+
+#include "assets/archive.h"
+#include "assets/pc_files.h"
+#include "assets/pc_loader.h"
+
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <sstream>
+#include <set>
+#include <thread>
+
+namespace hotd::assets {
+
+namespace {
+
+std::vector<uint8_t> readAll(const std::string& path)
+{
+    std::vector<uint8_t> d;
+    if (!hotd::pcfs::readFile(path, d))
+        d.clear();
+    return d;
+}
+
+std::string pcPath(const std::string& install, const std::string& rel)
+{
+    const std::string m = pcFileMapped(rel);
+    return m.empty() ? install + "/" + rel : m;
+}
+
+template <class T> T rd(const std::vector<uint8_t>& b, size_t off)
+{
+    T v{};
+    if (off + sizeof(T) <= b.size())
+        std::memcpy(&v, b.data() + off, sizeof(T));
+    return v;
+}
+
+// perf (2026-10-21): the sprite pages' texels as BIGGER.VMC holds them (BODY chunks of 256 x 256 x 16 bits, file
+// order), read once per file and set of pages: the menu loads the sprites twice (its MENU and TITLE colours) and the
+// HUD once more (~75 ms of reading each; a zipped install inflated the 55 MB file each time)
+struct RawPages {
+    std::string path;
+    std::set<int> pages;
+    bool ok = false;   // the file is there and a VMC
+    std::vector<std::pair<int, std::vector<uint8_t>>> list;
+};
+std::shared_ptr<const RawPages> rawPages(const std::string& path, const std::set<int>& pages)
+{
+    static std::mutex lock;
+    static std::shared_ptr<const RawPages> last;
+    std::lock_guard<std::mutex> g(lock);
+    if (last && last->path == path && last->pages == pages)
+        return last;
+    auto r = std::make_shared<RawPages>();
+    r->path = path;
+    r->pages = pages;
+    const std::unique_ptr<std::istream> stream = pcfs::openStream(path);
+    std::istringstream none;
+    std::istream& f = stream ? *stream : none;
+    char hdr[12];
+    if (!f.read(hdr, 12) || std::memcmp(hdr, "PIFF", 4) != 0 || std::memcmp(hdr + 8, "VVTP", 4) != 0)
+        return r;   // (not kept: tried again next time)
+    r->ok = true;
+    std::vector<uint8_t> body;
+    for (;;) {
+        char ch[8];
+        if (!f.read(ch, 8))
+            break;
+        uint32_t size;
+        std::memcpy(&size, ch + 4, 4);
+        if (std::memcmp(ch, "BODY", 4) != 0 || size < 64) {
+            f.seekg(size, std::ios::cur);
+            continue;
+        }
+        uint8_t ph[64];
+        f.read(reinterpret_cast<char*>(ph), 64);
+        uint32_t number;
+        uint16_t w, h;
+        std::memcpy(&number, ph + 4, 4);
+        std::memcpy(&w, ph + 8, 2);
+        std::memcpy(&h, ph + 10, 2);
+        if (!pages.count(int(number)) || w != 256 || h != 256) {
+            f.seekg(size - 64, std::ios::cur);
+            continue;
+        }
+        body.resize(size - 64);
+        f.read(reinterpret_cast<char*>(body.data()), std::streamsize(body.size()));
+        r->list.emplace_back(int(number), body);
+    }
+    last = r;
+    return r;
+}
+
+} // namespace
+
+bool PcSprites::load(const std::string& installDir, std::string& err, int stage, int bloodColour, const std::string& palette)
+{
+    const std::vector<uint8_t> rbh = readAll(pcPath(installDir, "SPRITE/SPR.RBH"));
+    if (rbh.size() < 0x30 || std::memcmp(rbh.data(), "PIFF", 4) != 0 || std::memcmp(rbh.data() + 0x20, "BODY", 4) != 0) {
+        err = "SPRITE/SPR.RBH missing or not an RBH file";
+        return false;
+    }
+    const size_t base = 0x28, bodySize = rd<uint32_t>(rbh, 0x24);
+    const uint32_t first = rd<uint32_t>(rbh, base);
+    const size_t n = first / 4;
+    sprites_.assign(n, Sprite{});
+    std::set<int> pages;
+    for (size_t i = 0; i < n; ++i) {
+        const size_t o = base + rd<uint32_t>(rbh, base + 4 * i);
+        if (o + 16 > base + bodySize)
+            continue;
+        Sprite& s = sprites_[i];
+        const uint32_t count = rd<uint32_t>(rbh, o);
+        for (int k = 0; k < 4; ++k)
+            s.box[k] = rd<int16_t>(rbh, o + 4 + 2 * k);
+        s.w = rd<int16_t>(rbh, o + 12);
+        s.h = rd<int16_t>(rbh, o + 14);
+        for (uint32_t k = 0; k < count && k < 64; ++k) {
+            const size_t q = o + 16 + 16 * k;
+            Piece p{rd<int16_t>(rbh, q), rd<int16_t>(rbh, q + 2), rd<int16_t>(rbh, q + 4), rd<int16_t>(rbh, q + 6),
+                    rd<uint8_t>(rbh, q + 8), rd<uint8_t>(rbh, q + 9), rd<int16_t>(rbh, q + 12)};
+            s.pieces.push_back(p);
+            pages.insert(p.page);
+        }
+    }
+    // the pages, from BIGGER.VMC (docs/formats.md §3)
+    const std::shared_ptr<const RawPages> raw = rawPages(pcPath(installDir, "ART/STAGE1/CREATURE/BIGGER.VMC"), pages);
+    if (!raw->ok) {
+        err = "ART/STAGE1/CREATURE/BIGGER.VMC missing";
+        sprites_.clear();
+        return false;
+    }
+    // pcpolish (2026-10-16): the 2D goes through the stage's 8-bit palette like the 3D textures (pc_loader.cpp
+    // readVmcPages: STAGEn.TBL = palette index by 16-bit texel, STAGEn.PAL = 256 x RGBx; THOTD.EXE 0x418B07 hands the
+    // palette to the render driver for everything it draws). Real PC harness capture of the results screen
+    // (pc_look\pcpolish\full t14810), the metal plate p50 / p90: (147,155,180) / (182,192,206); through STAGE1
+    // (146,153,180) / (176,190,205); the direct 5-bit colours were teal. HOTD_PC_NO_PAL=1: the direct colours.
+    std::vector<uint8_t> tbl, pal;
+    if (!std::getenv("HOTD_PC_NO_PAL")) {
+        const std::string n = !palette.empty() ? palette : "STAGE" + std::to_string(stage < 1 ? 1 : stage > 4 ? 4 : stage);
+        tbl = readAll(pcPath(installDir, n + ".TBL"));
+        pal = readAll(pcPath(installDir, n + ".PAL"));
+        if (tbl.size() != 65536 || pal.size() < 1024) tbl.clear();
+    }
+    // pcpolish3: the PC's grey look (0x419028: brown.pal while 0xDA0CBA is set) goes to the render driver's one
+    // palette, so the 2D turns brown with the 3D: real PC harness capture pc_look\pcpolish3\full t14350 (Sophie's
+    // death, kind 182): HOLD YOUR FIRE! and the subtitle in the brown tones
+    std::vector<uint8_t> btbl, bpal;
+    if (!tbl.empty()) {
+        btbl = readAll(pcPath(installDir, "BROWN.TBL"));
+        bpal = readAll(pcPath(installDir, "BROWN.PAL"));
+        if (btbl.size() != 65536 || bpal.size() < 1024) btbl.clear();
+    }
+    brownPages_.clear();
+    brown_ = false;
+    // perf (2026-10-21): the pages converted on several threads (each page on its own; a page number read twice takes
+    // the later one's texels, as when the later one overwrote the earlier)
+    struct Job { const std::vector<uint8_t>* body; std::vector<uint8_t>* px; std::vector<uint8_t>* bx; };
+    std::map<int, const std::vector<uint8_t>*> latest;
+    for (const auto& [number, body] : raw->list)
+        latest[number] = &body;
+    std::vector<Job> jobs;
+    for (const auto& [number, body] : latest)
+        jobs.push_back({body, &pages_[number], btbl.empty() ? nullptr : &brownPages_[number]});
+    auto convert = [&](const Job& j) {
+        const std::vector<uint8_t>& body = *j.body;
+        std::vector<uint8_t>& px = *j.px;
+        std::vector<uint8_t>* const bx = j.bx;
+        px.assign(256 * 256 * 4, 0);
+        if (bx)
+            bx->assign(256 * 256 * 4, 0);
+        for (int i = 0; i < 256 * 256; ++i) {
+            const uint16_t c = uint16_t(body[size_t(i) * 2] | body[size_t(i) * 2 + 1] << 8);
+            if (!(c & 0x8000) || (c & 0x7FFF) == 0x7C1F)
+                continue;
+            if (bx) {
+                const uint8_t* e = bpal.data() + size_t(btbl[c]) * 4;
+                std::memcpy(&(*bx)[size_t(i) * 4], e, 3);
+                (*bx)[size_t(i) * 4 + 3] = 255;
+            }
+            if (!tbl.empty()) {
+                const uint8_t* e = pal.data() + size_t(tbl[c]) * 4;
+                px[size_t(i) * 4 + 0] = e[0];
+                px[size_t(i) * 4 + 1] = e[1];
+                px[size_t(i) * 4 + 2] = e[2];
+                px[size_t(i) * 4 + 3] = 255;
+                continue;
+            }
+            auto x5 = [](int v) { return uint8_t((v << 3) | (v >> 2)); };
+            px[size_t(i) * 4 + 0] = x5(c >> 10 & 31);
+            px[size_t(i) * 4 + 1] = x5(c >> 5 & 31);
+            px[size_t(i) * 4 + 2] = x5(c & 31);
+            px[size_t(i) * 4 + 3] = 255;
+        }
+    };
+    std::atomic<size_t> next{0};
+    auto run = [&] {
+        for (size_t k = next++; k < jobs.size(); k = next++)
+            convert(jobs[k]);
+    };
+    std::vector<std::thread> pool;
+    for (unsigned t = 1; t < std::clamp(std::thread::hardware_concurrency(), 1u, 8u) && jobs.size() > 8; ++t)
+        pool.emplace_back(run);
+    run();
+    for (std::thread& t : pool)
+        t.join();
+    // display2: the blood colour. The PC game draws its sprites from TEXTURE.VMC too, i.e. the B_<colour>.VMC set
+    // (pc_loader.cpp). Of the sprite pages only 219 / 220 differ between the sets (the GAME OVER screen 0x4E3, red ->
+    // the blood colour); the hit marks 0x47E..0x483 (pages 103-114) are the same red in every set, and the PC's
+    // hud_player_notice_show 0x50B444 picks them from a fixed table (0x5F2DE8): red with every blood colour, as the
+    // arcade's (0x945D0: table 0xCA5FC; no 2D routine reads blood_color). UNVERIFIED (teaser): no PC capture with
+    // non-red blood
+    std::vector<uint16_t> list;
+    for (const auto& [number, px] : pages_)
+        list.push_back(uint16_t(number));
+    std::vector<std::vector<uint8_t>> blood;
+    std::string berr;
+    if (pcBloodPages(installDir, bloodColour, list, blood, berr, tbl.empty() ? nullptr : &tbl, tbl.empty() ? nullptr : &pal) &&
+        blood.size() == list.size()) {
+        size_t changed = 0;
+        static const bool trace = std::getenv("HOTD_TRACE_SPRITES") != nullptr;
+        for (size_t k = 0; k < list.size(); ++k) {
+            std::vector<uint8_t>& px = pages_[int(list[k])];
+            size_t n = 0;
+            for (size_t i = 0; i + 3 < px.size() && i + 3 < blood[k].size(); i += 4)
+                if (px[i + 3] && blood[k][i + 3] && std::memcmp(&px[i], &blood[k][i], 3) != 0) {
+                    std::memcpy(&px[i], &blood[k][i], 3);
+                    ++n;
+                }
+            if (trace && n)
+                std::fprintf(stderr, "PC sprites: page %d: %zu blood texels\n", int(list[k]), n);
+            changed += n;
+        }
+        std::fprintf(stderr, "PC sprites: blood colour %X: %zu texels from the blood set\n", unsigned(bloodColour), changed);
+    } else if (!berr.empty()) {
+        std::fprintf(stderr, "PC sprites: blood colour %X not applied: %s\n", unsigned(bloodColour), berr.c_str());
+    }
+    return true;
+}
+
+int PcSprites::width(int id) const
+{
+    if (const auto c = custom_.find(id); c != custom_.end())
+        return c->second.w;
+    return id > 0 && size_t(id) < sprites_.size() ? sprites_[size_t(id)].w : 0;
+}
+
+int PcSprites::height(int id) const
+{
+    if (const auto c = custom_.find(id); c != custom_.end())
+        return c->second.h;
+    return id > 0 && size_t(id) < sprites_.size() ? sprites_[size_t(id)].h : 0;
+}
+
+void PcSprites::draw(std::vector<uint8_t>& canvas, int id, int x, int y) const
+{
+    draw(canvas, id, x, y, 0, 0, kWidth, kHeight);
+}
+
+void PcSprites::draw(std::vector<uint8_t>& canvas, int id, int x, int y, int cx0, int cy0, int cx1, int cy1,
+                     int canvasW) const
+{
+    const int canvasH = canvasW > 0 ? int(canvas.size() / (size_t(canvasW) * 4)) : 0;
+    cx0 = std::max(cx0, 0), cy0 = std::max(cy0, 0), cx1 = std::min(cx1, canvasW), cy1 = std::min(cy1, canvasH);
+    if (const auto c = custom_.find(id); c != custom_.end()) {   // pmfix2: a picture of ours (addImage)
+        const Custom& cu = c->second;
+        for (int j = 0; j < cu.h; ++j) {
+            const int sy = y + cu.oy + j;
+            if (sy < cy0 || sy >= cy1)
+                continue;
+            for (int i = 0; i < cu.w; ++i) {
+                const int sx = x + cu.ox + i;
+                const uint8_t* s = &cu.rgba[(size_t(j) * size_t(cu.w) + size_t(i)) * 4];
+                if (sx < cx0 || sx >= cx1 || !s[3])
+                    continue;
+                uint8_t* d = &canvas[(size_t(sy) * size_t(canvasW) + size_t(sx)) * 4];
+                for (int k = 0; k < 3; ++k)
+                    d[k] = uint8_t((s[k] * s[3] + d[k] * (255 - s[3])) / 255);
+                d[3] = 255;
+            }
+        }
+        return;
+    }
+    if (id <= 0 || size_t(id) >= sprites_.size())
+        return;
+    const std::map<int, std::vector<uint8_t>>& pages = brown_ ? brownPages_ : pages_;
+    for (const Piece& p : sprites_[size_t(id)].pieces) {
+        const auto it = pages.find(p.page);
+        if (it == pages.end())
+            continue;
+        const std::vector<uint8_t>& px = it->second;
+        for (int j = 0; j < p.y1 - p.y0; ++j) {
+            const int sy = y + p.y0 + j, v = p.v + j;
+            if (sy < cy0 || sy >= cy1 || v > 255)
+                continue;
+            for (int i = 0; i < p.x1 - p.x0; ++i) {
+                const int sx = x + p.x0 + i, u = p.u + i;
+                if (sx < cx0 || sx >= cx1 || u > 255)
+                    continue;
+                const uint8_t* s = &px[size_t(v * 256 + u) * 4];
+                if (s[3])
+                    std::memcpy(&canvas[(size_t(sy) * size_t(canvasW) + size_t(sx)) * 4], s, 4);
+            }
+        }
+    }
+}
+
+std::vector<uint8_t> PcSprites::image(int id) const
+{
+    if (const auto c = custom_.find(id); c != custom_.end())
+        return c->second.rgba;
+    const int w = width(id), h = height(id);
+    if (w <= 0 || h <= 0)
+        return {};
+    std::vector<uint8_t> out(size_t(w) * h * 4, 0);
+    const std::map<int, std::vector<uint8_t>>& pages = brown_ ? brownPages_ : pages_;
+    for (const Piece& p : sprites_[size_t(id)].pieces) {
+        const auto it = pages.find(p.page);
+        if (it == pages.end())
+            continue;
+        for (int j = 0; j < p.y1 - p.y0; ++j) {
+            const int y = p.y0 + j, v = p.v + j;
+            if (y < 0 || y >= h || v > 255)
+                continue;
+            for (int i = 0; i < p.x1 - p.x0; ++i) {
+                const int x = p.x0 + i, u = p.u + i;
+                if (x < 0 || x >= w || u > 255)
+                    continue;
+                const uint8_t* s = &it->second[size_t(v * 256 + u) * 4];
+                if (s[3])
+                    std::memcpy(&out[(size_t(y) * w + size_t(x)) * 4], s, 4);
+            }
+        }
+    }
+    return out;
+}
+
+} // namespace hotd::assets
+
+namespace hotd::assets {
+
+void PcSprites::addImage(int id, int w, int h, std::vector<uint8_t> rgba, int ox, int oy)
+{
+    if (w <= 0 || h <= 0 || rgba.size() < size_t(w) * size_t(h) * 4)
+        return;
+    custom_[id] = Custom{w, h, ox, oy, std::move(rgba)};
+}
+
+void PcSprites::origin(int id, int& ox, int& oy) const
+{
+    ox = oy = 0;
+    if (id <= 0 || size_t(id) >= sprites_.size() || sprites_[size_t(id)].pieces.empty())
+        return;
+    ox = oy = 1 << 20;
+    for (const Piece& p : sprites_[size_t(id)].pieces)
+        ox = std::min<int>(ox, p.x0), oy = std::min<int>(oy, p.y0);
+}
+
+} // namespace hotd::assets

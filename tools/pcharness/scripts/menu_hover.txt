@@ -1,0 +1,7 @@
+# menuart: attract -> main menu (Enter), cursor down 24 polls, right 33 polls onto "Arcade" (hover), no activation
+200 dik 0x1C 1
+205 dik 0x1C 0
+300 dik 0xD0 1
+324 dik 0xD0 0
+330 dik 0xCD 1
+363 dik 0xCD 0

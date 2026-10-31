@@ -1,0 +1,12674 @@
+// The House of the Dead: ReWrithe (a C++ rewrite of The House of the Dead). The game executable (docs/teaser_plan.md R1 runtime skeleton, R2 the ride,
+// R3 audio + HUD, R4 game flow: docs/teaser_status/r4.md).
+//
+// R4: with a window, the launcher comes first (game/launcher.h: ROM zip / folder, PC folder, models, players, settings;
+// Start runs the official-files check, game/files_check.h), then Chapter 1, then the end screen, then the launcher.
+//   hotd --create-shortcut [folder] [--yes]   desktop + Start menu shortcut (icon from your THOTD.EXE); folder = only there
+//   hotd --add-to-steam / --remove-from-steam   add (or update) / remove this game as a non-Steam game in every Steam
+//                                     account here, with artwork from your PC files (Steam must be closed; backups kept)
+//        [--steam-test-vdf <file> [--steam-grid-out <folder>]]   testing: that shortcuts.vdf instead of Steam's
+//   hotd --check-files [--arcade <zip|folder>] [--pc <folder>] [--force-check]   the files check alone (exit code)
+//   [--arcade <zip|folder>] the ROMs (checked; the regions are rebuilt into the cache folder) instead of --regions
+//   [--models arcade|pc] [--difficulty 0-4] [--lives 0-11] [--blood 0-5] [--strict] (no teaser cuts) override the
+//   launcher's choices; [--no-launcher] straight into the game; [--auto-start] (testing) presses Start;
+//   [--start-at P:F] (testing) player P presses start at game frame F (join / continue); --shot-at 0 = the launcher.
+//   [--title | --no-title] the arcade's title screen and attract loop before Chapter 1 (src/game/attract.cpp; start =
+//   key 1 / 2 or a mouse's middle button): default the launcher's "Title / attract" in a launcher run, off in every
+//   automated or developer run (--frames, --no-launcher, --checkpoints, --auto-start, --input-test).
+//   After the Chapter 1 clear a score in the top 10 gets the arcade's NAME ENTRY (src/game/name_entry.cpp: shoot the
+//   letters, or type them: A-Z . - / Backspace Tab Enter), then the ranking and the attract (with the title) or the
+//   end screen; the top 10 is kept in ranking.bin in the cache folder (--ranking-file <file>; none with --frames).
+//   [--fullscreen | --windowed] start in borderless fullscreen or a window (default: launcher.ini fullscreen=, on; F11 in play
+//   is remembered; automated runs never go fullscreen). HOTD_FS_LOG=1 prints the decision and exits (test).
+//   [--name-entry] (testing) also in automated runs; [--name-keys <keys>] (testing) typed at it ('<' back, '#' END).
+//   [--ranking-low] (testing) the top 10 starts with 0 scores, so a headless game reaches the name entry.
+//   Mods (docs/modding.md; texture packs docs/mods.md): data\mods\<mod>\ (the package's data\ or the settings folder's
+//   mods\), on / off, order and settings on Options > Mods (launcher.ini mods= / modsoff= / modset.); [--mod <mod>] (repeatable)
+//   only these mods (texture packs: the first wins; --mod ragdoll the Ragdoll mod, docs/modding.md); [--mod-set
+//   <mod>.<key>=<value>] a mod setting for this run; [--no-mods] none; [--mods-dir <folder>] more mods. hotd --export-textures <folder> [--models arcade|pc] writes the
+//   chosen model source's textures (from the player's own files) as PNGs named for packs, with index.tsv, and exits.
+//
+//   hotd [--root <repo>] [--regions <arcade regions>] [--snapshot <work RAM dump>] [--dumps <MAME dumps>]
+//        [--texsets <file>] [--pc <PC game folder or .zip>] [--mute] [--audio-wav <file>] [--size WxH] [--players 1-4] [--event E]
+//        [--no-chapter-start] [--lives-kept 0|1] [--frames N] [--autofire] [--shot-at F ...] [--lives-out F ...]
+//
+// Builds the work RAM the original has at power-on from the ROM (game/boot.h; --snapshot <file>: a MAME work RAM dump
+// of a game in progress instead, a developer option) and starts the chapter from there as the original does
+// (chapter_load: heap reset, the chapter's task group, evt_chapter_start, camera_task_start ...; Runtime::chapter_start)
+// at event E (default 0); --no-chapter-start plays on from the snapshot instead (R1). Then the ported arcade logic runs
+// 60 times a second in a window: the chapter's world (arcade models) and everything the game draws, from the game's
+// camera (the ported camera task), along the event scripts (the ported interpreter; the default route).
+// Sound: the PC port's files (--pc, else the launcher's PC folder, else private\pcharness\game; only read): SOUND\*.RBH,
+// THOTD.EXE's cue table, Music\TrackNN.ogg (with stb_vorbis built in, CMakeLists.txt).
+//   Player 1: the mouse (the first one used): aim; left button = trigger; right button = reload (a shot off screen).
+//   Player 2: a second mouse (its own crosshair), or the keyboard: arrows aim, Right Ctrl / Space = trigger,
+//   Right Shift / Enter = reload. 1 / 2 = player 1 / 2 joins. The 4P mode: player 3 W A S D / F / R / 3, player 4
+//   I J K L (keypad 8 4 5 6) / H (keypad 0) / Y (keypad .) / 4 (aim / trigger / reload / start; every key rebindable per player: Options > Controls > Keys & Buttons, game/keybinds.h). Esc / P = the PC's pause (PAUSED: Continue / Exit;
+//   game/pause.h; also on focus loss), N = one frame while paused (--dev-lines only), F12 = screenshot
+//   (private\screenshots; a portable package: its screenshots\), F1 = developer lines (off at the start; --dev-lines on), F11 / Alt+Enter = fullscreen,
+//   the pause's Exit = quit (the launcher: back to it). A second mouse used (P2 input "a second mouse"): relative mouse mode (Windows
+//   tells the mice apart only there). --input-test <file> (testing): injected mouse / keyboard events, checked per
+//   frame, results in <file> (docs/teaser_status/input.md).
+//   Pads (game/pads.h): [--p1-input mouse|pad|gun] [--p2-input mouse|keyboard|pad|gun] over the launcher's "Player N
+//   Input"; [--p1-style / --p2-style auto|classic|motion|mix|touch] the gamepad's control style. Gamepads:
+//   right trigger = trigger, left trigger / face buttons = reload, Start = start / pause; light guns: F9 in the game =
+//   the calibration (shoot two targets).
+//   Out of lives: CONTINUE? 9..0 (the trigger skips a digit, 1 / 2 = continue); both out at 0: GAME OVER, then the
+//   chapter starts again. --lives-kept 1: a player at 0 lives gets 1 back (testing). --lives-out F (testing): every
+//   player in play loses all lives at game frame F.
+// Online co-op (docs/netplay.md): --host [addr:]port [--code XXXX-XXXX] / --join addr:port --code XXXX-XXXX; testing:
+//   --net-delay N, --net-sim loss,ms, --net-timeout S, --net-hash-every N, --net-fuzz N.
+// --frames N: no window; runs N frames, prints what the runtime met that is not ported, and exits. --autofire: player 1
+// shoots the nearest shootable object every 15 frames (testing the shot test end to end). --shot-at F (repeatable):
+// a screenshot after game frame F; the window closes after the last one. --default-route: route_choice stays 0 also
+// with --strict (the guards stay off). --boundary-report <file> (with --frames, T1):
+// every call into something not really implemented (generated boundary stubs, unported routines, runtime stand-ins,
+// the teaser guards) as a Markdown table sorted by calls per 1,000 frames, with the first frame.
+
+#include "game/audio.h"
+#include "game/bot.h"
+#include "game/chapters.h"
+#include "game/diff_replay.h"
+#include "game/pcmode_scores.h"
+#include "game/ragdoll.h"
+#include "game/sonic.h"
+#include "game/files_check.h"
+#include "game/host.h"
+#include "game/sights.h"
+#include "game/hud.h"
+#include "game/frontend.h"
+#include "game/gallery.h"
+#include "game/pm_portraits.h"
+#include "game/jukebox.h"
+#include "game/scene_view.h"
+#include "game/menu_pages.h"
+#include "game/preview_art.h"
+#include "game/pause.h"
+#include "game/pads.h"
+#include "game/pads_test.h"
+#include "game/keybinds_test.h"
+#include "game/menu_cursor.h"
+#include "game/pad_prompts.h"
+#include "game/launcher.h"
+#include "game/lang.h"
+#include "game/view.h"
+#include "net/net_game.h"
+#include "net/online_menu.h"
+#include <optional>
+#include <sstream>
+#include "render/gl.h"
+#include "render/gl_backend.h"
+#include "render/overlay.h"
+#include "render/crt.h"
+#include "render/renderer.h"
+#include "assets/archive.h"
+#include "assets/mods.h"
+#include "assets/pc_files.h"
+#include "util/fullscreen.h"
+#include "util/resolution.h"
+#include "util/crash_log.h"
+#include "util/png.h"
+#include "util/png_read.h"
+#include "util/steam_shortcut.h"
+#include "util/utf8.h"
+#include "util/win_shell.h"
+#include <cstring>
+#include "util/window_icon.h"
+#include "hotd_version.h"   // generated (CMakeLists.txt)
+#include "util/update_check.h"
+#include "util/game_exe.h"
+#ifdef HOTD_HAVE_ARCADE_SOUND
+#include "audio/sound_board.h"
+#endif
+
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_main.h>
+
+#include <algorithm>
+#include <chrono>
+#include <functional>
+#include <cctype>
+#include <cstdio>
+#include <cstdlib>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <map>
+#include <set>
+#include <random>
+#include <memory>
+#include <string>
+#include <thread>
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <psapi.h>
+// rescrash (a player's RTX 4070 laptop ran the game on its integrated Radeon 610M: "live background: AMD Radeon(TM)
+// 610M (integrated)"; it crashed changing the resolution): a laptop with two GPUs gives OpenGL the fast one only to a
+// program that asks (NVIDIA Optimus, AMD switchable graphics read these exports of the .exe)
+extern "C" {
+__declspec(dllexport) DWORD NvOptimusEnablement = 1;
+__declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
+}
+#else
+#define _popen(c, m) popen(c, "w")   // (the scene clip's ffmpeg pipe; glibc refuses a "b" in the mode)
+#define _pclose pclose
+#endif
+
+// leftovers: an environment variable the C runtime's std::getenv sees (SDL_setenv_unsafe sets the process
+// environment on Windows, which the CRT's copy that frontendShot / langTool read does not follow)
+static void putEnvCrt(const char* k, const char* v)
+{
+#ifdef _WIN32
+    _putenv_s(k, v);
+#else
+    setenv(k, v, 1);
+#endif
+}
+
+using namespace hotd;
+
+// input: the mice that have really been used (motion or a button, not the wheel), in the order they were first used.
+// Outside relative mode SDL reports every mouse as ID 0, so the game watches Windows' raw input itself (a message
+// hook on its own window's WM_INPUT, registered while a game runs with P2 input "a second mouse"). A device that is
+// only listed (a gaming keyboard's mouse interface) never counts. The input test feeds it directly.
+static std::vector<SDL_MouseID> gMiceUsed;
+static game::LightGuns* gLightGuns = nullptr;   // pads: while a player uses a light gun, every mouse's raw input goes there
+static void mouseUsed(SDL_MouseID id)
+{
+    if (id != 0 && std::find(gMiceUsed.begin(), gMiceUsed.end(), id) == gMiceUsed.end())
+        gMiceUsed.push_back(id);
+}
+// a gun on the window's outermost pixel row / column: the mouse pushed against the edge (it is kept inside the window
+// during play): the off-screen shot (reload). edgereload (user 2026-10-22, a Surface tablet): not for a touch / pen,
+// which puts the gun on the picture directly (SDL clamps a touch to 0 .. w-1: a tap at the edge landed there and
+// reloaded); their reload: a second finger, the pen's barrel / eraser button, a 4:3 bar, the keys, Auto reload
+static bool gunAtEdge(const game::GunState& g, int lw, int lh)
+{
+    return !g.pointer && (g.x < 1.0f || g.x > float(lw) - 2.0f || g.y < 1.0f || g.y > float(lh) - 2.0f);
+}
+// the game area's half width in arcade units (the screen is +-192 high) for the launcher's Aspect: widescreen = the
+// window's; 4:3 = the arcade's 496-wide screen (248) at most; aspect1610: 16:10 = 192 x 1.6 = 307.2 at most
+static float gameHalfW(int aspect, int lw, int lh)
+{
+    const float win = float(lw) * 192.0f / float(std::max(lh, 1));
+    return aspect == 1 ? std::min(248.0f, win) : aspect == 2 ? std::min(307.2f, win) : win;
+}
+// the launcher's Aspect's black bars over the window's sides (4:3: outside the 496 x 384 screen; 16:10: outside a 16:10
+// picture; widescreen: none), after the 3D and before the HUD (the window's frames and --render's alike)
+static void drawPillarbox(int aspect, int ww, int wh)
+{
+    if (aspect != 1 && aspect != 2)
+        return;
+    const int gw = int(std::lround(double(wh) * (aspect == 1 ? 496.0 / 384.0 : 1.6)));
+    if (gw >= ww)
+        return;
+    const int bar = (ww - gw) / 2;
+    gl::Viewport(0, 0, ww, wh);
+    gl::Enable(gl::SCISSOR_TEST);
+    gl::ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    gl::Scissor(0, 0, bar, wh);
+    gl::Clear(gl::COLOR_BUFFER_BIT);
+    gl::Scissor(ww - bar - ((ww - gw) & 1), 0, bar + ((ww - gw) & 1), wh);
+    gl::Clear(gl::COLOR_BUFFER_BIT);
+    gl::Disable(gl::SCISSOR_TEST);
+}
+// the window point a gun aims at: a touch / pen at its pixel's middle (x 0 is the pixel's left side, which is exactly
+// the picture's edge, +-192 / the widescreen half width: just off it)
+static void gunPoint(const game::GunState& g, int lw, int lh, float& x, float& y)
+{
+    x = g.x;
+    y = g.y;
+    if (g.pointer) {
+        x = std::clamp(x, 0.5f, std::max(float(lw) - 0.5f, 0.5f));
+        y = std::clamp(y, 0.5f, std::max(float(lh) - 0.5f, 0.5f));
+    }
+}
+#ifdef _WIN32
+static bool SDLCALL rawMouseHook(void*, MSG* msg)
+{
+    if (msg->message == WM_INPUT) {
+        RAWINPUT ri;
+        UINT size = sizeof ri;
+        if (GetRawInputData(reinterpret_cast<HRAWINPUT>(msg->lParam), RID_INPUT, &ri, &size, sizeof(RAWINPUTHEADER)) != UINT(-1) &&
+            ri.header.dwType == RIM_TYPEMOUSE && ri.header.hDevice) {
+            const USHORT buttons = ri.data.mouse.usButtonFlags & USHORT(~(RI_MOUSE_WHEEL | RI_MOUSE_HWHEEL));
+            // edgereload: Windows' mouse input made from a touch screen / pen (a Surface) is no second mouse (it put
+            // the game into relative mode, where the trackpad's gun ran past the window edges: off-screen reloads);
+            // the touch / pen come through SDL as absolute pointers (SDL_TOUCH_MOUSEID / SDL_PEN_MOUSEID)
+            const bool penOrTouch = (ri.data.mouse.ulExtraInformation & 0xFFFFFF00u) == 0xFF515700u;   // MI_WP_SIGNATURE
+            if ((ri.data.mouse.lLastX || ri.data.mouse.lLastY || buttons) && !penOrTouch)
+                mouseUsed(SDL_MouseID(reinterpret_cast<uintptr_t>(ri.header.hDevice)));   // SDL's raw-input mouse ID
+            if (gLightGuns && (gLightGuns->active() || gLightGuns->assigning() >= 0))   // (ipolish: the Assign page)
+                gLightGuns->winRawInput(&ri, msg->hwnd);
+        }
+    }
+    return true;   // SDL handles the message as usual
+}
+// raw mouse input to the game window (legacy mouse messages stay on): on while waiting for a second mouse; SDL's
+// relative mode later registers its own (and removes it when it ends)
+static void rawMiceWatch(SDL_Window* window, bool on)
+{
+    HWND hwnd = static_cast<HWND>(SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+    RAWINPUTDEVICE d{0x01, 0x02, on ? 0u : DWORD(RIDEV_REMOVE), on ? hwnd : nullptr};   // generic desktop, mouse
+    if (!RegisterRawInputDevices(&d, 1, sizeof d))
+        SDL_Log("raw mouse input %s: error %lu", on ? "on" : "off", GetLastError());
+    SDL_SetWindowsMessageHook(on ? rawMouseHook : nullptr, nullptr);
+}
+#else
+static void rawMiceWatch(SDL_Window*, bool) {}   // elsewhere SDL reports the mice apart (or not): the events decide
+#endif
+
+// perf (2026-10-16): the process's memory in MB, working set (peak) and committed (peak): --render's report
+static std::string memoryReport()
+{
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS pmc{};
+    pmc.cb = sizeof pmc;
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof pmc)) {
+        char b[160];
+        std::snprintf(b, sizeof b, "ws_mb=%.0f ws_peak_mb=%.0f commit_mb=%.0f commit_peak_mb=%.0f", pmc.WorkingSetSize / 1048576.0,
+                      pmc.PeakWorkingSetSize / 1048576.0, pmc.PagefileUsage / 1048576.0, pmc.PeakPagefileUsage / 1048576.0);
+        return b;
+    }
+#endif
+    return "memory=unknown";
+}
+
+// perf (2026-10-21, docs/performance.md): headless per-frame times in ms (the "PERF:" lines of --render / HOTD_PERF=1):
+// the game logic (Runtime::frame), the sound (Audio::renderFrame: with --audio-wav the mix and the arcade sound board),
+// the view's and the HUD's CPU time, the GPU wait; the chapter loads (GameView::init at a chapter change)
+struct PerfStats {
+    std::vector<float> logic, audio, under, view, hud, gpu;   // under: Hud::drawUnder (the 2D under the 3D)
+    std::vector<float> gpu3d, fs3d;   // fs3d: its fragment shader runs, in screens (HOTD_FS_COUNT)   // earlyz: the 3D's GPU time (a GL timer query around GameView::draw, --render)
+    std::vector<uint32_t> state;   // GL state calls per frame (Renderer::stateCalls)
+    std::vector<std::pair<int, float>> chapterLoads;
+};
+static PerfStats gPerf;
+static std::string perfSummary(const char* name, std::vector<float> v)
+{
+    if (v.empty()) return std::string(name) + " -";
+    std::sort(v.begin(), v.end());
+    double sum = 0;
+    for (float x : v) sum += x;
+    char b[160];
+    std::snprintf(b, sizeof b, "%s mean %.3f p99 %.3f max %.2f", name, sum / double(v.size()),
+                  v[std::min(v.size() - 1, v.size() * 99 / 100)], v.back());
+    return b;
+}
+
+// menuperf (2026-10-26, docs/performance.md): the menu's GPU time a frame, read back a few frames later (timer queries,
+// never a stall), and HOTD_MENU_PERF_TOUR=N's table: every Remake page N frames, per page the CPU a frame (the whole
+// menu frame: input, the page, the live attract, the draw calls), the GPU a frame, the most of each, the uploads, the
+// time between frames and the frames over budget
+struct MenuGpuTimer {
+    gl::GLuint q[4] = {};
+    int tag[4] = {-1, -1, -1, -1};   // the caller's tag of each query (the tour's page)
+    bool pending[4] = {};
+    int cur = 0;
+    bool open = false;
+    void begin(int t)
+    {
+        if (!q[0]) gl::GenQueries(4, q);
+        if (open || pending[cur]) return;   // (that slot not read yet: this frame not timed)
+        gl::BeginQuery(gl::TIME_ELAPSED, q[cur]);
+        tag[cur] = t;
+        open = true;
+    }
+    void end()
+    {
+        if (!open) return;
+        gl::EndQuery(gl::TIME_ELAPSED);
+        pending[cur] = true;
+        open = false;
+        cur = (cur + 1) & 3;
+    }
+    // the results that came in: fn(tag, ms)
+    template <class F> void collect(F fn)
+    {
+        for (int i = 0; i < 4; ++i) {
+            if (!pending[i]) continue;
+            gl::GLint ready = 0;
+            gl::GetQueryObjectiv(q[i], gl::QUERY_RESULT_AVAILABLE, &ready);
+            if (!ready) continue;
+            uint64_t ns = 0;
+            gl::GetQueryObjectui64v(q[i], gl::QUERY_RESULT, &ns);
+            pending[i] = false;
+            fn(tag[i], double(ns) / 1e6);
+        }
+    }
+};
+struct MenuTourStats {
+    std::string name;
+    int frames = 0, gpuFrames = 0, over = 0;
+    double cpu = 0, cpuMax = 0, gpu = 0, gpuMax = 0, gap = 0, gapMax = 0, open = 0;
+    uint64_t upload = 0, uploadMax = 0;
+    double live = 0;
+    double fill = 0;   // misc18: the screens' worth of pixels the menu's layers shaded (Hud::remakeFillPixels)
+};
+static MenuGpuTimer gMenuGpu;
+// menuperf: integrated / software graphics by the driver's names (Live Background's Auto: off there; On: the attract at
+// 30 pictures a second and at most 1080 lines). Intel's (UHD, Iris, the Arc in Core Ultra chips; not the Arc A / B
+// cards), AMD's APUs (Radeon Graphics, Vega 3-11, the 6x0M-8x0M, the Steam Deck's), the software ones (llvmpipe,
+// Microsoft Basic Render). HOTD_GPU_CLASS=weak|strong decides instead (testing)
+static bool weakGpu(const char* vendor, const char* renderer)
+{
+    if (const char* e = std::getenv("HOTD_GPU_CLASS"))
+        return std::string(e) == "weak";
+    std::string r = std::string(vendor ? vendor : "") + " " + (renderer ? renderer : "");
+    for (char& ch : r) ch = char(std::tolower(uint8_t(ch)));
+    auto has = [&](const char* s) { return r.find(s) != std::string::npos; };
+    if (has("llvmpipe") || has("softpipe") || has("basic render") || has("gdi generic") || has("swiftshader"))
+        return true;
+    if (has("nvidia") || has("geforce") || has("quadro"))
+        return false;
+    if (has("intel")) {   // the Arc cards are "Arc(TM) A770", "Arc(TM) B580"; the Core Ultra's own GPU is "Arc(TM) Graphics"
+        const size_t a = r.find("arc");
+        if (a == std::string::npos) return true;
+        size_t p = a + 3;
+        if (r.compare(p, 4, "(tm)") == 0) p += 4;
+        while (p < r.size() && r[p] == ' ') ++p;
+        return !(p + 1 < r.size() && (r[p] == 'a' || r[p] == 'b') && std::isdigit(uint8_t(r[p + 1])));
+    }
+    if (has("amd") || has("ati ") || has("radeon")) {
+        if (has("rx ") || has("radeon pro") || has("firepro"))
+            return false;
+        for (const char* k : {"radeon(tm) graphics", "radeon graphics", "vega 3", "vega 6", "vega 8", "vega 10", "vega 11", "custom gpu",
+                              "vangogh", "renoir", "cezanne", "rembrandt", "phoenix", "raphael", "lucienne", "picasso", "raven",
+                              "mendocino", "barcelo", "hawk point", "strix"})
+            if (has(k)) return true;
+        for (size_t i = 0; i + 4 <= r.size(); ++i)   // the APUs' "780M", "680M", "610M"
+            if (std::isdigit(uint8_t(r[i])) && std::isdigit(uint8_t(r[i + 1])) && std::isdigit(uint8_t(r[i + 2])) && r[i + 3] == 'm' &&
+                (i == 0 || r[i - 1] == ' ') && (i + 4 == r.size() || r[i + 4] == ' ' || r[i + 4] == ')'))
+                return true;
+    }
+    return false;
+}
+// prepass (2026-10-27): the 3D's depth-only pre-pass (render/renderer.h depthPrepass); was on with integrated /
+// software graphics (weakGpu), off on a graphics card (docs/performance.md).
+// compat (coordinator 2026-10-29): off on every GPU by default (a friend's Radeon 610M flickered with it before the
+// invariant fix; one path less that differs between drivers). HOTD_PREPASS=1 turns it on (comparisons, measuring)
+// compat (2026-10-29): --gl-check, a graphics test without game data (CI on Mesa's software driver; a player's PC):
+// a hidden window's OpenGL 3.3 context with the debug output on, the shaders built at start-up compiled and linked
+// (the 3D renderer's two programs, the HUD's text panels, the CRT filter's four), the CRT filter drawn once, then
+// glGetError and the debug messages. Prints "gl-check: ok" (exit 0) or what failed (exit 3)
+static int glCheck()
+{
+    gl::setDebug(true);
+    if (!SDL_Init(SDL_INIT_VIDEO)) { std::printf("gl-check: SDL_Init: %s\n", SDL_GetError()); return 3; }
+    gl::contextAttributes();
+    SDL_Window* win = SDL_CreateWindow("hotd --gl-check", 320, 240, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
+    SDL_GLContext ctx = win ? SDL_GL_CreateContext(win) : nullptr;
+    if (!ctx) { std::printf("gl-check: no OpenGL 3.3 context: %s\n", SDL_GetError()); return 3; }
+    if (const char* missing = gl::load()) { std::printf("gl-check: missing %s\n", missing); return 3; }
+    gl::debugInit();
+    std::printf("gl-check: %s / %s / %s\n", (const char*)gl::GetString(gl::VENDOR), (const char*)gl::GetString(gl::RENDERER),
+                (const char*)gl::GetString(gl::VERSION));
+    std::vector<std::string> failed;
+    if (!gl::logDriver("graphics")) failed.push_back("OpenGL below 3.3");
+    std::string err;
+    hotd::Renderer renderer;
+    if (!renderer.init(err)) failed.push_back("renderer: " + err);
+    game::Hud hud;
+    err.clear();
+    if (!hud.init(err)) failed.push_back("hud: " + err);
+    hotd::Overlay text;
+    err.clear();
+    if (!text.init(err)) failed.push_back("overlay: " + err);
+    else {
+        text.setText({"GL CHECK"}, 1);
+        text.draw(320, 240);
+    }
+    hotd::Crt crt;
+    hotd::CrtSettings cs;
+    cs.preset = 1;
+    crt.configure(cs, 384, 496);
+    if (!crt.begin(320, 240)) failed.push_back("CRT filter");
+    else {
+        gl::ClearColor(0.5f, 0.2f, 0.1f, 1);
+        gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+        crt.present(320, 240, 0);
+    }
+    gl::Finish();
+    for (gl::GLenum e; (e = gl::GetError()) != 0;) {
+        char b[48];
+        std::snprintf(b, sizeof b, "glGetError 0x%X", e);
+        failed.push_back(b);
+    }
+    if (const uint64_t n = gl::debugProblems())
+        failed.push_back(std::to_string(n) + " debug messages (errors / undefined behaviour: the lines above)");
+    gl::debugSummary();
+    renderer.shutdown();
+    SDL_GL_DestroyContext(ctx);
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+    for (const std::string& f : failed) std::printf("gl-check: FAILED: %s\n", f.c_str());
+    if (failed.empty()) std::printf("gl-check: ok\n");
+    return failed.empty() ? 0 : 3;
+}
+
+static void depthPrepassAuto()
+{
+    hotd::setDepthPrepass(false);
+    SDL_Log("3D depth pre-pass: %s", hotd::depthPrepass() ? "on (HOTD_PREPASS=1)" : "off");
+}
+static game::MenuHooks* gTourHooks = nullptr;   // misc18: the menu's hooks (the tour opens the Firing Range / Language pages)
+static const int gMenuTourN = std::getenv("HOTD_MENU_PERF_TOUR") ? std::max(60, std::atoi(std::getenv("HOTD_MENU_PERF_TOUR"))) : 0;
+
+static int gAutofireEvery = 15;   // --autofire-every N (T1): frames between autofire shots
+static bool gAutofireQuiet = false;   // the cut-scene viewer's seek: no "fire at" lines
+// the cut-scene viewer (game/scene_view.h; the Gallery's Cut-scenes page, --scene-view C:S)
+static game::SceneView gScene;
+static game::MenuCursor gMenuCursor;   // padglyphs: the menus' cursor from player 1's pad (touchpad / gyro)
+// actors2: the viewer's Actors kept in launcher.ini (scenecast=) when changed on the page or the panel (not with --cast)
+static std::function<void()> gSaveCast;
+static float gFreeLook[2] = {}, gFreeZoom = 0;   // its Free Cam: the right-drag's pixels and the wheel's notches since the last frame
+static bool gFreeDrag = false;                   // the right button held (Free Cam: looking)
+// trailer (user 2026-10-21): Trailer Mode, draw-only: no HUD, captions, sights, cursor or info lines in play.
+// gTrailer: on now (Options > Advanced's LaunchConfig::trailer, F7 in play toggles it for the run); gTrailerCfg: the
+// setting last seen (a change in Options sets gTrailer); gTrailerNote: F7's note's start (ms), 0 none
+static bool gTrailer = false;
+static int gTrailerCfg = -1;   // (-1: not seen yet)
+static uint64_t gTrailerNote = 0;
+static int gSceneTestStage = 0;   // HOTD_SCENE_TEST's step (6: back on the page)
+// its game: the page's players / models, the scene's chapter and route; the settings that change the play (Sonic Mode,
+// computer teammates) off. routeForce: replaced by the scene's route (none: the --autofire play's own)
+static void sceneConfig(game::LaunchConfig& c, std::map<int, uint8_t>& routeForce)
+{
+    c.players = gScene.players;
+    c.models = gScene.models;
+    c.sonic = 0;
+    for (int p = 1; p < 4; ++p)
+        c.seatBot[p] = 0;
+    routeForce.clear();
+    const std::string r = gScene.scene().route;
+    for (size_t p = 0; p < r.size();) {
+        size_t q = r.find(',', p);
+        if (q == std::string::npos) q = r.size();
+        int ch = 1, e = 0, v = 1;
+        if (std::sscanf(r.substr(p, q - p).c_str(), "%d:%d=%d", &ch, &e, &v) >= 2)
+            routeForce[(ch - 1) * 100 + e] = uint8_t(v);
+        p = q + 1;
+    }
+}
+// --bot <seed> (robust, game/bot.h): a seeded human-like player instead of the autofire, no lives kept: game overs
+// restart the chapter (as the window does) up to --bot-gameovers N (default 2); --bot-players 2: player 2 joins and
+// leaves at random times. The watchdog ends the run at a soft-lock / NaN / runaway count; the last line is
+// "ROBUST: result=... " with the frame-time statistics (ms per game frame, headless: the logic, no drawing).
+static std::unique_ptr<hotd::game::Bot> gBot;
+static int gBotGameOvers = 2;
+// computer teammates (local play, launcher.ini p2bot.. / More Options / --seat-bot P:L): plays the bot seats only
+static std::unique_ptr<hotd::game::Bot> gTeam;
+static std::vector<float> gBotSkill;   // --bot-skill a,b,c,d (Bot::setSkill)
+// headless measurements of the bots / CPU teammates (the "TEAM:" line): per seat the rounds fired
+// (the rounds going down by one) and the lives lost in play (the hits taken); the hits and hostages from Game::stat_hits / stat_hostages
+struct TeamStat { uint32_t shots = 0, livesLost = 0; int lives = -1, rounds = -1; };
+static TeamStat gTeamStat[4];
+static void teamStatsFrame(hotd::game::Runtime& rt)
+{
+    for (int s = 0; s < rt.seat_count(); ++s) {
+        const hotd::port::a::Player& pl = rt.mem.at<hotd::port::a::Player>(rt.player_rec(s));
+        TeamStat& t = gTeamStat[s];
+        if (pl.state == 5 && t.rounds >= 0 && pl.rounds == t.rounds - 1)
+            ++t.shots;
+        if (pl.state == 5 && t.lives >= 0 && pl.lives < t.lives)
+            t.livesLost += uint32_t(t.lives - pl.lives);
+        t.lives = pl.state == 5 ? pl.lives : -1;
+        t.rounds = pl.state == 5 ? pl.rounds : -1;
+    }
+}
+static void teamStatsPrint(hotd::game::Runtime& rt, const char* when)
+{
+    if (!gTeam && !gBot)
+        return;
+    std::printf("TEAM (%s, frame %llu):", when, (unsigned long long)rt.frameCount);
+    uint32_t shots = 0, hits = 0, hostages = 0, lost = 0;
+    for (int s = 0; s < rt.seat_count(); ++s) {
+        const TeamStat& t = gTeamStat[s];
+        std::printf(" P%d%s shots %u hits %u (%.0f%%) hostages %u lives_lost %u score %d;", s + 1,
+                    gTeam && ((gTeam->teamMask() >> s) & 1) ? " cpu" : "", t.shots, rt.stat_hits[s],
+                    t.shots ? 100.0 * rt.stat_hits[s] / t.shots : 0.0, rt.stat_hostages[s], t.livesLost,
+                    rt.mem.at<hotd::port::a::Player>(rt.player_rec(s)).score);
+        shots += t.shots, hits += rt.stat_hits[s], hostages += rt.stat_hostages[s], lost += t.livesLost;
+    }
+    std::printf(" all shots %u hits %u (%.0f%%) hostages %u lives_lost %u", shots, hits, shots ? 100.0 * hits / shots : 0.0,
+                hostages, lost);
+    if (gTeam)   // the CPU seats' shots at bosses, those on a weak part, the pulls held back for a hostage
+        std::printf(" cpu_boss_shots %u weak_aimed %u weak %u held_for_hostage %u cpu_shots_on_hostage %u", gTeam->bossShots, gTeam->bossWeakAimed, gTeam->bossWeakShots,
+                    gTeam->heldForHostage, gTeam->onHostage);
+    if (gTeam)   // cpu3: CPU shots within 20 of a hostage, pulls held for a held hostage / a hidden or off-screen target
+        std::printf(" cpu_near_hostage %u held_captor %u held_hidden %u", gTeam->nearHostage, gTeam->heldCaptor, gTeam->heldHidden);
+    std::printf("\n");
+    if (static const bool audit = std::getenv("HOTD_BOT_AUDIT") != nullptr; audit && gTeam && std::strcmp(when, "end") == 0)
+        gTeam->printAudit(rt);
+}
+// PC Mode (docs/pcmode.md): --pc-mode / the front end's PC Mode screen (startPcMode); the characters per seat (0..6 of
+// THOTD.EXE's table 0x5CE348: 0 No Player, 1 Rogan, 2 G, 3 Rogan 2, 4 G 2, 5 Sophie, 6 Researcher), --pc-char a,b,c,d
+static int gPcMode = 0;
+static int gBossTick = 0;   // menus3: a Boss Mode game (Game Speed Auto: the PC's 60 Hz, as PC Mode)
+static bool gPcFreePlay = false;   // --pc-free-play (testing: as the Cheat screen's Free-Play)
+static int gPcChars[4] = {1, 0, 1, 2};
+// the seats PC Mode's select made computer teammates (bits; -1: no select, --pc-mode: the seat bots as set). A seat
+// the select left at No Player or gave a person never gets a CPU (p2bot.. only pre-pick the four panels' CPU seats)
+static int gPcCpuSeats = -1;
+// PC Mode's Start (feAction 16): the select's picks -> the game's seats (characters, CPU seats)
+static int gLateShot = 0;      // pmfix2 (testing, HOTD_SHOT_LATE=1): --shot-at taken one loop after its tick (a loop without one at a high frame rate)
+static int gMenuPmLeft = 0;   // pmfix2 (testing, HOTD_MENU_PCMODE): games still to come after this one
+static void pcModeTakePicks(const game::Frontend& fe)
+{
+    gPcCpuSeats = 0;
+    for (int p = 1; p < 4; ++p)
+        if (fe.pcSeats == 4 && fe.pcCpu[p] && fe.pcChars[p] != 0)
+            gPcCpuSeats |= 1 << p;
+    gPcChars[0] = fe.pcChars[0];
+    gPcChars[1] = fe.pcChars[1];
+    if (fe.pcSeats == 4)
+        gPcChars[2] = fe.pcChars[2], gPcChars[3] = fe.pcChars[3];
+}
+static float gBossStep = -1.0f;        // (-1: launcher.ini boss4p= / 100) --4p-boss-step S: the 4P bosses' hit points x (1 + S x (players - 2)); 0.25 from the balance runs (docs/coop4.md)
+static float gEnemyStep = -1.0f;       // (-1: launcher.ini enemy4p= / 100) --4p-enemy-step S: 3 / 4 players: the creatures' damage taken / (1 + S x (players - 2)) (docs/coop4.md "Enemy pressure")
+// the players' keyboard keys (players 3 / 4: the 4P mode, local games only; every key works as player 2's did): by key
+// position (scancodes: the same places on any layout), rebindable per player (game/keybinds.h, LaunchConfig::keys;
+// the defaults: player 2 arrows / Space, Right Ctrl / Right Shift, Enter / 2, player 3 W A S D / F / R / 3, player 4
+// I J K L or the keypad's 8 4 5 6 / H, keypad 0 / Y, keypad . / 4, player 1 1 / P)
+static std::function<bool()> gRestart;
+// select: a clear went on into the next chapter (Runtime::chapterChanged): the run's chapter (a game over restarts it)
+// and, with --render, the view of the new chapter's world
+static std::function<void(int)> gChapterChanged;
+// perf (2026-10-21): the next chapter's view prepared ahead on a worker (GameView::prepare: the files, the models, the
+// decal layers) from the chapter clear on; the chapter change then only finishes it (the GL part: ~40 ms instead of
+// 0.4-1.5 s in one frame). take() gives it only for the same chapter and settings (else the change loads as before)
+struct ViewPrefetch {
+    std::string key;
+    std::future<std::unique_ptr<hotd::game::GameView::Prepared>> job;
+    static std::string keyOf(int chapter, const std::string& pcDir, int blood)
+    {
+        return std::to_string(chapter) + "|" + pcDir + "|" + std::to_string(blood);
+    }
+    void start(const std::string& regions, const std::string& dumps, const std::string& texsets, int chapter,
+               const std::string& pcDir, int blood)
+    {
+        const std::string k = keyOf(chapter, pcDir, blood);
+        if (k == key || chapter < 0 || chapter > 3 || std::getenv("HOTD_NO_VIEW_PREFETCH"))
+            return;
+        if (job.valid() && job.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+            return;   // (another one still loading: asked again on a later frame, never waited for here)
+        if (job.valid())
+            job.get();   // (another chapter or setting: dropped)
+        key = k;
+        job = std::async(std::launch::async, [=] {
+            return hotd::game::GameView::prepare(regions, dumps, texsets, chapter, pcDir, blood, true);
+        });
+        SDL_Log("view: chapter %d's world: preparing ahead", chapter + 1);
+    }
+    std::unique_ptr<hotd::game::GameView::Prepared> take(int chapter, const std::string& pcDir, int blood)
+    {
+        if (!job.valid())
+            return nullptr;
+        const bool same = key == keyOf(chapter, pcDir, blood);
+        key.clear();
+        std::unique_ptr<hotd::game::GameView::Prepared> p = job.get();
+        return same ? std::move(p) : nullptr;   // (another chapter or setting: dropped, its memory freed)
+    }
+};
+static ViewPrefetch gViewPrefetch;
+static std::function<void(hotd::game::Runtime&)> gViewTick;   // headless --render: the prefetch's start (gViewPrefetch)
+// --render (robust-2, with --frames): the headless run also draws every game frame (world + HUD) into an offscreen
+// framebuffer of a hidden window (no focus, nothing on screen): GL errors, draw time (glFinish-synchronised through a
+// 1-pixel read), draw calls and their spikes; the last line "RENDER: ..." (see renderReport)
+static std::function<void(hotd::game::Runtime&)> gRenderFrame;
+// HOTD_SCENE_CLIP=<file.mp4> with --scene-view --render (docs/coop4.md section 16): the watched scene piped to the local
+// ffmpeg at 30 fps (every second frame), no sights; gClipOn: the frames to keep (from 15 frames before its start)
+static FILE* gClipPipe = nullptr;
+static bool gClipOn = false;
+// crt (render/crt.h): the CRT filter over the final picture (the window and --render alike)
+static hotd::Crt gCrt;
+// netdata: a 64-bit digest of game data (8-byte words, the tail zero padded; the length mixed in): the same on every
+// system (little-endian everywhere we build)
+static uint64_t dataDigest(uint64_t h, const uint8_t* p, size_t n)
+{
+    h ^= uint64_t(n) * 0x9E3779B97F4A7C15ull;
+    for (size_t i = 0; i < n; i += 8) {
+        uint64_t w = 0;
+        std::memcpy(&w, p + i, std::min<size_t>(8, n - i));
+        h = (h ^ w) * 0x100000001B3ull;
+        h ^= h >> 29;
+    }
+    return h;
+}
+// pmbody: the 1998 PC files' data PC Mode / Boss Mode read: CAM\ALLSTAGE\CAMALL.RBH's camera paths (a PIFF / RBHF file,
+// its BODY chunk at 0x20) and THOTD.EXE's motion table (0x5EFBD0..: the pointer words the PC's body_init leaves
+// frame_data at). Without them PC Mode evaluates the ROM's keys. digest (netdata, protocol 19): 0 = no PC data; online
+// both PCs must bring the same (docs/netplay.md "Same game data")
+struct PmData {
+    std::vector<uint32_t> cam;
+    std::vector<uint8_t> mot;
+    uint64_t digest = 0;
+};
+static const PmData& pmData(const std::string& pc)
+{
+    static PmData d;
+    static std::string from = "\x01";   // (never a folder: the first call loads)
+    if (from == pc)
+        return d;
+    from = pc;
+    d = PmData{};
+    std::vector<uint8_t> f;
+    if (!pc.empty() && hotd::pcfs::readFile(pc + "/CAM/ALLSTAGE/CAMALL.RBH", f) && f.size() >= 0x28 &&
+        std::memcmp(f.data(), "PIFF", 4) == 0 && std::memcmp(f.data() + 0x20, "BODY", 4) == 0) {
+        uint32_t n = 0;
+        std::memcpy(&n, f.data() + 0x24, 4);
+        n = std::min<uint32_t>(n, uint32_t(f.size() - 0x28));
+        d.cam.resize(n / 4);
+        std::memcpy(d.cam.data(), f.data() + 0x28, d.cam.size() * 4);
+    }
+    std::vector<uint8_t> e;
+    if (!pc.empty() && hotd::pcfs::readFile(pc + "/THOTD.EXE", e) && e.size() > 0x200) {
+        auto le32 = [&](size_t o) { uint32_t v = 0; if (o + 4 <= e.size()) std::memcpy(&v, &e[o], 4); return v; };
+        const uint32_t pe = le32(0x3C);
+        if (pe + 0x18 <= e.size() && std::memcmp(&e[pe], "PE\0\0", 4) == 0) {
+            const uint32_t nsec = e[pe + 6] | e[pe + 7] << 8, opt = e[pe + 0x14] | e[pe + 0x15] << 8;
+            const uint32_t base = le32(pe + 0x34), va = 0x5EFBD0, len = 0x2000;
+            for (uint32_t i = 0; i < nsec; ++i) {
+                const size_t sh = pe + 0x18 + opt + 0x28 * i;
+                const uint32_t sva = base + le32(sh + 0xC), rsz = le32(sh + 0x10), raw = le32(sh + 0x14);
+                if (va >= sva && va + len <= sva + rsz && raw + (va - sva) + len <= e.size()) {
+                    d.mot.assign(e.begin() + (raw + (va - sva)), e.begin() + (raw + (va - sva) + len));
+                    break;
+                }
+            }
+        }
+    }
+    if (!d.cam.empty() || !d.mot.empty()) {
+        uint64_t h = dataDigest(0xCBF29CE484222325ull, reinterpret_cast<const uint8_t*>(d.cam.data()), d.cam.size() * 4);
+        h = dataDigest(h, d.mot.data(), d.mot.size());
+        d.digest = h ? h : 1;
+    }
+    return d;
+}
+// netdata: the arcade ROMs' digest (the regions the game logic reads: the program, its data, the coprocessor's tables;
+// cached per folder); 0 = not known (no regions yet: not compared online)
+static uint64_t romDigest(const std::string& regions)
+{
+    static std::string from;
+    static uint64_t h = 0;
+    if (regions.empty())
+        return 0;
+    if (from == regions)
+        return h;
+    from = regions, h = 0xCBF29CE484222325ull;
+    for (const char* f : {"maincpu.bin", "main_data.bin", "copro_data.bin"}) {
+        std::vector<uint8_t> b;
+        if (!hotd::pcfs::readFile(regions + "/" + f, b) || b.empty()) { h = 0; return 0; }
+        h = dataDigest(h, b.data(), b.size());
+    }
+    if (!h) h = 1;
+    return h;
+}
+// --host / --join (docs/netplay.md): online co-op's lockstep; null = a local game. gNetTimeout: headless gives up after
+// that many seconds without the other PC
+static std::unique_ptr<hotd::net::NetGame> gNet;
+static int gNetTimeout = 20;
+// HOTD_NET_QUIT_AT=F (testing): a window online game closes its window at game frame F (as a player closing it)
+static long long gNetQuitAt = std::getenv("HOTD_NET_QUIT_AT") ? std::atoll(std::getenv("HOTD_NET_QUIT_AT")) : 0;
+static int gNetFrames = -1;   // headless netplay: --frames counts the lockstep's frames (a rollback rewind / a join included)
+static Uint64 netSkipNoteUntil = 0;   // a joiner's trigger in a cut-scene: "Only the host can skip" until then (SDL ticks)
+// Sonic Mode (game/sonic.h): the play-time tick schedule (its preset set when a game starts; online: the host's)
+static hotd::game::SonicClock gSonic;
+// the top 10's file of a preset: ranking.bin (off: the arcade's speed), ranking_frenzy.bin, ranking_overkill.bin, ...
+static std::string rankingName(int preset)
+{
+    return preset > 0 ? std::string("ranking_") + hotd::game::sonicKey(preset) + ".bin" : std::string("ranking.bin");
+}
+// the display time of a headless run in Sonic Mode, by chapter (the line at a chapter's change and at the end)
+static void sonicReport(const char* what, int chapter)
+{
+    if (gSonic.preset == 0)
+        return;
+    std::printf("sonic %s (chapter %d): %s, %llu ticks (normal %llu, play %llu, boss %llu, magician %llu) = %.0f display frames (%.1f s at 60 Hz)\n",
+                what, chapter + 1, hotd::game::sonicName(gSonic.preset),
+                (unsigned long long)(gSonic.ticks[0] + gSonic.ticks[1] + gSonic.ticks[2] + gSonic.ticks[3]),
+                (unsigned long long)gSonic.ticks[0], (unsigned long long)gSonic.ticks[1], (unsigned long long)gSonic.ticks[2],
+                (unsigned long long)gSonic.ticks[3], gSonic.displayFrames(),
+                gSonic.displayFrames() / 60.0);
+}
+
+namespace hotd::port { extern bool gAttractGore; }   // Gameplay "Attract Gore" (port/damage.cpp)
+namespace {
+
+// rate (docs/teaser_status/rate.md): the game logic's tick. Arcade: the Model 2's vblank IRQ (MAME model2.cpp
+// screen_vblank -> irq 0; the screen set_raw(32 MHz / 2, 656, .., 424, ..)): 16,000,000 / (656 x 424) = 57.5241 Hz,
+// one tick every 17,384,000 ns exactly. 60: THOTD.EXE's pc_main_loop (0x419168): ticks = timeGetTime() ms x 60 / 1000.
+// The period as a fraction (num / den ns) so neither rate drifts.
+struct TickPeriod { uint64_t num, den; };
+// rate: speed -1 = auto (launcher.ini gamespeed=auto, the default): PC Mode ticks at the PC port's 60 Hz (THOTD.EXE
+// pc_main_loop 0x419168; docs/pcmode.md row 14), every arcade game at the arcade's 57.52 Hz
+int gameSpeedNow(int speed) { return speed >= 0 ? speed : gPcMode || gBossTick ? 1 : 0; }
+TickPeriod gameTickPeriod(int speed) { return gameSpeedNow(speed) == 1 ? TickPeriod{1000000000ull, 60} : TickPeriod{17384000ull, 1}; }
+double gameTickHz(int speed) { const TickPeriod p = gameTickPeriod(speed); return 1e9 * double(p.den) / double(p.num); }
+
+// --autofire (testing): every 15 frames player 1 shoots at the nearest shootable object of the last frame (its
+// camera-space centre projected with the arcade's focal length 496)
+bool autofireTarget(game::Runtime& rt, int frame, float& ax, float& ay)
+{
+    if (frame % gAutofireEvery != 0)
+        return false;
+    float best = 1e30f;
+    uint32_t bestObj = 0;
+    // T1: every third shot goes to another on-screen target than the nearest (by the shot count), so a stream of
+    // near projectiles (kind 142's spit) cannot keep the autofire from their spitters
+    std::vector<uint32_t> onScreen;
+    // debugging: HOTD_AIM_SKIP=<routine hex>[,...]: objects running those routines are left alone (as the harnesses'
+    // -AimSkip; from game frame HOTD_AIM_SKIP_FROM on), so e.g. the frogs live through their leaps
+    static const std::vector<uint32_t> skip = [] {
+        std::vector<uint32_t> v;
+        if (const char* s = std::getenv("HOTD_AIM_SKIP"))
+            for (char* e = nullptr; *s; s = *e ? e + 1 : e) {
+                v.push_back(uint32_t(std::strtoul(s, &e, 16)));
+                if (e == s) break;
+            }
+        return v;
+    }();
+    for (uint32_t obj : rt.shootable) {
+        static const int skipFrom = std::getenv("HOTD_AIM_SKIP_FROM") ? std::atoi(std::getenv("HOTD_AIM_SKIP_FROM")) : 0;
+        if (frame >= skipFrom && std::find(skip.begin(), skip.end(), rt.mem.u32(obj)) != skip.end())
+            continue;
+        const float x = rt.mem.f32(obj + 0x38), y = rt.mem.f32(obj + 0x3C), z = rt.mem.f32(obj + 0x40);
+        if (z > 1.0f && std::abs(x * 496.0f / z) <= 248.0f && std::abs(y * 496.0f / z) <= 192.0f)
+            onScreen.push_back(obj);
+    }
+    const int shot = frame / gAutofireEvery;
+    // testing (the Ragdoll mod's clip, docs/modding.md): HOTD_RAGDOLL_AIM=N: every shot but each N-th goes to a dead
+    // body on the screen when there is one (it changes the play: only for pictures, never for the checks)
+    static const int ragAim = std::getenv("HOTD_RAGDOLL_AIM") ? std::max(2, std::atoi(std::getenv("HOTD_RAGDOLL_AIM"))) : 0;
+    if (ragAim > 0 && shot % ragAim != 0 && rt.ragdoll_aim(shot, ax, ay))
+        return true;
+    for (uint32_t obj : onScreen) {
+        if (shot % 3 == 2 && onScreen.size() > 1 && obj != onScreen[size_t(shot) % onScreen.size()])
+            continue;
+        const float z = rt.mem.f32(obj + 0x40);
+        // on the arcade screen only (as a light gun can aim); a boss's weak parts where only they take damage
+        float x, y;
+        if (z < best && game::aimPoint(rt, obj, uint32_t(shot), x, y)) {
+            best = z;
+            bestObj = obj;
+            ax = x;
+            ay = y;
+        }
+    }
+    if (best < 1e30f && !gAutofireQuiet)
+        std::printf("frame %d: fire at %.0f %.0f (z %.1f) obj 0x%X routine 0x%X\n", frame, ax, ay, best, bestObj, rt.mem.u32(bestObj));
+    return best < 1e30f;
+}
+
+bool gAutoReload = false;        // the headless runs' launcher "Auto reload" (cfg.autoReload; autoReloadSeats)
+bool gScoreDisplay = false;      // the headless runs' Gameplay "Score Display" (cfg.scoreDisplay; Runtime::scoreDisplay)
+uint32_t gAutoReloads[4] = {};   // the reloads autoReloadSeats made, by seat (the report)
+
+// The PC differential run (pccap, docs/pc-harness.md "Differential run"; tools/pc_diff.py): game frames are counted
+// from the first frame in game mode 4 (the PC trace: its first tick in mode 4), so both sides line up.
+// HOTD_GUN_REPLAY=<file>: player 1's gun from a PC trace instead of --autofire: lines "<game frame> <x> <y> <kind>"
+// (kind 1 a shot at aim x, y in the shot's units: focal 496, centre 0; kind 2 a pull off the screen = reload).
+// HOTD_STATE_TRACE=<file>: one line per frame after it ran: game frame, mode, chapter, event, rand state, floor_y,
+// enemies alive / count, both players (state lives score rounds flags), the Boss Mode clock, then every shootable
+// object of the task ring (routine, state, hit points, position)
+int64_t gGameFrame0 = -1;   // frameCount after the first game-mode-4 frame (game frame 0)
+struct GunReplayEvent { int64_t frame; float x, y; int kind; };
+std::vector<GunReplayEvent> gGunReplay;
+size_t gGunReplayNext = 0;
+bool gunReplayLoad()
+{
+    const char* path = std::getenv("HOTD_GUN_REPLAY");
+    if (!path || !*path)
+        return false;
+    std::ifstream f(path);
+    long long fr;
+    float x, y;
+    int k;
+    while (f >> fr >> x >> y >> k)
+        gGunReplay.push_back({fr, x, y, k});
+    std::printf("gun replay %s: %zu events\n", path, gGunReplay.size());
+    return true;
+}
+void gunReplay(game::Runtime& rt)
+{
+    rt.gun[0] = rt.gun[1] = {};
+    // HOTD_LIVES_MIN=N (with the replay): player 1's lives raised to N before each frame, as the PC harness's -InfLives
+    // does before each tick (a boss's aggression level then sees the same lives as on the PC; pmrest2)
+    static const int livesMin = std::getenv("HOTD_LIVES_MIN") ? std::atoi(std::getenv("HOTD_LIVES_MIN")) : 0;
+    if (livesMin > 0 && rt.mem.at<port::a::Player>(game::A::G::players, 0).lives < livesMin)
+        rt.mem.at<port::a::Player>(game::A::G::players, 0).lives = livesMin;
+    if (gGameFrame0 < 0)
+        return;
+    const int64_t f = int64_t(rt.frameCount) + 1 - gGameFrame0;   // the game frame about to run
+    while (gGunReplayNext < gGunReplay.size() && gGunReplay[gGunReplayNext].frame < f)
+        ++gGunReplayNext;
+    if (gGunReplayNext < gGunReplay.size() && gGunReplay[gGunReplayNext].frame == f) {
+        const GunReplayEvent& e = gGunReplay[gGunReplayNext];
+        rt.gun[0].trigger = true;
+        rt.gun[0].onScreen = e.kind == 1;
+        rt.gun[0].x = e.x;
+        rt.gun[0].y = e.y;
+    }
+}
+void stateTrace(game::Runtime& rt, uint64_t framesBefore)
+{
+    static const bool replay = gunReplayLoad();   // (read once, before the game's first frame)
+    (void)replay;
+    static FILE* out = [] {
+        const char* p = std::getenv("HOTD_STATE_TRACE");
+        return p && *p ? std::fopen(p, "w") : nullptr;
+    }();
+    // game frame 0 = the first frame that ran in game mode 4 (Boss Mode: its walk-up ran in that call too, so the first
+    // line is the entrance's frame, as on the PC, whose walk-up ticks are ticks of their own)
+    if (gGameFrame0 < 0 && rt.mem.at<int16_t>(game::A::G::game_mode) == 4)
+        gGameFrame0 = int64_t(framesBefore) + 1;
+    if (!out || gGameFrame0 < 0)
+        return;
+    using G = game::A::G;
+    std::fprintf(out, "F %lld %d %d %d %08X %.3f %d %d", (long long)(int64_t(rt.frameCount) - gGameFrame0),
+                 rt.mem.at<int16_t>(G::game_mode), rt.mem.at<int8_t>(G::chapter), rt.mem.at<int8_t>(G::event_index),
+                 rt.mem.u32(G::rand_state), rt.mem.f32(G::floor_y), rt.mem.at<int16_t>(G::enemies_alive),
+                 rt.mem.at<int16_t>(G::enemy_count));
+    for (int p = 0; p < 2; ++p) {
+        const port::a::Player& pl = rt.mem.at<port::a::Player>(rt.player_rec(p));
+        std::fprintf(out, " | %d %d %d %d %X", pl.state, int32_t(pl.lives), int32_t(pl.score), int(pl.rounds), pl.flags);
+    }
+    std::fprintf(out, " | B %d %d %d %u", rt.boss.mode, int(rt.boss.clockOn), int(rt.boss.shown), rt.boss.ms());
+    const uint32_t start = rt.mem.u32(G::task_current);
+    uint32_t t = start;
+    static FILE* camOut = [] {   // HOTD_STATE_CAM: PC Mode's camera per traced frame (pmbody: the PC's stored 1, the
+                                 // record 0 eye / angles / look-at, camera_pos)
+        const char* p = std::getenv("HOTD_STATE_CAM");
+        return p && *p ? std::fopen(p, "w") : nullptr;
+    }();
+    if (camOut) {
+        std::fprintf(camOut, "%lld", (long long)(int64_t(rt.frameCount) - gGameFrame0));
+        for (int k = 0; k < 12; ++k)
+            std::fprintf(camOut, " %.9g", rt.pm_camera[k]);
+        const uint32_t q = G::camera_records;
+        std::fprintf(camOut, " | %.9g %.9g %.9g %X %X %X %.9g %.9g %.9g | %.9g %.9g %.9g\n", rt.mem.f32(q), rt.mem.f32(q + 4),
+                     rt.mem.f32(q + 8), rt.mem.u32(q + 0xC), rt.mem.u32(q + 0x10), rt.mem.u32(q + 0x14), rt.mem.f32(q + 0x18),
+                     rt.mem.f32(q + 0x1C), rt.mem.f32(q + 0x20), rt.mem.f32(G::camera_pos), rt.mem.f32(G::camera_pos + 4),
+                     rt.mem.f32(G::camera_pos + 8));
+        if (std::getenv("HOTD_STATE_CAM_HOMES")) {   // the shootable objects' homes (+0x2D4) and positions
+            const uint32_t s0 = rt.mem.u32(G::task_current);
+            uint32_t u = s0;
+            std::fprintf(camOut, "H %lld", (long long)(int64_t(rt.frameCount) - gGameFrame0));
+            for (int k = 0; k < 600 && u; ++k) {
+                if ((rt.mem.u32(u + 0x58) & 1) || std::getenv("HOTD_STATE_CAM_ALL"))
+                {
+                    std::fprintf(camOut, " | %X %.9g %.9g %.9g mot %d frame %d fl %02X %02X %02X %02X st %d %d %d dir %X", rt.mem.u32(u),
+                                 rt.mem.f32(u + 0x2D4), rt.mem.f32(u + 0x2D8), rt.mem.f32(u + 0x2DC), rt.mem.at<int16_t>(u + 0xD0),
+                                 rt.mem.at<int16_t>(u + 0xF4), rt.mem.at<uint8_t>(u + 0x3C4), rt.mem.at<uint8_t>(u + 0x3C5),
+                                 rt.mem.at<uint8_t>(u + 0x3C6), rt.mem.at<uint8_t>(u + 0x3C7), rt.mem.at<int16_t>(u + 0x5C),
+                                 rt.mem.at<int16_t>(u + 0x5E), rt.mem.at<int16_t>(u + 0x60), rt.mem.u32(u + 0x14C));
+                    for (uint32_t o = 0xD8; o < 0x118; o += 2)
+                        std::fprintf(camOut, " %04X", rt.mem.at<uint16_t>(u + o));
+                }
+                u = rt.mem.u32(u + 0x14);
+                if (u == s0)
+                    break;
+            }
+            std::fprintf(camOut, "\n");
+        }
+    }
+    static const int digits = [] {   // HOTD_STATE_DIGITS: positions with more decimals (pc_diff.py trace --digits)
+        const char* d = std::getenv("HOTD_STATE_DIGITS");
+        return d && *d ? std::atoi(d) : 2;
+    }();
+    for (int k = 0; k < 600 && t; ++k) {
+        if (rt.mem.u32(t + 0x58) & 1)
+            std::fprintf(out, " | O %X %d %d %.*f %.*f %.*f", rt.mem.u32(t), rt.mem.at<int16_t>(t + 0x5C),
+                         rt.mem.at<int16_t>(t + 0x70), digits, rt.mem.f32(t + 0x20), digits, rt.mem.f32(t + 0x24), digits,
+                         rt.mem.f32(t + 0x28));
+        t = rt.mem.u32(t + 0x14);
+        if (t == start)
+            break;
+    }
+    std::fprintf(out, "\n");
+}
+
+void autofire(game::Runtime& rt, int frame)
+{
+    // with both players in, they take turns (player 2's shots through the same gun-input layer)
+    int p = rt.mem.u32(game::A::G::players + 0xCC) == 5 ? (frame / 15) % 2 : 0;
+    rt.gun[0] = rt.gun[1] = {};
+    if (rt.coop4_on()) {   // the 4P mode (docs/coop4.md): the seats in play take turns
+        rt.gun[2] = rt.gun[3] = {};
+        int in[4], n = 0;
+        for (int s = 0; s < 4; ++s)
+            if (rt.mem.u32(rt.player_rec(s)) == 5)
+                in[n++] = s;
+        p = n > 0 ? in[(frame / 15) % n] : 0;
+    }
+    float x, y;
+    // out of rounds: a shot off screen reloads (T1: before, an empty gun kept "firing" without effect)
+    // HOTD_NO_RELOAD (testing): an empty gun stays empty (the RELOAD prompts stay up for renders)
+    static const bool noReload = std::getenv("HOTD_NO_RELOAD") != nullptr;
+    if (frame % gAutofireEvery == 0 && rt.mem.at<uint8_t>(rt.player_rec(p) + 0x3D) == 0) {
+        if (noReload)
+            return;
+        rt.gun[p].trigger = true;
+        return;
+    }
+    if (autofireTarget(rt, frame, x, y)) {
+        rt.gun[p].onScreen = true;
+        rt.gun[p].trigger = true;
+        rt.gun[p].x = x;
+        rt.gun[p].y = y;
+    }
+}
+
+// skipfix (user 2026-10-27): where the hold-to-skip's ring goes: the bottom bar's middle (the user's choice), never
+// over anything drawn there (HOLD YOUR FIRE! / PRESS START of players 1 / 2 in the bottom bar's corners, a subtitle
+// line, a boss title, the score line: all cells of the four tile layers; the fades' black cover cell ignored; players
+// 3 / 4's HOLD YOUR FIRE! is the HUD's own, in the top bar's corners). The middle columns first: the whole bar free, the
+// ring in its middle; a line there, the ring in the free rows above or below it (2 rows at least, the ring that tall);
+// then a column further out (columns 23..39 only: the corners' prompts take 1..16 / 41..56; widescreen moves them out
+// to the window's edges, never into the middle); then the top bar's middle. No free spot: no ring (the hold still
+// works). pictureX / pictureW: the 4:3 picture's left edge and width in window pixels
+static bool skipRingSpot(const game::Runtime& rt, int ww, int wh, float pictureX, float pictureW, float& x, float& y, float& size)
+{
+    if (rt.letterbox <= 0 || ww <= 0 || wh <= 0)
+        return false;
+    const float px = float(wh) / 384.0f;   // window pixels an arcade line (the bars: letterbox / 384 of the window's height)
+    const float bar = float(rt.letterbox) * px;
+    constexpr uint32_t kTiles = 0x1000000;
+    const bool tiles = rt.mem.mapped(kTiles) && rt.mem.mapped(kTiles + 0x7FFF);
+    const bool cover = rt.pcCells[size_t(2 * game::Runtime::kPcRows) * 64] == (0xA1u | 0x10000u);
+    const uint16_t coverCell = cover && tiles ? rt.mem.at<uint16_t>(kTiles + 0x4000) : uint16_t(0);
+    const int rows = std::clamp((rt.letterbox + 7) / 8, 1, 6);
+    auto rowFree = [&](int r, int c) {
+        for (int l = 0; l < 4 && tiles; ++l)
+            for (int cx = c - 2; cx <= c + 2; ++cx) {
+                const uint16_t v = rt.mem.at<uint16_t>(kTiles + uint32_t(l) * 0x2000 + uint32_t(r) * 0x80 + uint32_t(cx) * 2);
+                if (v == 0 || (cover && l == 2 && v == coverCell))
+                    continue;
+                // the window mask (as Hud / Arcade2D::compose): where a pair's bit is set the window layer (1 / 3)
+                // shows, elsewhere layer 0 / 2: a cell the mask hides is not drawn
+                bool shown = false;
+                for (int sy = r * 8; sy < r * 8 + 8 && !shown; ++sy) {
+                    const uint32_t line = (l < 2 ? 0x100C000u : 0x100D000u) + uint32_t(sy) * 8 + uint32_t(cx >> 4) * 2;
+                    shown = !rt.mem.mapped(line) || (((rt.mem.at<uint16_t>(line) >> (15 - (cx & 15))) & 1) != 0) == ((l & 1) != 0);
+                }
+                if (shown)
+                    return false;
+            }
+        return true;
+    };
+    for (int b = 0; b < 2; ++b) {   // the bottom bar, then the top one
+        const int r0 = b == 0 ? 48 - rows : 0;
+        for (int k = 0; k < 2 * 8 + 1; ++k) {
+            const int c = 31 + (k % 2 ? (k + 1) / 2 : -(k / 2));   // 31, 32, 30, 33, 29 .. 39 / 23
+            int best = 0, bestAt = 0;
+            for (int r = r0, run = 0; r < r0 + rows; ++r) {   // the longest run of free rows
+                run = rowFree(r, c) ? run + 1 : 0;
+                if (run > best) best = run, bestAt = r - run + 1;
+            }
+            x = pictureX + float(c * 8) * pictureW / 496.0f;
+            if (best == rows) {   // the whole bar
+                size = std::max(bar * 0.5f, 12.0f);
+                y = b == 0 ? float(wh) - bar * 0.5f : bar * 0.5f;
+                return true;
+            }
+            if (best >= 2 && b == 0) {   // beside a line: in the free rows (the bar's edge: the window's)
+                const float top = std::max(float(bestAt * 8) * px, float(wh) - bar), bottom = std::min(float((bestAt + best) * 8) * px, float(wh));
+                size = std::max((bottom - top) * 0.85f, 10.0f);
+                y = (top + bottom) * 0.5f;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// launcher "Auto reload" (hud3, off by default; one setting for every seat, players 3 / 4 of the 4P mode too): a player
+// in play whose gun is empty (the last round fired: rounds 0, empty set) pulls the trigger off the screen on the next
+// frame, i.e. the original's reload (player_shoot: 6 rounds, its sound) at the moment a player could first reload. Only
+// while shots are on: with shots off an off-screen pull is the cut-scene skip; the gun waits for the shooting instead.
+// PC Mode: the PC's own auto reload instead (player_shoot: pc_gun_input's refill, no sound; docs/pcmode.md). A local
+// game's seats (the window and the headless runs); online: autoReloadWanted per seat of this PC, in its input
+bool autoReloadWanted(game::Runtime& rt, int p)
+{
+    const port::a::Player& pl = rt.mem.at<port::a::Player>(rt.player_rec(p));
+    return !rt.pm_on() && rt.mem.at<int16_t>(game::A::G::game_mode) == 4 && rt.mem.u32(game::A::G::shot_enable) != 0 &&
+           pl.state == 5 && pl.rounds == 0 && pl.empty != 0 && rt.mem.u32(game::A::G::ammo_enabled) != 0;
+}
+void autoReloadSeats(game::Runtime& rt, bool on)
+{
+    rt.pm_auto_reload = on;
+    if (!on)
+        return;
+    for (int p = 0; p < rt.seat_count(); ++p)
+        if (autoReloadWanted(rt, p)) {
+            rt.gun[p].trigger = true;
+            rt.gun[p].onScreen = false;
+            ++gAutoReloads[p];
+        }
+}
+
+// netplay, headless (docs/netplay.md): the local player's input of a frame: --autofire for that player (the same rule as
+// autofire(), the frame = the lockstep's), --start-at P:F for that player
+net::Input netAutofire(game::Runtime& rt, bool fire, const std::vector<uint64_t>& startAt, int p, uint32_t frame)
+{
+    net::Input in;
+    for (uint64_t s : startAt)
+        if (int(s >> 32) == p && (s & 0xFFFFFFFF) == frame)
+            in.flags |= net::Input::kStart;
+    if (!fire)
+        return in;
+    float x, y;
+    static const bool noReload = std::getenv("HOTD_NO_RELOAD") != nullptr;   // (as autofire)
+    if (int(frame) % gAutofireEvery == 0 && rt.mem.at<uint8_t>(rt.player_rec(p) + 0x3D) == 0) {
+        if (!noReload)
+            in.flags |= net::Input::kTrigger;   // out of rounds: off screen = reload
+    } else if (autofireTarget(rt, int(frame), x, y)) {
+        in.flags |= net::Input::kOnScreen | net::Input::kTrigger;
+        in.x = x;
+        in.y = y;
+    }
+    return in;
+}
+// computer teammates online (docs/netplay.md "CPU teammates"): bot seat s's input of lockstep frame f, decided on
+// the PC that owns the seat, once per input frame, and sent like a player's (rollback never asks again)
+net::Input netTeamSeat(game::Runtime& rt, int s, uint32_t f)
+{
+    game::Runtime::GunInput g;
+    net::Input in;
+    if (gTeam->seatInput(rt, s, f, g))
+        in.flags |= net::Input::kStart;
+    if (g.onScreen) in.flags |= net::Input::kOnScreen;
+    if (g.trigger) in.flags |= net::Input::kTrigger;
+    in.x = std::clamp(g.x, -4000.0f, 4000.0f);
+    in.y = std::clamp(g.y, -4000.0f, 4000.0f);
+    return in;
+}
+// the 4P game on two PCs: this PC's second seat played by its computer teammate (the input's second fields)
+void netTeamSeats(game::Runtime& rt, net::Input& in)
+{
+    if (!gTeam || !gNet || gNet->multi() || !rt.coop4_on())
+        return;
+    const int s = gNet->localPlayer() + 2;
+    if (!((gTeam->teamMask() >> s) & 1))
+        return;
+    const net::Input v = netTeamSeat(rt, s, gNet->frame() + gNet->session().delay());
+    in.flags2 = v.flags, in.x2 = v.x, in.y2 = v.y;
+}
+// up to four PCs, the host: the free seats' computer teammates (NetGame::hostSeats; a seat's PC's input replaces it)
+void netHostSeats(game::Runtime& rt, uint32_t f, net::Input in[2])
+{
+    if (!gTeam)
+        return;
+    for (int s = 1; s < 4; ++s)
+        if ((gTeam->teamMask() >> s) & 1)
+            net::setSeat(in, s, netTeamSeat(rt, s, f));
+}
+// testing: HOTD_NET_KEYAIM_TEST=F:E (docs/netplay.md): in a window online game player 2's first Aim Left key is held
+// for 60 frames from F (injected key events, as a person's), and the window's game ends at frame E; both PCs print
+// player 2's gun at F and F + 90 (the keyboard aim through the lockstep: the same on both)
+static long long gKeyAimAt = -1, gKeyAimEnd = -1;
+bool netKeyAimTest()
+{
+    if (static bool parsed = false; !parsed) {
+        parsed = true;
+        if (const char* e = std::getenv("HOTD_NET_KEYAIM_TEST"); !e || std::sscanf(e, "%lld:%lld", &gKeyAimAt, &gKeyAimEnd) != 2)
+            gKeyAimAt = gKeyAimEnd = -1;
+    }
+    return gKeyAimAt >= 0 && gNet;
+}
+void netKeyAimPrint(game::Runtime& rt)
+{
+    if (!netKeyAimTest())
+        return;
+    const long long f = gNet->frame();
+    if (f == gKeyAimAt || f == gKeyAimAt + 90)
+        std::printf("NET KEYAIM: frame %lld player 2 gun x=%.3f y=%.3f on_screen=%d\n", f, double(rt.gun[1].x), double(rt.gun[1].y),
+                    rt.gun[1].onScreen ? 1 : 0);
+}
+// the HUD: seat p played by this PC's computer teammate (up to four PCs: while no PC sits there)
+bool teamSeatShown(int p)
+{
+    return gTeam && ((gTeam->teamMask() >> p) & 1) != 0 && (!gNet || !gNet->multi() || ((gNet->freeSeats() >> p) & 1) != 0);
+}
+// the 4-seat game online (docs/coop4.md phase 7): this PC's two seats (lp and lp + 2) in one input
+net::Input netAutofireSeats(game::Runtime& rt, bool fire, const std::vector<uint64_t>& startAt, int lp, uint32_t frame)
+{
+    net::Input in = netAutofire(rt, fire, startAt, lp, frame);
+    // this PC's second seat: lp + 2 on two PCs; up to four PCs: a PC with two seats (protocol 15), else none
+    const int s2 = !rt.coop4_on() ? -1 : gNet && gNet->multi() ? gNet->secondSeat() : lp < 2 ? lp + 2 : -1;
+    if (s2 > 0) {
+        const net::Input s = netAutofire(rt, fire, startAt, s2, frame);
+        in.flags2 = s.flags, in.x2 = s.x, in.y2 = s.y;
+    }
+    // launcher "Auto reload" (the host's: netApply), as the window's sample: this PC's seats
+    if (gAutoReload && autoReloadWanted(rt, lp)) {
+        in.flags = uint8_t((in.flags & ~net::Input::kOnScreen) | net::Input::kTrigger);
+        ++gAutoReloads[lp];
+    }
+    if (gAutoReload && s2 > 0 && autoReloadWanted(rt, s2)) {
+        in.flags2 = uint8_t((in.flags2 & ~net::Input::kOnScreen) | net::Input::kTrigger);
+        ++gAutoReloads[s2];
+    }
+    netTeamSeats(rt, in);
+    return in;
+}
+
+void report(game::Runtime& rt)
+{
+    const uint32_t pc = rt.mem.u32(game::A::G::evt_pc);
+    std::printf("chapter %d event %d, event script at 0x%X (handler 0x%X), evt_state %u, players active %u\n",
+                rt.mem.at<int8_t>(game::A::G::chapter) + 1, rt.mem.at<int8_t>(game::A::G::event_index), pc,
+                rt.mem.u32(pc), rt.mem.u32(game::A::G::evt_state), rt.mem.u32(game::A::G::evt_players_active));
+    for (int p = 0; p < rt.seat_count(); ++p) {   // (4P: players 3 / 4 too)
+        const uint32_t pl = rt.player_rec(p);
+        std::printf("player %d: state %d lives %d score %d rounds %u\n", p + 1, int32_t(rt.mem.u32(pl)), int32_t(rt.mem.u32(pl + 0xC)),
+                    int32_t(rt.mem.u32(pl + 8)), rt.mem.at<uint8_t>(pl + 0x3D));
+    }
+    if (gAutoReload)
+        std::printf("auto reloads: player 1 %u, player 2 %u, player 3 %u, player 4 %u\n", gAutoReloads[0], gAutoReloads[1],
+                    gAutoReloads[2], gAutoReloads[3]);
+    // robust-2: the launcher's settings as the game has them (difficulty 0-4 + the dynamic level 0x51F492, the lives
+    // setting's start / max lives, the blood colour), the teaser cuts and the model source
+    std::printf("settings: difficulty %d (dynamic level %d) start lives %u max lives %u blood %u guards %d pc models %d\n",
+                rt.mem.at<int16_t>(game::A::G::difficulty), rt.mem.at<int16_t>(0x51F492), rt.mem.at<uint8_t>(0x51F5B1),
+                rt.mem.at<uint8_t>(game::A::G::max_lives), rt.mem.at<uint8_t>(game::A::G::blood_color), rt.cuts.guards ? 1 : 0,
+                rt.pcModels ? 1 : 0);
+    std::printf("events played (scene_history):");
+    for (uint32_t i = 0; i < rt.mem.at<uint8_t>(game::A::G::scene_history_pos) && i < 16; ++i)
+        std::printf(" %d", rt.mem.at<int8_t>(game::A::G::scene_history + uint32_t(rt.mem.at<int8_t>(game::A::G::chapter)) * 16 + i));
+    std::printf("; chapter_ended %u, game_submode %u\n", rt.mem.at<uint8_t>(game::A::G::chapter_ended), rt.mem.u32(game::A::G::game_submode));
+    std::printf("boundaries reached, not implemented (calls):\n");
+    for (const auto& [name, n] : rt.missingCount)
+        std::printf("  %-36s %llu\n", name.c_str(), (unsigned long long)n);
+    std::printf("routines reached, not ported (calls):\n");
+    for (const auto& [addr, n] : rt.unportedCount)
+        std::printf("  %-48s %llu\n", rt.routineName(addr).c_str(), (unsigned long long)n);
+}
+
+// --lives-out F: at the first frame from F that is in play (camera_status bit 0: the players may act, i.e. no cut-scene
+// camera), every player in state 5 is out of lives. Only there: in the original nothing hurts a player during a
+// cut-scene, and a player out there makes an impossible state: the continue goes to state 10 (player_paused 0x5730
+// waits for camera_status bit 0) while the cut-scene's evt_WAIT_FRM (0x66D60) waits for a player in state 5, so the
+// event script never goes on (2026-10-19: this was the "mute after a continue" repro, a death forced at frame 600 in
+// the opening cut-scene, before the stage music's cue at 794). A game over's restart (the frame count starts again)
+// drops a lives-out still waiting: at the restarted chapter's frame 1 camera_status bit 0 is still the old chapter's,
+// so it fired inside the opening cut-scene (hunt2, 2026-10-20: 4 of 24 --bot --lives-out runs ended in that state)
+void livesOut(game::Runtime& rt, const std::vector<uint64_t>& at)
+{
+    static bool pending = false;
+    static uint64_t lastFrame = 0;
+    if (rt.frameCount < lastFrame)
+        pending = false;
+    lastFrame = rt.frameCount;
+    for (uint64_t f : at)
+        if (f == rt.frameCount)
+            pending = true;
+    if (!pending || (rt.mem.u32(game::A::G::camera_status) & 1) == 0)
+        return;
+    // HOTD_LIVES_OUT_SEATS=<mask> (testing): only those seats (bit 0 player 1 .. bit 3 player 4)
+    static const unsigned seats = std::getenv("HOTD_LIVES_OUT_SEATS") ? unsigned(std::strtoul(std::getenv("HOTD_LIVES_OUT_SEATS"), nullptr, 0)) : 0xFu;
+    for (uint32_t p = 0; p < 2; ++p)
+        if (rt.mem.at<port::a::Player>(game::A::G::players, p).state == 5 && (seats >> p & 1)) {
+            rt.mem.at<port::a::Player>(game::A::G::players, p).lives = 0;
+            pending = false;
+        }
+    if (rt.coop4_on())   // the 4P mode: players 3 / 4 too (their CONTINUE? prompts, docs/coop4.md section 15)
+        for (int p = 2; p < 4; ++p)
+            if (rt.mem.u32(rt.player_rec(p)) == 5 && (seats >> p & 1)) {
+                rt.mem.set32(rt.player_rec(p) + 0xC, 0);
+                pending = false;
+            }
+}
+
+// Boss Mode (game/bossmode.h, docs/teaser_status/bossmode.md): the game's end -> the times table (pc_main_loop
+// 0x419168: result 1 -> the time against the mode's table, IsHighScore 0x425748; result 7 -> the table only). The name
+// is the PC entry screen's default (SIMON) until our name entry comes; gBossTimesFile empty (headless): not saved
+std::string gBossTimesFile;
+int gPmRankTable = 0;   // High Scores: PC Mode's table's index (the boss tables follow it)
+int gBossShowMode = 0, gBossShowRank = -1;   // the window: the table to show after the game (0 none) and the new row
+int gBossEntryMs = -1;                        // the window: a new best time waiting for its name (-1 none)
+// HOTD_BOSS_NAME (testing): the name a new best time gets without the entry screen (upper case, A-Z 0-9 space, 10 at most)
+std::string bossInjectedName()
+{
+    const char* e = std::getenv("HOTD_BOSS_NAME");
+    std::string n;
+    for (const char* p = e ? e : ""; *p && n.size() < 10; ++p) {
+        const char c = char(std::toupper(uint8_t(*p)));
+        if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == ' ')
+            n += c;
+    }
+    return n;
+}
+// the name entry's end (0x42521E -> 0x425798): the time filed under the name, saved, its row's rank (0-based)
+int bossNameEntered(const std::string& name)
+{
+    game::BossTimes t;
+    t.load(gBossTimesFile);
+    const int rank = t.insert(gBossShowMode, name, gBossEntryMs);
+    if (!gBossTimesFile.empty() && !t.save(gBossTimesFile))
+        SDL_Log("boss mode: %s not written", gBossTimesFile.c_str());
+    std::printf("BOSS MODE: name=%s rank=%d\n", name.c_str(), rank + 1);
+    std::fflush(stdout);
+    gBossEntryMs = -1;
+    return rank;
+}
+void bossModeFinish(game::Runtime& rt)
+{
+    const game::BossMode& b = rt.boss;
+    game::BossTimes t;
+    if (!gBossTimesFile.empty())
+        t.load(gBossTimesFile);
+    int rank = -1;
+    gBossEntryMs = -1;
+    if (b.result == 1 && t.isHigh(b.mode, int(b.ms()))) {
+        if (const std::string n = bossInjectedName(); !n.empty() || gBossTimesFile.empty()) {
+            // HOTD_BOSS_NAME (testing) or a run without the window: filed at once (unnamed: the entry's ANONYMOUS)
+            rank = t.insert(b.mode, n.empty() ? "ANONYMOUS" : n, int(b.ms()));
+            if (!gBossTimesFile.empty() && !t.save(gBossTimesFile))
+                SDL_Log("boss mode: %s not written", gBossTimesFile.c_str());
+        } else
+            gBossEntryMs = int(b.ms());   // the window: the name entry (screen 15) first, then filed (bossNameEntered)
+    }
+    gBossShowMode = b.mode;
+    gBossShowRank = rank;
+    std::printf("BOSS MODE: result=%s mode=%s time=%s ms=%u rank=%d frame=%llu\n", b.result == 1 ? "cleared" : "gameover",
+                game::kBossNames[b.mode - 2], b.clockText().c_str(), b.ms(), rank + 1, (unsigned long long)rt.frameCount);
+}
+
+// PC Mode's end (docs/pcmode.md row 15; THOTD.EXE mode67_ranking_pc 0x44D0C4 -> frontend_state 7): a row per player
+// (score, character, stage), FUN_0042593c's test against the PC Mode table with the other players' scores, then in
+// the menus the name entry (screen 15) for each player that goes in, InsertScore, the table. gPmScoresFile empty
+// (headless): nothing saved; HOTD_PM_NAME (testing): the rows filed at once under that name
+std::string gPmScoresFile;
+std::vector<game::PcModeScores::Row> gPmQueue;   // the rows waiting for their names (player order)
+std::vector<int> gPmQueueSeat;
+int gPmShowRank = -1;
+int gPmStageKept[4] = {};   // the PC's static rows 0xC72380.. keep the last stage of a player without lives
+int pmNameEntered(const std::string& name)
+{
+    if (gPmQueue.empty())
+        return -1;
+    game::PcModeScores t;
+    if (!gPmScoresFile.empty())
+        t.load(gPmScoresFile);
+    game::PcModeScores::Row r = gPmQueue.front();
+    r.name = name.substr(0, 15);
+    const int rank = t.insert(r);
+    if (!gPmScoresFile.empty() && !t.save(gPmScoresFile))
+        SDL_Log("PC Mode: %s not written", gPmScoresFile.c_str());
+    std::printf("PC MODE RANK: P%d name=%s score=%d char=%d stage=%d place=%d\n", gPmQueueSeat.front() + 1, r.name.c_str(),
+                r.score, r.ch, r.stage + 1, rank + 1);
+    std::fflush(stdout);
+    gPmQueue.erase(gPmQueue.begin());
+    gPmQueueSeat.erase(gPmQueueSeat.begin());
+    gPmShowRank = rank;
+    return rank;
+}
+// seats: the seats whose rows go into this PC's table (bit p = seat p). Online (docs/netplay.md "PC Mode online"):
+// this PC's own seats only, after the session ended (each PC its own name entry and table, nothing sent)
+void pcModeFinish(game::Runtime& rt, unsigned seatMask = 0xF)
+{
+    gPmQueue.clear();
+    gPmQueueSeat.clear();
+    gPmShowRank = -1;
+    game::PcModeScores t;
+    if (!gPmScoresFile.empty())
+        t.load(gPmScoresFile);
+    const int seats = rt.seat_count();
+    const int chapter = rt.mem.at<int8_t>(game::A::G::chapter);
+    std::vector<game::PcModeScores::Row> rows;
+    for (int p = 0; p < seats; ++p) {
+        const port::a::Player& pl = rt.mem.at<port::a::Player>(rt.player_rec(p));
+        game::PcModeScores::Row r;
+        r.score = pl.score;
+        r.ch = std::clamp(rt.pm_char[p], 0, port::Game<port::A>::kPmCharCount - 1);
+        r.stage = game::pcModeStage(chapter, pl.lives, gPmStageKept[p]);
+        rows.push_back(r);
+    }
+    for (int p = 0; p < seats; ++p) {
+        if (!((seatMask >> p) & 1))
+            continue;
+        std::vector<int> others;   // (the other rows that go into this table with it)
+        for (int q = 0; q < seats; ++q)
+            if (q != p && ((seatMask >> q) & 1))
+                others.push_back(rows[size_t(q)].score);
+        const bool in = t.isHigh(rows[size_t(p)].score, others);
+        std::printf("PC MODE: P%d score=%d char=%d stage=%d high=%d\n", p + 1, rows[size_t(p)].score, rows[size_t(p)].ch,
+                    rows[size_t(p)].stage + 1, in ? 1 : 0);
+        if (in) {
+            gPmQueue.push_back(rows[size_t(p)]);
+            gPmQueueSeat.push_back(p);
+        }
+    }
+    std::fflush(stdout);
+    if (const char* n = std::getenv("HOTD_PM_NAME"); n || gPmScoresFile.empty())
+        while (!gPmQueue.empty())
+            pmNameEntered(n && *n ? n : "ANONYMOUS");
+}
+// an online game: this PC's own seats (its player, its second seat); a local game: every seat
+unsigned pmOwnSeats()
+{
+    if (!gNet)
+        return 0xF;
+    unsigned m = 0;
+    for (int p = 0; p < 4; ++p)
+        if (gNet->mySeat(p))
+            m |= 1u << p;
+    return m;
+}
+
+int runHeadless(game::Host& host, int frames, bool fire, const std::vector<uint64_t>& out, const std::vector<uint64_t>& startAt,
+                game::Audio& audio)
+{
+    game::Runtime& rt = host.runtime();
+    int16_t mode = rt.mem.at<int16_t>(game::A::G::game_mode);
+    uint32_t sub = rt.mem.u32(game::A::G::game_submode);
+    uint32_t lastPc = rt.mem.u32(game::A::G::evt_pc);
+    uint64_t lastPcFrame = 0;
+    int8_t lastEvent = -1;
+    int lastZone = -1;
+    static std::vector<float> frameMs;
+    static uint64_t totalFrames = 0, badAccesses = 0, nanDrawsBefore = 0;
+    static uint32_t firstBad = 0;
+    static int gameOvers = 0;
+    static game::Watchdog watchdog;
+    static bool crashHandler = false;
+    if (gBot && !crashHandler) {
+        crashHandler = true;
+        game::installCrashHandler(&totalFrames);
+    }
+    // HOTD_PAUSE_AT=F:N (developer, pause): at the first game frame from F where it can, the in-game pause opens (THOTD.EXE 0x41ADF0 with an Escape
+    // edge: only in play), N frames later P closes it (no cue). The paused frames run no game frame but render their
+    // 1/60 s of sound (--audio-wav: the held mix, i.e. silence apart from sounds started meanwhile) and do not count
+    // towards --frames. pause.md: the waveform after the pause goes on where it stopped.
+    static game::Pause hpause;
+    static uint64_t pauseAt = 0;
+    static int pauseFor = 0, pauseLeft = 0;
+    if (static bool parsed = false; !parsed) {
+        parsed = true;
+        if (const char* e = std::getenv("HOTD_PAUSE_AT")) {
+            unsigned long long f = 0;
+            int n = 0;
+            if (std::sscanf(e, "%llu:%d", &f, &n) == 2 && n > 0) {
+                pauseAt = f;
+                pauseFor = n;
+            }
+        }
+        hpause.onCue = [&audio](int c) { audio.pcCue(c); };
+        hpause.onSound = [&audio](bool hold) { audio.pause(hold); };
+    }
+    for (int i = 0; gNet && gNetFrames >= 0 ? gNet->frame() < uint32_t(gNetFrames) : i < frames; ++i) {
+        if (pauseFor > 0 && rt.frameCount >= pauseAt && !hpause.paused()) {   // the first frame from F that is in play
+            game::PauseInput in;
+            in.toggle = true;
+            hpause.frame(rt, in);
+            if (hpause.paused()) {
+                std::printf("frame %llu: paused (HOTD_PAUSE_AT, %d frames)\n", (unsigned long long)rt.frameCount, pauseFor);
+                pauseLeft = pauseFor;
+                pauseFor = 0;
+            }
+        }
+        if (hpause.paused()) {
+            audio.renderFrame();
+            if (gNet) {   // online: the other PCs are told (P<n> PAUSED), the link kept alive; a pause frame = 1/60 s
+                gNet->setPaused(true);
+                gNet->idle();
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            }
+            if (--pauseLeft <= 0) {
+                game::PauseInput in;
+                in.toggle = true;
+                hpause.frame(rt, in);
+                std::printf("frame %llu: resumed (HOTD_PAUSE_AT)\n", (unsigned long long)rt.frameCount);
+                if (gNet) gNet->setPaused(false);
+            }
+            --i;
+            continue;
+        }
+        if (std::getenv("HOTD_TRACE_COUNTS") && rt.frameCount % 300 == 0) {   // T1: live enemies along the route
+            std::printf("frame %llu event %d alive %d count %d op %s cam sub %u slots", (unsigned long long)rt.frameCount,
+                        rt.mem.at<int8_t>(game::A::G::event_index), rt.mem.at<int16_t>(game::A::G::enemies_alive),
+                        rt.mem.at<int16_t>(game::A::G::enemy_count),
+                        rt.routineName(rt.mem.u32(game::A::G::evt_handlers + rt.mem.u32(rt.mem.u32(game::A::G::evt_pc)) * 4)).c_str(),
+                        rt.mem.u32(game::A::G::camera_drive_flag));
+            for (uint32_t s = 0; s < 14; ++s)
+                if (rt.mem.at<uint8_t>(game::A::G::attack_slots + s * 0x14))
+                    std::printf(" %u", s);
+            std::printf(" lives %d\n", int32_t(rt.mem.u32(game::A::G::players + 0xC)));
+        }
+        if (static int lastSs = -1; std::getenv("HOTD_TRACE_SCENE_STATE") && rt.mem.at<uint8_t>(game::A::G::scene_state) != lastSs) {
+            lastSs = rt.mem.at<uint8_t>(game::A::G::scene_state);   // developer (fix28): scene_state's changes (5: a rescue)
+            std::printf("frame %llu: scene_state %d letterbox %d shots %u lives %d\n", (unsigned long long)rt.frameCount, lastSs,
+                        rt.letterbox, rt.mem.u32(game::A::G::shot_enable), int32_t(rt.mem.u32(game::A::G::players + 0xC)));
+        }
+        if (static uint32_t lastScene[2] = {}; std::getenv("HOTD_TRACE_SCENE_STATE"))   // (and the players' scene routines)
+            for (uint32_t p = 0; p < 2; ++p) {
+                const auto& pl = rt.mem.at<port::a::Player>(game::A::G::players, p);
+                if (pl.scene_routine != lastScene[p]) {
+                    lastScene[p] = pl.scene_routine;
+                    std::printf("frame %llu: P%u scene routine 0x%X state %u in game %d body type %d\n", (unsigned long long)rt.frameCount,
+                                p + 1, pl.scene_routine, unsigned(pl.state), rt.mem.at<int16_t>(game::A::G::players_in_game),
+                                int32_t(rt.mem.u32(0x51F438 + p * 4)));
+                }
+            }
+        if (static int lastZone = -1; std::getenv("HOTD_EVENT_FLAGS") && rt.mem.at<uint8_t>(game::A::G::draw_zone) != lastZone) {
+            lastZone = rt.mem.at<uint8_t>(game::A::G::draw_zone);   // developer (bossbug): the draw zone's changes (BGTB)
+            std::printf("frame %llu: draw zone %d\n", (unsigned long long)rt.frameCount, lastZone);
+        }
+        if (const int8_t ev = rt.mem.at<int8_t>(game::A::G::event_index); ev != lastEvent) {   // T1: the route's frames
+            lastEvent = ev;
+            std::printf("frame %llu: event %d\n", (unsigned long long)rt.frameCount, ev);
+            if (std::getenv("HOTD_EVENT_FLAGS")) {   // developer (bossbug): the event flags set (ITEMON ..) and the area
+                std::printf("  texture area %d, event flags:", rt.textureArea);
+                for (uint32_t f = 0; f < 0x100; ++f)
+                    if (const uint8_t v = rt.mem.at<uint8_t>(game::A::G::event_flags + f))
+                        std::printf(" %u=%u", f, v);
+                std::printf("\n");
+            }
+        }
+        if (std::getenv("HOTD_KEEP_LIVES") && int32_t(rt.mem.u32(game::A::G::player1_lives)) < 2)   // testing: never out
+            rt.mem.set32(game::A::G::player1_lives, 2);
+        if (std::getenv("HOTD_KEEP_LIVES") && rt.coop4_on())   // (4P: players 3 / 4 too)
+            for (int p = 2; p < 4; ++p)
+                if (rt.mem.u32(rt.player_rec(p)) == 5 && int32_t(rt.mem.u32(rt.player_rec(p) + 0xC)) < 2)
+                    rt.mem.set32(rt.player_rec(p) + 0xC, 2);
+        if (const int z = rt.mem.at<uint8_t>(game::A::G::draw_zone); z != lastZone) {   // the BGTB draw zone
+            lastZone = z;
+            std::printf("frame %llu: draw zone %d\n", (unsigned long long)rt.frameCount, z);
+        }
+        if (const uint32_t pc = rt.mem.u32(game::A::G::evt_pc); pc != lastPc) {   // T1: where an event script stalls
+            lastPc = pc;
+            lastPcFrame = rt.frameCount;
+        }
+        if (gNet && gNetQuitAt > 0 && gNet->frame() >= uint64_t(gNetQuitAt)) {   // HOTD_NET_QUIT_AT: this PC quits mid-game
+            std::printf("frame %d: HOTD_NET_QUIT_AT: this PC leaves the game\n", i);
+            gNet->leave(300);
+            break;
+        }
+        if (gNet) {   // netplay: both players' inputs of this frame from the lockstep (waits for the other PC)
+            const int lp = gNet->localPlayer();
+            net::NetGame::Step st;
+            static std::string shownPause;   // (the tests read it: another PC's pause, once per change)
+            while ((st = gNet->step(rt, [&] { return netAutofireSeats(rt, fire, startAt, lp, gNet->frame() + gNet->session().delay()); }, 2)) ==
+                       net::NetGame::Step::Wait &&
+                   gNet->silentSeconds() < gNetTimeout) {
+                if (const std::string pt = gNet->pausedText(); pt != shownPause) {
+                    shownPause = pt;
+                    if (!pt.empty()) std::printf("frame %d: the other PC shows: %s\n", i, pt.c_str());
+                }
+            }
+            shownPause.clear();
+            if (st != net::NetGame::Step::Run) {
+                std::printf("frame %d: netplay stopped: %s\n", i, gNet->status.c_str());
+                break;
+            }
+            netKeyAimPrint(rt);
+        }
+        else if (gBot)
+            gBot->frame(rt, totalFrames);
+        else if (!gGunReplay.empty())   // HOTD_GUN_REPLAY: a PC trace's gun (pccap)
+            gunReplay(rt);
+        else if (fire)
+            autofire(rt, i);
+        if (gTeam && !gNet)   // computer teammates (their seats only; online: through the lockstep, netTeamSeat)
+            gTeam->frame(rt, totalFrames);
+        livesOut(rt, out);
+        if (!gNet)
+            autoReloadSeats(rt, gAutoReload);   // launcher "Auto reload" / --auto-reload, every seat
+        rt.scoreDisplay = gScoreDisplay && !gNet;   // scoredisp: offline only (it is game memory: 0x51F42C)
+        for (uint64_t s : startAt)   // --start-at P:F (player P presses start at frame F)
+            if (!gNet && (s & 0xFFFFFFFF) == rt.frameCount)
+                rt.player_join(int(s >> 32));
+        audio.frameNo = rt.frameCount;
+        const uint64_t sonicCostH = gSonic.account(rt);
+        if (static int sonicWas = -1; sonicCostH && std::getenv("HOTD_TRACE_SONIC") && gSonic.lastPhase != sonicWas) {
+            // Sonic Mode: this tick's display time (its phase before it runs); HOTD_TRACE_SONIC: the phase changes
+            sonicWas = gSonic.lastPhase;
+            std::printf("frame %llu: sonic phase %s (scene_state %d, voice %d, card %d)\n", (unsigned long long)rt.frameCount,
+                        sonicWas == 0 ? "normal" : sonicWas == 1 ? "play" : sonicWas == 2 ? "boss" : "magician", rt.mem.at<uint8_t>(game::A::G::scene_state),
+                        rt.voiceFrame + 2 >= rt.frameCount && rt.voiceFrame != 0, (rt.mem.u32(game::A::G::evt_clrgfst_flags) & 0x20) != 0);
+        }
+        const auto t0 = std::chrono::steady_clock::now();
+        const uint64_t framesBefore = rt.frameCount;   // (HOTD_STATE_TRACE: Boss Mode's walk-up runs in one call)
+        if (!gNet)   // Boss Mode's clock: the tick's real time (Sonic Mode: its share of a display frame); online: fixed
+            rt.boss.tickMs = 1000.0 / 60.0 * double(sonicCostH ? sonicCostH : 42) / 42.0;
+        rt.frame();
+        if (gNet)
+            gNet->after(rt);
+        if (gNet && rt.pcmode) {   // online PC Mode (the tests read it): a seat's character changed (a joiner's own pick)
+            static int was[4] = {-1, -1, -1, -1};
+            for (int p = 0; p < rt.seat_count(); ++p) {
+                if (was[p] >= 0 && rt.pm_char[p] != was[p])
+                    std::printf("frame %llu: P%d's PC Mode character is now %d\n", (unsigned long long)rt.frameCount, p + 1, rt.pm_char[p]);
+                was[p] = rt.pm_char[p];
+            }
+            static int credits = -1;   // the shared continue credits (the host's Continues), each seat out of lives / back in
+            if (rt.pm_credits != credits)
+                std::printf("frame %llu: PC Mode credits %d\n", (unsigned long long)rt.frameCount, credits = rt.pm_credits);
+            static int32_t st[4] = {-1, -1, -1, -1};
+            for (int p = 0; p < rt.seat_count(); ++p) {
+                const int32_t s = int32_t(rt.mem.u32(rt.player_rec(p)));
+                if (st[p] >= 0 && s != st[p] && (s == 4 || s == 5 || s == 6))
+                    std::printf("frame %llu: P%d %s\n", (unsigned long long)rt.frameCount, p + 1,
+                                s == 4 ? "out of lives (CONTINUE?)" : s == 5 ? "in play" : "game over");
+                st[p] = s;
+            }
+        }
+        if (rt.coop4_on()) {   // the 4P mode: each seat's lives as it comes into play (the start, a join, a continue)
+            static int32_t was[4] = {-1, -1, -1, -1};
+            for (int p = 0; p < 4; ++p) {
+                const int32_t st = int32_t(rt.mem.u32(rt.player_rec(p)));
+                if (st == 5 && was[p] != 5)
+                    std::printf("frame %llu: player %d in play with %d lives\n", (unsigned long long)rt.frameCount, p + 1,
+                                int32_t(rt.mem.u32(rt.player_rec(p) + 0xC)));
+                was[p] = st;
+            }
+        }
+        // HOTD_TRACE_SCENES (the cut-scene viewer, game/scene_view.h): every player cut-scene's start and end
+        if (static const bool ts = std::getenv("HOTD_TRACE_SCENES") != nullptr; ts) {
+            static uint32_t starts = 0;
+            static int now = -1;
+            if (rt.scene_starts != starts) {
+                starts = rt.scene_starts;
+                std::printf("frame %llu: player cut-scene %02d starts (chapter %d, event %d, routine 0x%X)\n", (unsigned long long)rt.frameCount,
+                            rt.scene_started, rt.mem.at<int8_t>(game::A::G::chapter) + 1, rt.mem.at<int8_t>(game::A::G::event_index),
+                            rt.mem.at<port::a::Player>(game::A::G::players, 0).scene_routine);
+            }
+            if (const int s = rt.player_scene_now(); s != now) {
+                if (now >= 0)
+                    std::printf("frame %llu: player cut-scene %02d ends\n", (unsigned long long)rt.frameCount, now);
+                now = s;
+            }
+            static uint32_t r0 = 0;
+            if (const uint32_t r = rt.mem.at<port::a::Player>(game::A::G::players, 0).scene_routine; (r == 0) != (r0 == 0)) {
+                std::printf("frame %llu: player 1's scene routine 0x%X\n", (unsigned long long)rt.frameCount, r);
+                r0 = r;
+            }
+        }
+        teamStatsFrame(rt);
+        // developer (rollback): HOTD_ROLLBACK_PROBE=N: every N frames a snapshot / restore / re-run check (docs/netplay.md)
+        if (static const int probe = std::getenv("HOTD_ROLLBACK_PROBE") ? std::atoi(std::getenv("HOTD_ROLLBACK_PROBE")) : 0;
+            probe > 0 && rt.frameCount % uint64_t(probe) == 0)
+            net::NetGame::rollbackProbe(rt, 30);
+        frameMs.push_back(float(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count()));
+        gPerf.logic.push_back(frameMs.back());
+        // Boss Mode (its flow runs in rt.frame()): the end -> the table. Online (docs/netplay.md "Boss Mode online") the
+        // end only once confirmed (settle: rollback may take it back), then each PC files the time in its own table
+        if (rt.boss.active() && (gNet ? rt.boss.phase == game::BossMode::Done : rt.boss.justFinished)) {
+            if (gNet && !gNet->settled())
+                gNet->settle(rt, gNetTimeout * 1000);
+            if (rt.boss.phase == game::BossMode::Done) {
+                bossModeFinish(rt);
+                break;
+            }
+        }
+        if (!rt.boss.nextStarted)   // (not the frame whose state is already the next boss's game: the PC shows the old one)
+            stateTrace(rt, framesBefore);   // HOTD_STATE_TRACE (pccap): the differential run's state, Boss Mode's clock too
+        if (rt.chapterChanged >= 0) {
+            const int c = rt.chapterChanged;
+            rt.chapterChanged = -1;
+            std::printf("frame %d: chapter %d starts (after the clear)\n", i, c + 1);
+            teamStatsPrint(rt, "clear");
+            sonicReport("so far", c - 1);
+            if (gChapterChanged)
+                gChapterChanged(c);
+        }
+        if (gRenderFrame)
+            gRenderFrame(rt);
+        if (gViewTick)
+            gViewTick(rt);
+        const auto a0 = std::chrono::steady_clock::now();
+        audio.renderFrame();
+        gPerf.audio.push_back(float(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - a0).count()));
+        ++totalFrames;
+        if (gNet && (rt.chapterDone || rt.gameOverDone) && !gNet->settled())
+            gNet->settle(rt, gNetTimeout * 1000);   // netplay rollback: acted on only once both inputs confirm it
+        if (gBot) {
+            watchdog.check(rt);
+            if (!watchdog.problem.empty()) {
+                std::printf("frame %d: watchdog: %s\n", i, watchdog.problem.c_str());
+                break;
+            }
+            if (rt.gameOverDone) {
+                ++gameOvers;
+                std::printf("frame %d (total %llu): game over %d\n", i, (unsigned long long)totalFrames, gameOvers);
+                if (gameOvers >= gBotGameOvers)
+                    break;
+                nanDrawsBefore += rt.nanDraws;
+                if (!gRestart()) {
+                    std::printf("ROBUST: result=restart-failed\n");
+                    return 5;
+                }
+                gBot->restarted();
+                watchdog = game::Watchdog();
+                return runHeadless(host, frames - i - 1, fire, out, startAt, audio);
+            }
+            if (host.mem().bad) {
+                ++badAccesses;
+                if (!firstBad) firstBad = host.mem().badAddr;
+            }
+        }
+        if (std::getenv("HOTD_TRACE_ENEMIES") && rt.frameCount % (std::getenv("HOTD_TRACE_EVERY") ? std::atoi(std::getenv("HOTD_TRACE_EVERY")) : 60) == 0) {
+            // debugging: every shootable object's routine, world position, state and its attack slot, and the camera
+            std::printf("frame %llu camera %.1f %.1f %.1f heading 0x%X\n", (unsigned long long)rt.frameCount, rt.mem.f32(game::A::G::camera_pos),
+                        rt.mem.f32(game::A::G::camera_pos + 4), rt.mem.f32(game::A::G::camera_pos + 8), rt.mem.u32(0x51F260));
+            for (uint32_t o : rt.shootable)
+                std::printf("  obj 0x%X routine 0x%X pos %.1f %.1f %.1f state %d slot %d attack_slot %d view_z %.1f motion %d frame %d sub %d "
+                            "action %d heading 0x%X\n", o, rt.mem.u32(o), rt.mem.f32(o + 0x20), rt.mem.f32(o + 0x24),
+                            rt.mem.f32(o + 0x28), rt.mem.at<int16_t>(o + 0x5C), rt.mem.at<int8_t>(o + 0x2E6),
+                            rt.mem.at<int8_t>(o + 0x2E7), rt.mem.f32(o + 0x40), rt.mem.at<int16_t>(o + 0xD0),
+                            rt.mem.at<int16_t>(o + 0xF4), rt.mem.at<int16_t>(o + 0xF6), rt.mem.at<int16_t>(o + 0x64),
+                            rt.mem.u32(o + 0x30));
+            for (const char* t = std::getenv("HOTD_TRACE_OBJ"); t && *t; t = std::strchr(t, ',') ? std::strchr(t, ',') + 1 : "") {
+                // objects by address (hex, comma-separated)
+                const uint32_t o = uint32_t(std::strtoul(t, nullptr, 16));
+                std::printf("    obj 0x%X routine 0x%X pos %.1f %.1f %.1f state %d motion %d frame %d flags 0x%X magic 0x%X hp %d / %d\n", o, rt.mem.u32(o),
+                            rt.mem.f32(o + 0x20), rt.mem.f32(o + 0x24), rt.mem.f32(o + 0x28), rt.mem.at<int16_t>(o + 0x5C),
+                            rt.mem.at<int16_t>(o + 0xD0), rt.mem.at<int16_t>(o + 0xF4), rt.mem.u32(o + 0x58), rt.mem.u32(o + 0xC), rt.mem.at<int16_t>(o + 0x70), rt.mem.at<int16_t>(o + 0x72));
+            }
+            for (uint32_t o : rt.shootable)   // the guards' prey (+0x390: the researcher they run after)
+                if (const uint32_t prey = rt.mem.u32(o + 0x390); prey >= 0x500000 && prey < 0x600000)
+                    std::printf("    prey of 0x%X: 0x%X routine 0x%X pos %.1f %.1f %.1f flags 0x%X magic 0x%X\n", o, prey, rt.mem.u32(prey),
+                                rt.mem.f32(prey + 0x20), rt.mem.f32(prey + 0x24), rt.mem.f32(prey + 0x28), rt.mem.u32(prey + 0x58),
+                                rt.mem.u32(prey + 0xC));
+        }
+        if (static const char* hk = std::getenv("HOTD_TRACE_HANG"); hk) {
+            // debugging (hangcheck): every frame, one object (hex address) in tools/mame_hang_trace.lua's line format:
+            // frame, state, position, rotation words +0x2C / +0x30 / +0x34, +0x50, +0x54, motion, motion frame, flags, camera
+            static const uint32_t o = uint32_t(std::strtoul(hk, nullptr, 16));
+            auto& m = rt.mem;
+            std::printf("hang %llu %X %d %.4f %.4f %.4f %X %X %X %d %X %d %d %X %.3f %.3f %.3f\n", (unsigned long long)rt.frameCount,
+                        m.u32(o), m.at<uint16_t>(o + 0x5C), m.f32(o + 0x20), m.f32(o + 0x24), m.f32(o + 0x28), m.u32(o + 0x2C),
+                        m.u32(o + 0x30), m.u32(o + 0x34), int32_t(m.u32(o + 0x50)), m.u32(o + 0x54), m.at<uint16_t>(o + 0xD0),
+                        m.at<uint16_t>(o + 0xF4), m.u32(o + 0x58), m.f32(game::A::G::camera_pos), m.f32(game::A::G::camera_pos + 4),
+                        m.f32(game::A::G::camera_pos + 8));
+        }
+        static const bool drawHash = std::getenv("HOTD_DRAW_HASH") != nullptr;
+        if (drawHash) {   // debugging (proofs-7): a hash of each frame's draw list and skins (runtime refactors: same draws)
+            uint64_t h = 1469598103934665603ull;
+            auto mix = [&h](const void* p, size_t n) {
+                for (size_t k = 0; k < n; ++k)
+                    h = (h ^ static_cast<const uint8_t*>(p)[k]) * 1099511628211ull;
+            };
+            for (const game::DrawModel& d : rt.drawList) {
+                mix(&d.model, 4), mix(d.m, sizeof d.m), mix(d.light, sizeof d.light), mix(&d.background, 1);
+                mix(&d.shadow, 1), mix(&d.shadowFloor, 4), mix(d.shadowM, sizeof d.shadowM);
+                if (std::getenv("HOTD_DRAW_HASH")[0] != '2')   // 2: without the fade
+                    mix(&d.fade, 1);
+            }
+            for (const game::Runtime::SkinDraw& s : rt.skinDraws)
+                mix(&s, sizeof s);
+            std::printf("drawhash %d %zu %016llx\n", i, rt.drawList.size(), (unsigned long long)h);
+            static const int drawFrame = std::getenv("HOTD_DRAW_FRAME") ? std::atoi(std::getenv("HOTD_DRAW_FRAME")) : -1;
+            if (i == drawFrame)
+                for (const game::DrawModel& d : rt.drawList)
+                    std::printf("  model 0x%X m %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.3f %.3f %.3f bg %d sh %d %.3f fade %d\n",
+                                d.model, d.m[0], d.m[1], d.m[2], d.m[3], d.m[4], d.m[5], d.m[6], d.m[7], d.m[8], d.m[9],
+                                d.m[10], d.m[11], d.background, d.shadow, d.shadowFloor, d.fade);
+        }
+        if (rt.chapterDone) {
+            std::printf("frame %d: the chapter is over (the game's end: the next chapter is not playable)\n", i);
+            if (rt.pcmode)
+                pcModeFinish(rt, pmOwnSeats());
+            break;
+        }
+        if (rt.mem.at<int16_t>(game::A::G::game_mode) != mode || rt.mem.u32(game::A::G::game_submode) != sub) {
+            mode = rt.mem.at<int16_t>(game::A::G::game_mode);
+            sub = rt.mem.u32(game::A::G::game_submode);
+            std::printf("frame %d: game mode %d sub-mode %u\n", i, mode, sub);
+        }
+        if (rt.gameOverDone) {
+            std::printf("frame %d: game over done (%s)\n", i,
+                        rt.pcmode ? "PC Mode: the names, the table; online the session ends here" : "the window starts the chapter again");
+            if (rt.pcmode)
+                pcModeFinish(rt, pmOwnSeats());
+            break;
+        }
+        if (host.mem().bad) {
+            std::printf("frame %d: access outside the mapped memory at 0x%X\n", i, host.mem().badAddr);
+            host.mem().bad = false;
+        }
+    }
+    if (gBot && !frameMs.empty()) {
+        std::vector<float> v = frameMs;
+        std::sort(v.begin(), v.end());
+        double sum = 0;
+        for (float x : v) sum += x;
+        const auto pct = [&v](double q) { return v[std::min(v.size() - 1, size_t(q * double(v.size())))]; };
+        const char* result = !watchdog.problem.empty() ? "problem" : rt.chapterDone ? "clear"
+                             : gameOvers >= gBotGameOvers ? "gameover" : "frames";
+        std::printf("ROBUST: result=%s frames=%llu gameovers=%d event=%d chapter_done=%d joins=%d continues=%d leaves=%d "
+                    "cutscene_starts=%d shots=%d reloads=%d max_tasks=%zu max_shootable=%zu max_draw=%zu bad_access=%llu "
+                    "first_bad=0x%X ms_mean=%.4f ms_p50=%.4f ms_p99=%.4f ms_max=%.3f ms_max_at=%zu nan_draws=%llu problem_frame=%llu problem=\"%s\"\n",
+                    result, (unsigned long long)totalFrames, gameOvers, int(rt.mem.at<int8_t>(game::A::G::event_index)),
+                    rt.chapterDone ? 1 : 0, gBot->joins, gBot->continues, gBot->leaves, gBot->cutsceneJoins, gBot->shots,
+                    gBot->reloads, watchdog.maxTasks, watchdog.maxShootable, watchdog.maxDraw,
+                    (unsigned long long)badAccesses, firstBad, sum / double(v.size()), pct(0.5), pct(0.99), v.back(), size_t(std::max_element(frameMs.begin(), frameMs.end()) - frameMs.begin()), (unsigned long long)(nanDrawsBefore + rt.nanDraws),
+                    (unsigned long long)watchdog.problemFrame, watchdog.problem.c_str());
+    }
+    sonicReport("at the end", rt.mem.at<int8_t>(game::A::G::chapter));
+    std::printf("%d frames, last draw list %zu models\n", frames, rt.drawList.size());
+    if (std::getenv("HOTD_DUMP_DRAWLIST")) {   // debugging: the skins and the players' character bodies
+        for (const game::Runtime::SkinDraw& s : rt.skinDraws)
+            std::printf("  skin of type %d\n", s.type);
+        for (uint32_t p = 0; p < 2; ++p) {
+            const uint32_t b = rt.mem.at<port::a::Player>(game::A::G::players, p).body.a;
+            if (b)
+                std::printf("  player %u body 0x%X type %d motion %d flags 0x%02X\n", p + 1, b, rt.mem.at<int16_t>(b + 0xCC),
+                            rt.mem.at<int16_t>(b + 0xD0), rt.mem.at<uint8_t>(b + 0x3C4));
+        }
+    }
+    if (std::getenv("HOTD_DUMP_DRAWLIST"))   // debugging: every model of the last frame with its camera-space matrix
+        for (const game::DrawModel& d : rt.drawList)
+            std::printf("  model 0x%X  x %.2f %.2f %.2f  y %.2f %.2f %.2f  z %.2f %.2f %.2f  t %.1f %.1f %.1f  light %.3f %.3f %.3f\n",
+                        d.model, d.m[0], d.m[1], d.m[2], d.m[3], d.m[4], d.m[5], d.m[6], d.m[7], d.m[8], d.m[9], d.m[10], d.m[11],
+                        d.light[0], d.light[1], d.light[2]);
+    report(rt);
+    if (std::getenv("HOTD_DUMP_TASKS")) {   // debugging (T1): every task in the ring of the last task run, and the counters
+        std::printf("enemies_alive %d enemy_count %d enemy_left_route %u evt_players_active %u camera job %s drive %d stopped %u "
+                    "frame %.2f\ntasks:\n", rt.mem.at<int16_t>(game::A::G::enemies_alive),
+                    rt.mem.at<int16_t>(game::A::G::enemy_count), rt.mem.at<uint8_t>(game::A::G::enemy_left_route),
+                    rt.mem.u32(game::A::G::evt_players_active), rt.routineName(rt.mem.u32(0x51EAB0 + 0x4C)).c_str(),
+                    int(rt.mem.u32(game::A::G::camera_drive_mode)), rt.mem.u32(game::A::G::camera_stopped), rt.mem.f32(0x51EB9C));
+        std::printf("event flags set:");
+        for (uint32_t k = 0; k < 256; ++k)
+            if (rt.mem.at<uint8_t>(game::A::G::event_flags + k))
+                std::printf(" %u", k);
+        std::printf("\n");
+        std::printf("camera sub-state %u hold_hostage %u cgmfnsh %d; attack slots:", rt.mem.u32(game::A::G::camera_drive_flag),
+                    rt.mem.u32(game::A::G::camera_hold_hostage), rt.mem.at<int8_t>(game::A::G::evt_cgmfnsh));
+        for (uint32_t s = 0; s < 14; ++s)
+            if (rt.mem.at<uint8_t>(game::A::G::attack_slots + s * 0x14))
+                std::printf(" %u:0x%X", s, rt.mem.u32(game::A::G::attack_slots + s * 0x14 + 4));
+        std::printf("\n");
+        const uint32_t start = rt.mem.u32(game::A::G::task_current);
+        uint32_t t = start;
+        for (int k = 0; k < 400; ++k) {
+            std::printf("  task 0x%X %s state %d type %d flags 0x%X pos %.1f %.1f %.1f\n", t, rt.routineName(rt.mem.u32(t)).c_str(),
+                        rt.mem.at<int16_t>(t + 0x5C), rt.mem.at<int16_t>(t + 0xCC), rt.mem.u32(t + 0x58), rt.mem.f32(t + 0x20),
+                        rt.mem.f32(t + 0x24), rt.mem.f32(t + 0x28));
+            t = rt.mem.u32(t + 0x14);
+            if (t == start || t == 0)
+                break;
+        }
+    }
+    std::printf("event script at 0x%X (op %s) since frame %llu (%llu frames)\n", lastPc,
+                rt.routineName(rt.mem.u32(game::A::G::evt_handlers + rt.mem.u32(lastPc) * 4)).c_str(),
+                (unsigned long long)lastPcFrame, (unsigned long long)(rt.frameCount - lastPcFrame));
+    teamStatsPrint(rt, "end");   // CPU teammates / bots: each seat's play (docs/coop4.md "Smarter CPU teammates")
+    if (rt.coop4_on()) {   // the 4P mode (docs/coop4.md): each seat's shots, score, lives, state
+        std::printf("4P seats:");
+        for (int s = 0; s < 4; ++s) {
+            const port::a::Player& pl = rt.mem.at<port::a::Player>(rt.player_rec(s));
+            std::printf(" P%d shots %u score %d lives %d state %d;", s + 1, rt.shotsIn[s], pl.score, pl.lives, pl.state);
+        }
+        std::printf("\n");
+    }
+    std::printf("sound cues (PC cue: calls):");
+    for (const auto& [cue, n] : audio.cueCount)
+        std::printf(" %d:%llu", cue, (unsigned long long)n);
+    std::printf("\narcade sound codes without a PC cue:");
+    for (uint32_t c : audio.unmapped)
+        std::printf(" 0x%06X", c);
+    std::printf("\nPC sound cues with nothing to mix (missing data):");
+    for (int c : audio.silent)
+        std::printf(" %d", c);
+    std::printf("\n");
+    if (std::getenv("HOTD_SOUND_TABLE")) {   // every arcade code received: calls, PC cue, what the cue does
+        std::printf("arcade sound codes (code calls -> PC cue):\n");
+        for (const auto& [code, n] : audio.codeCount) {
+            const int c = audio.pcCueOf(code);
+            std::printf("  0x%06X %6llu -> %s\n", code, (unsigned long long)n,
+                        c < 0 ? "none" : (std::to_string(c) + " " + audio.describe(c)).c_str());
+        }
+    }
+    return 0;
+}
+
+std::string timestamp()
+{
+    char buf[32];
+    const std::time_t t = std::time(nullptr);
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    std::strftime(buf, sizeof buf, "%Y%m%d_%H%M%S", &tm);
+    return buf;
+}
+
+std::vector<std::string> hudLines(game::Runtime& rt, bool paused)
+{
+    std::vector<std::string> lines;
+    char buf[160];
+    for (uint32_t p = 0; p < 2; ++p) {
+        const uint32_t pl = game::A::G::players + p * 0xCC;
+        const int32_t state = int32_t(rt.mem.u32(pl));
+        if (state == 9 || state == 0)
+            continue;
+        std::snprintf(buf, sizeof buf, "P%u  lives %d  rounds %u  score %d", p + 1, int32_t(rt.mem.u32(pl + 0xC)),
+                      rt.mem.at<uint8_t>(pl + 0x3D), int32_t(rt.mem.u32(pl + 8)));
+        lines.push_back(buf);
+    }
+    std::snprintf(buf, sizeof buf, "frame %llu  shootable %zu  drawn %zu%s", (unsigned long long)rt.frameCount, rt.shootable.size(),
+                  rt.drawList.size(), paused ? "  PAUSED (P)" : "");
+    lines.push_back(buf);
+    std::snprintf(buf, sizeof buf, "chapter %d event %d  camera drive %d", rt.mem.at<int8_t>(game::A::G::chapter) + 1,
+                  rt.mem.at<int8_t>(game::A::G::event_index), int(rt.mem.u32(game::A::G::camera_drive_mode)));
+    lines.push_back(buf);
+    lines.push_back("HUD: the 2D layer (arcade / PC sprites); unported kinds are logged no-ops; F1 hides this");
+    return lines;
+}
+
+// F11 / Alt+Enter: fullscreen with the chosen resolution (util/resolution.h: Auto = borderless, one pixel taller than
+// the display, util/fullscreen.h, shared with the viewer; a display mode = exclusive fullscreen)
+using util::isFullscreenKey;
+using util::toggleFullscreen;
+// Video > Resolution's "Keep this resolution?" page (the menu): the fullscreen resolution before the change and when
+// it goes back by itself (10 s); the page counts down (the menu loop's tick)
+struct ResKeep {
+    bool active = false;
+    util::Size before;
+    Uint64 until = 0;
+    int shown = -1;   // the seconds the page shows
+};
+ResKeep gResKeep;
+std::function<void()> gResRevert, gResKeepPage;
+std::function<void(int)> gDisplayModeSet;   // rescrash: Video > Display Mode's setter (MenuHooks::displayModeSet; the input test)
+const char* const kResKeepTitle = "Keep this resolution?";
+int gRangeSeat = 0;   // menufb: the Firing Range page's player (its Player row)
+// padpass: the Firing Range's keyboard players (Tab on the page): each player's Aim keys held, Fire pressed
+bool gRangeKeyAim[4][4] = {};
+bool gRangeKeyFire[4] = {};
+hotd::game::GunState gRangeGuns[hotd::game::kInputPlayers];   // menufb: the range's aims (window pixels; the input test sets them)
+
+// padpass: the light guns' screen aids over everything drawn (the window's whole area, the 4:3 bars too): a flash
+// frame (GunFlash::now) white all over, as the arcade's gun_flash for a CRT gun; else the white border (a Sinden) when
+// asked. Draw-only
+void drawGunAids(const hotd::game::LaunchConfig& c, int ww, int wh, bool flash)
+{
+    const int b = flash ? 0 : hotd::game::gunBorderPx(c, wh);
+    if (!flash && b <= 0)
+        return;
+    gl::Enable(gl::SCISSOR_TEST);
+    gl::ClearColor(1, 1, 1, 1);
+    if (flash) {
+        gl::Scissor(0, 0, ww, wh);
+        gl::Clear(gl::COLOR_BUFFER_BIT);
+    } else {
+        const int r[4][4] = {{0, 0, ww, b}, {0, wh - b, ww, b}, {0, 0, b, wh}, {ww - b, 0, b, wh}};
+        for (const auto& q : r) {
+            gl::Scissor(q[0], q[1], q[2], q[3]);
+            gl::Clear(gl::COLOR_BUFFER_BIT);
+        }
+    }
+    gl::Disable(gl::SCISSOR_TEST);
+}
+
+// keys that are not a player's input: a volume knob / media keys, the Windows keys, Print Screen, a modifier alone
+// (user 2026-10-18: turning the volume knob skipped the attract demo); they never skip the splash / attract
+bool isSystemKey(const SDL_Event& e)
+{
+    switch (e.key.scancode) {
+    case SDL_SCANCODE_VOLUMEUP: case SDL_SCANCODE_VOLUMEDOWN: case SDL_SCANCODE_MUTE:
+    case SDL_SCANCODE_MEDIA_PLAY: case SDL_SCANCODE_MEDIA_PAUSE: case SDL_SCANCODE_MEDIA_PLAY_PAUSE:
+    case SDL_SCANCODE_MEDIA_STOP: case SDL_SCANCODE_MEDIA_NEXT_TRACK: case SDL_SCANCODE_MEDIA_PREVIOUS_TRACK:
+    case SDL_SCANCODE_MEDIA_SELECT: case SDL_SCANCODE_MEDIA_EJECT: case SDL_SCANCODE_MEDIA_REWIND:
+    case SDL_SCANCODE_MEDIA_FAST_FORWARD: case SDL_SCANCODE_LGUI: case SDL_SCANCODE_RGUI: case SDL_SCANCODE_PRINTSCREEN:
+    case SDL_SCANCODE_LCTRL: case SDL_SCANCODE_RCTRL: case SDL_SCANCODE_LSHIFT: case SDL_SCANCODE_RSHIFT:
+    case SDL_SCANCODE_LALT: case SDL_SCANCODE_RALT: case SDL_SCANCODE_APPLICATION: case SDL_SCANCODE_UNKNOWN:
+        return true;
+    default:
+        return e.key.key == SDLK_VOLUMEUP || e.key.key == SDLK_VOLUMEDOWN || e.key.key == SDLK_MUTE;
+    }
+}
+
+// the portable package this exe belongs to (<package>\bin\hotd.exe with <package>\hotd_package.txt), else empty
+std::string packageFolder()
+{
+    const char* base = SDL_GetBasePath();
+    const std::filesystem::path pkg = (std::filesystem::path(base ? base : ".") / "..").lexically_normal();
+    std::error_code ec;
+    return std::filesystem::exists(pkg / "hotd_package.txt", ec) ? pkg.string() : std::string();
+}
+
+// remake2: the arcade regions folder for the menu's art (the Remake style's blood) without the files check: the regions
+// chosen, else the ones a files check wrote before (the cache), else a developer's extracted ones; "" none
+std::string menuRegionsGuess(const std::string& regions, const std::string& cache, const std::string& root)
+{
+    std::error_code ec;
+    if (!regions.empty())
+        return regions;
+    if (std::filesystem::exists(cache + "arcade_regions/maincpu.bin", ec))
+        return cache + "arcade_regions";
+    if (!root.empty() && std::filesystem::exists(root + "/private/arcade_exports/regions/maincpu.bin", ec))
+        return root + "/private/arcade_exports/regions";
+    return std::string();
+}
+
+// the sound board's ROMs (src/audio/sound_board.h), as in the files: the regions folder's audiocpu.bin / samples.bin
+// (the files check writes them), else straight from the arcade zip / folder (a developer's extracted regions)
+bool loadSoundRoms(const std::string& regions, const std::string& arcade, std::vector<uint8_t>& prog,
+                   std::vector<uint8_t>& samples, std::string& err)
+{
+    namespace fs = std::filesystem;
+    auto readFile = [](const fs::path& p, std::vector<uint8_t>& out) {
+        std::FILE* f = std::fopen(p.string().c_str(), "rb");
+        if (!f) return false;
+        std::fseek(f, 0, SEEK_END);
+        out.resize(size_t(std::ftell(f)));
+        std::fseek(f, 0, SEEK_SET);
+        const bool ok = std::fread(out.data(), 1, out.size(), f) == out.size();
+        std::fclose(f);
+        return ok;
+    };
+    std::error_code ec;
+    if (!regions.empty() && readFile(fs::path(regions) / "audiocpu.bin", prog) && prog.size() == 0x80000 &&
+        readFile(fs::path(regions) / "samples.bin", samples) && samples.size() == 0x800000)
+        return true;
+    const char* names[3] = {"epr-19720.31", "mpr-19721.32", "mpr-19722.34"};
+    std::vector<uint8_t> parts[3];
+    if (!arcade.empty() && fs::is_directory(arcade, ec)) {
+        for (int i = 0; i < 3; ++i)
+            if (!readFile(fs::path(arcade) / names[i], parts[i])) { err = std::string("no ") + names[i] + " in " + arcade; return false; }
+    } else {
+        hotd::ZipFile z;
+        if (arcade.empty() || !z.open(arcade, err)) { if (err.empty()) err = "no arcade ROMs"; return false; }
+        for (int i = 0; i < 3; ++i) {
+            bool found = false;
+            for (const auto& e : z.entries()) {
+                std::string n = e.name.substr(e.name.find_last_of("/\\") + 1);
+                for (char& c : n) c = char(std::tolower(static_cast<unsigned char>(c)));
+                if (n == names[i]) { found = z.read(e, parts[i], err); break; }
+            }
+            if (!found) { if (err.empty()) err = std::string("no ") + names[i] + " in " + arcade; return false; }
+        }
+    }
+    if (parts[0].size() != 0x80000 || parts[1].size() != 0x400000 || parts[2].size() != 0x400000) {
+        err = "the sound ROMs have the wrong sizes";
+        return false;
+    }
+    prog = std::move(parts[0]);
+    samples = std::move(parts[1]);
+    samples.insert(samples.end(), parts[2].begin(), parts[2].end());
+    return true;
+}
+
+// the Jukebox's arcade lengths (game/jukebox.h ArcadeLength): Jukebox::kMeasureParts copies of this program with
+// --jukebox-lengths (one sound board per process), hidden (no console window) and below normal priority; they write
+// the cache files in the settings folder as they go, the menu reads them
+struct LengthsJob {
+    bool started = false;
+#ifdef _WIN32
+    std::vector<HANDLE> procs;
+#else
+    std::vector<SDL_Process*> procs;
+#endif
+    void start(const std::string& dir, const std::string& regions, const std::string& arcade)
+    {
+        started = true;
+        auto trim = [](std::string s) {   // (a trailing slash would escape the closing quote)
+            while (s.size() > 1 && (s.back() == '/' || s.back() == '\\'))
+                s.pop_back();
+            return s;
+        };
+        for (int p = 0; p < game::Jukebox::kMeasureParts; ++p) {
+#ifdef _WIN32
+            wchar_t exe[MAX_PATH * 2];
+            if (!GetModuleFileNameW(nullptr, exe, MAX_PATH * 2))
+                return;
+            auto wide = [](const std::string& s) {
+                std::wstring w(size_t(MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0)), L'\0');
+                MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, w.data(), int(w.size()));
+                if (!w.empty()) w.pop_back();
+                return w;
+            };
+            std::wstring cmd = L"\"" + std::wstring(exe) + L"\" --jukebox-lengths \"" + wide(trim(dir)) + L"\" \"" +
+                               wide(trim(regions)) + L"\" \"" + wide(trim(arcade)) + L"\" " + std::to_wstring(p);
+            STARTUPINFOW si{};
+            si.cb = sizeof si;
+            PROCESS_INFORMATION pi{};
+            if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS,
+                               nullptr, nullptr, &si, &pi)) {
+                CloseHandle(pi.hThread);
+                procs.push_back(pi.hProcess);
+            }
+#else
+            const char* base = SDL_GetBasePath();
+            const std::string exe = std::string(base ? base : "./") + "hotd", part = std::to_string(p);
+            const std::string d = trim(dir), r = trim(regions), a = trim(arcade);
+            const char* args[] = {exe.c_str(), "--jukebox-lengths", d.c_str(), r.c_str(), a.c_str(), part.c_str(), nullptr};
+            SDL_PropertiesID props = SDL_CreateProperties();
+            SDL_SetPointerProperty(props, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, (void*)args);
+            SDL_SetBooleanProperty(props, SDL_PROP_PROCESS_CREATE_BACKGROUND_BOOLEAN, true);
+            if (SDL_Process* pr = SDL_CreateProcessWithProperties(props))
+                procs.push_back(pr);
+            SDL_DestroyProperties(props);
+#endif
+        }
+        SDL_Log("jukebox: measuring the arcade lengths (%d processes)", int(procs.size()));
+    }
+    // one still runs (the finished ones let go)
+    bool running()
+    {
+        for (size_t i = 0; i < procs.size();) {
+#ifdef _WIN32
+            const bool done = WaitForSingleObject(procs[i], 0) == WAIT_OBJECT_0;
+            if (done) CloseHandle(procs[i]);
+#else
+            int code = 0;
+            const bool done = SDL_WaitProcess(procs[i], false, &code);
+            if (done) SDL_DestroyProcess(procs[i]);
+#endif
+            if (done)
+                procs.erase(procs.begin() + long(i));
+            else
+                ++i;
+        }
+        return !procs.empty();
+    }
+    void wait(double seconds)
+    {
+        const Uint64 end = SDL_GetTicks() + Uint64(seconds * 1000);
+        while (running() && SDL_GetTicks() < end)
+            SDL_Delay(100);
+    }
+};
+
+// the cache folder (regions rebuilt from the ROMs, remembered check results, the launcher's settings)
+std::string cacheDir()
+{
+    // HOTD_PREF_DIR (testing, display): another settings / cache folder, so test runs never touch the player's
+    // launcher.ini (SDL's pref path on Windows is the known folder, not %APPDATA%)
+    if (const char* d = std::getenv("HOTD_PREF_DIR"); d && *d) {
+        std::string s = d;
+        if (s.back() != '/' && s.back() != '\\') s += '/';
+        std::filesystem::create_directories(s);
+        return s;
+    }
+    // a portable package (hotd_package.txt next to bin\) keeps its settings and caches inside itself, so a package and
+    // the developer build (or two packages) never share a launcher.ini (user 2026-10-17)
+    if (const std::string pkg = packageFolder(); !pkg.empty()) {
+        const std::string s = pkg + "/settings/";
+        std::error_code ec;
+        std::filesystem::create_directories(s, ec);
+        return s;
+    }
+    char* p = SDL_GetPrefPath("hotd-rewrite", "hotd");
+    std::string s = p ? p : "./cache/";
+    SDL_free(p);
+    return s;
+}
+
+// --check-files: the official-files check alone (exit code 0 = both pass)
+int checkFiles(const std::string& arcade, const std::string& pc, bool force)
+{
+    const std::string cache = cacheDir();
+    auto progress = [](const std::string& s) { std::printf("  %s\n", s.c_str()); };
+    game::CheckReport a = game::checkArcade(arcade, cache + "arcade_regions", force, progress);
+    for (const std::string& l : a.lines)
+        std::printf("%s\n", l.c_str());
+    std::map<std::string, std::string> found;
+    game::CheckReport p = game::checkPc(pc, cache + "pc_files.tsv", found, progress);
+    for (const std::string& l : p.lines)
+        std::printf("%s\n", l.c_str());
+    if (const std::string h = a.ok ? std::string() : game::placementHint(arcade, true); !h.empty())   // firstrun
+        std::printf("arcade hint: %s\n", h.c_str());
+    if (const std::string h = p.ok ? std::string() : game::placementHint(pc, false); !h.empty())
+        std::printf("PC hint: %s\n", h.c_str());
+    std::printf("arcade: %s, PC: %s\n", a.ok ? "OK" : "FAILED", p.ok ? "OK" : "FAILED");
+    return a.ok && p.ok ? 0 : 1;
+}
+
+} // namespace
+
+// padfeel: the Aim Test page's live refresh (set by the Controller page's code, called by the menu loop)
+static std::function<void()> aimTestRefresh;
+// keybind: the Keys & Buttons page's "press a key / button" (game/keybinds.h) and its refresh (the countdown)
+static hotd::game::BindCapture gBind;
+static std::function<void()> bindRefresh;
+static std::function<bool(const SDL_Event&)> bindEvent;
+// ipolish: Controls > Light Guns' Assign page: the menu's clicks while a seat waits for a trigger pull, its countdown
+static std::function<void()> gunAssignRefresh;
+static std::function<bool(const SDL_Event&)> gunAssignEvent;
+
+// perf (testing, docs/performance.md): HOTD_STARTUP_TIME=1: the window hidden, the launcher's and the menu's first
+// frames logged in ms since the process started ("startup: ..."), then the run ends (with a launcher.ini the launcher
+// presses Start by itself, as for a player)
+static const std::chrono::steady_clock::time_point gProcessStart = std::chrono::steady_clock::now();
+static double sinceStartMs()
+{
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - gProcessStart).count();
+}
+
+// ---- lang (translations, docs/translating.md): --export-lang / --lang-check / --lang-shots ----
+// a Gallery entry's texts as the menu's host gives them (the model not loaded: the page's texts only)
+static game::Frontend::GalleryText galleryPreview(int i)
+{
+    const auto& all = game::galleryEntries();
+    const game::GalleryEntry& e = all[size_t(i)];
+    game::Frontend::GalleryText t;
+    t.name = e.name;
+    t.group = game::galleryCategoryName(e.category);
+    t.text = e.text;
+    t.facts = e.facts;
+    t.where = e.where;
+    t.motion = "1 / 12:  Walk  (z_walk_g)";
+    t.source = "Arcade";
+    t.background = game::galleryBackgroundName(0);
+    t.category = e.category;
+    for (int c = 0; c < game::kGalCategories; ++c) t.categories.push_back(game::galleryCategoryName(c));
+    for (size_t k = 0; k < all.size(); ++k)
+        if (all[k].category == e.category) {
+            if (int(k) == i) t.index = int(t.entries.size());
+            t.entries.push_back(int(k));
+            t.entryNames.push_back(all[k].name);
+        }
+    t.count = int(t.entries.size());
+    t.light = "Game";
+    t.key = e.key;
+    t.otherSource = true;
+    return t;
+}
+
+// the cut-scene subtitles' table in the program ROM (G::voice_subtitles 0xCB300, 96 bytes an event: x, line 1 at +1,
+// line 2 at +0x31; game/sprites.cpp tile_text_draw keys them sub.<event>.<line>): ("sub.e.l", English)
+static std::vector<std::pair<std::string, std::string>> subtitleTable(const std::string& regions)
+{
+    std::vector<std::pair<std::string, std::string>> out;
+    std::ifstream f(regions + "/maincpu.bin", std::ios::binary);
+    if (!f) return out;
+    const std::vector<uint8_t> rom((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    auto text = [&](size_t at) {
+        std::string s;
+        for (; at < rom.size() && rom[at] && s.size() < 48; ++at) {
+            if (rom[at] < 0x20 || rom[at] > 0x7E) return std::string();
+            s += char(rom[at]);
+        }
+        return s;
+    };
+    int bad = 0;
+    for (int e = 0; e < 256 && bad < 8; ++e) {
+        const size_t s = 0xCB300 + size_t(e) * 96;
+        const std::string a = text(s + 1), b = text(s + 0x31);
+        if (a.find_first_not_of(' ') == std::string::npos) { ++bad; continue; }
+        bad = 0;
+        out.push_back({"sub." + std::to_string(e) + ".1", a});
+        if (b.find_first_not_of(' ') != std::string::npos) out.push_back({"sub." + std::to_string(e) + ".2", b});
+    }
+    return out;
+}
+
+static int langTool(const game::LaunchConfig& cfg, const std::string& exportCode, const std::string& outFile,
+                    const std::string& checkCode, const std::string& shotsDir, const std::string& regions)
+{
+    // the texts the code builds with numbers (the export lists the pattern once)
+    for (const char* p : {"P{n} PAUSED", "P{n} P{n2} PAUSED", "Player {n}", "Chapter {n}", "Track {n}", "Stage {n}",
+                          "Experimental: {help}",
+                          // misc17: the Players page's seats, the pages' "Items  3 / 9" counters, the PC font's
+                          // Continues, the chapter's end screen
+                          "Player {n}: Human", "Player {n}: CPU Easy", "Player {n}: CPU Normal", "Player {n}: CPU Hard",
+                          "Player {n} - Extra", "{page}  {n} / {n2}", "Continues {n}", "CHAPTER {n} CLEAR",
+                          "Chapter {n} is not finished yet. Thank you for playing."})
+        lang::addPattern(p);
+    for (const game::SceneView::Actor& ac : game::SceneView::actors())   // actors2: every actor's name (the page shows four)
+        lang::tr(ac.name);
+    for (int ch = 1; ch < port::Game<port::A>::kPmCharCount; ++ch) {   // pmextra: PC Mode's Extra Characters and their lines
+        lang::tr(port::Game<port::A>::pm_table(ch).name);
+        for (const std::string& s : game::Frontend::pcExtraNotes(ch))
+            lang::tr(s);
+    }
+    // the pages the host fills: every Gallery entry, the Online Co-op pages' scenes (net::OnlineMenu::preview)
+    static net::OnlineMenu tourOnline;
+    std::vector<game::LangPage> extra;
+    const auto& ge = game::galleryEntries();
+    for (size_t i = 0; i < ge.size(); ++i)
+        extra.push_back({17, std::string("gallery_") + ge[i].key, [i](game::Frontend& fe) {
+                             fe.galleryText = [i]() { return galleryPreview(int(i)); };
+                             return true;
+                         }});
+    static const char* const kOnline[] = {"main", "host", "host-problem", "host-locked", "hosting2", "hosting2-empty",
+                                          "hosting4-1", "hosting4-3", "joining2", "joining4", "join", "join-typing",
+                                          "fail-password", "fail-full", "fail-version", "fail-locked", "fail-hostleft",
+                                          "fail-start", "fail-address", "fail-noanswer"};
+    for (const char* sc : kOnline)
+        extra.push_back({120, std::string("online_") + sc, [sc](game::Frontend& fe) { return tourOnline.preview(fe, sc); }});
+    if (!regions.empty())
+        putEnvCrt("HOTD_FE_REGIONS", regions.c_str());
+    // the in-game notes and messages drawn over the play (render/overlay.h translates them)
+    static const char* const kNotes[] = {
+        "PAUSED", "Continue", "Exit", "> Continue <", "> Exit <", "Trailer Mode On (F7)", "Trailer Mode Off (F7)",
+        "Only the host can skip", "P{n} PAUSED", "LIGHT GUN CALIBRATION", "Player {n}: shoot the centre of the target ({corner})",
+        "top left", "bottom right", "Esc: cancel", "PLAYER {n}: CONTROLLER DISCONNECTED - connect it again",
+        "Player 2 is joining...", "A player is joining...", "Player {n} is joining...",
+        "Player 2 lost the connection: they can join again (same code). Esc: quit", "The other player left the game (Esc: quit)",
+        "The host ended the game (Esc: quit)", "The other PC seems gone (no signal for {n} s). Esc: quit",
+        "The host seems gone (no signal for {n} s). Esc: quit",
+        "Out of sync with the other PC at frame {n}: the game stopped (Esc)", "Out of sync with another PC at frame {n}: the game stopped (Esc)",
+        "Space pause  R replay  S slow  F free cam  C clean view  T subtitles  A actors  Esc back", "Over.  R replay  Esc back",
+        "Over.  R replay  F free cam off  Esc back",
+        // actorswap: the viewer's Actors panel (game/scene_view.h; the role and actor names are keys of their own)
+        "ACTORS  Up / Down role  Left / Right actor  A close", "> {role}: < {actor} >", "{role}: < {actor} >",
+        // menufb: the Fullscreen Resolution page's Show All (the host's page, not in the tour)
+        "Show All", "Show Fewer", "Only the display modes of your screen's shape", "Every display mode, in every shape",
+        // menufb: Reset to Defaults' question (the host's page)
+        "Reset to Defaults?", "Reset", "Cancel", "Put every setting on this page back to its default", "Keep the settings as they are",
+        // the setup dialog (game/launcher.cpp) and its result lines
+        "The House of the Dead: ReWrithe Setup", "Unofficial. Plays from your own arcade ROMs and 1998 PC game.",
+        "Arcade ROMs:", "PC Game:", "(not chosen)", "Choose Zip...", "Choose Folder...",
+        "Sega Model 2 arcade, Revision A (MAME set \"hotd\"). Any file name.",
+        "The 1998 PC version: its installed folder or a zip of it. Any name.", "Check Files",
+        "Play The House of the Dead: ReWrithe", "Exit to Windows", "Checking the files ...", "Choose both, then Check Files.",
+        "Online Co-op (two PCs)", "OK: the arcade ROMs (Revision A) and the PC game are ready.",
+        "OK: the arcade ROMs are ready. The PC game did not pass: the game plays without sound and with the arcade models.",
+        "CANNOT START: the arcade ROMs did not pass.",
+        "-> These are not Revision A ROMs: the game needs MAME's \"hotd\" set (Revision A); the original release (hotdo) and prototypes do not work.",
+        // misc17: the Players page's seats (game/frontend.cpp pickSeatText), the PC font's words in play (game/hud.cpp:
+        // drawn as text in a language), the chapter's end screen (a chapter not playable yet)
+        "Player {n}: Human", "Player {n}: CPU Easy", "Player {n}: CPU Normal", "Player {n}: CPU Hard",
+        "Continues {n}", "Press SPACE to skip Demo", "CHAPTER {n} CLEAR", "Thank you for playing.",
+        "Chapter {n} is not finished yet. Thank you for playing.", "Click or press Enter: play again   Esc: quit",
+        "Click, Enter, Esc or pad A / B: back to the main menu", "Click, Enter, Esc or pad A / B: back to the launcher"};
+    int rc = 0;
+    if (!exportCode.empty()) {
+        std::string err;
+        if (exportCode != "en" && !lang::set(exportCode, &err)) {
+            std::fprintf(stderr, "export-lang: %s\n", err.c_str());
+            return 1;
+        }
+        if (exportCode == "en") lang::set("en");
+        lang::record(true);
+        const int n = game::langTour(cfg.pc, "", extra, false, [](game::Frontend& fe, const std::string&) { fe.recordTexts(); });
+        lang::record(false);
+        // the keys: the texts drawn (a known pattern for those with numbers), less those with no words (numbers,
+        // times) and the sample data's file paths
+        std::vector<std::string> keys;
+        std::set<std::string> seen;
+        // (menufb: not keys: the Language page's preview lines (each already in its language), a colour's #RRGGBB)
+        for (const lang::Info& i : lang::available())
+            if (i.code != "en" && !i.preview.empty())
+                seen.insert(i.preview);
+        auto add = [&](const std::string& k) {
+            if ((!k.empty() && k[0] == '#') || game::isMenuLanguageName(k))   // (relmenu: "한국어 (Korean)": a name)
+                return;
+            int letters = 0;
+            for (const char c : k) letters += (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || uint8_t(c) >= 0x80;
+            if (letters < 2 || k.find(":\\") != std::string::npos || k.find(":/") != std::string::npos) return;
+            if (seen.insert(k).second) keys.push_back(k);
+        };
+        for (const std::string& k : lang::recorded()) add(lang::keyOf(k));
+        for (const char* k : kNotes) add(k);
+        const auto subs = subtitleTable(regions);
+        const std::string file = !outFile.empty() ? outFile
+                                 : (lang::dataDirs().empty() ? std::string(".") : lang::dataDirs()[0]) + "/data/lang/" +
+                                       (exportCode == "en" ? "en.txt" : exportCode + ".all.txt");
+        std::error_code ec;
+        std::filesystem::create_directories(std::filesystem::path(file).parent_path(), ec);
+        if (!lang::exportFile(file, keys, subs, err)) {
+            std::fprintf(stderr, "export-lang: %s\n", err.c_str());
+            return 1;
+        }
+        std::printf("export-lang: %zu keys + %zu subtitle lines from %d screens -> %s\n", keys.size(), subs.size(), n, file.c_str());
+    }
+    if (!checkCode.empty() || !shotsDir.empty()) {
+        // the keys English has (recorded in English first), then every screen in the language: the overflows, the
+        // keys without a translation
+        const std::string code = !checkCode.empty() ? checkCode : lang::code();
+        lang::set("en");
+        lang::record(true);
+        game::langTour(cfg.pc, "", extra, false, [](game::Frontend& fe, const std::string&) { fe.recordTexts(); });
+        lang::record(false);
+        std::vector<std::string> english;
+        for (const std::string& k : lang::recorded()) english.push_back(lang::keyOf(k));
+        std::string err;
+        if (code != "en" && !lang::set(code, &err)) {
+            std::fprintf(stderr, "lang-check: %s\n", err.c_str());
+            return 1;
+        }
+        if (!shotsDir.empty()) {
+            std::error_code ec;
+            std::filesystem::create_directories(shotsDir, ec);
+        }
+        int over = 0, broken = 0;
+        std::map<std::string, std::string> seenOver;
+        lang::record(code != "en");   // (soak2: the texts drawn in the language, for the cut-English test below)
+        const int n = game::langTour(cfg.pc, shotsDir, extra, true, [&](game::Frontend& fe, const std::string& name) {
+            fe.recordTexts();
+            for (const auto& o : fe.overflows)
+                if (seenOver.emplace(o.text, name).second) {
+                    if (o.over < 0) {   // (misc18: half a letter: a cut by bytes)
+                        std::printf("BROKEN   %-28s  %s\n", name.c_str(), o.text.c_str());
+                        ++broken;
+                        continue;
+                    }
+                    std::printf("OVERFLOW %-28s %4d px  %s\n", name.c_str(), o.over, o.text.c_str());
+                    ++over;
+                }
+        });
+        lang::record(false);
+        // soak2: a value cut with "..." in English before its translation was looked up (the cut text has none):
+        // drawn in English on a translated page ("Host / Join..." on the Arabic Co-op page). Counted as cut.
+        if (code != "en")
+            for (const std::string& t : lang::recorded()) {
+                if (t.size() < 5 || t.compare(t.size() - 3, 3, "...") != 0 || lang::tr(t) != t)
+                    continue;
+                const std::string stem = t.substr(0, t.size() - 3);
+                for (const std::string& k : english)
+                    if (k.size() > stem.size() && k.compare(0, stem.size(), stem) == 0 && lang::tr(k) != k) {
+                        std::printf("BROKEN   %-28s  %s (cut in English: the translation of \"%s\" lost)\n", "",
+                                    t.c_str(), k.c_str());
+                        ++broken;
+                        break;
+                    }
+            }
+        int missing = 0;
+        std::set<std::string> done;
+        for (const std::string& k : english) {
+            if (game::isMenuLanguageName(k))
+                continue;   // (relmenu: a Language row's name, "한국어 (Korean)": the same in every language)
+            int letters = 0;
+            for (const char c : k) letters += (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+            if (letters < 2 || !done.insert(k).second) continue;
+            if (code != "en" && lang::tr(k) == k && lang::fmt(k, {}) == k) {
+                if (missing < 400) std::printf("MISSING %s\n", k.c_str());
+                ++missing;
+            }
+        }
+        std::printf("lang-check %s: %d screens, %d texts too wide, %d texts cut through a letter, %d keys not translated%s\n",
+                    code.c_str(), n, over, broken, missing, shotsDir.empty() ? "" : (" (screens: " + shotsDir + ")").c_str());
+        rc = 0;
+    }
+    return rc;
+}
+
+int main(int argc, char* argv[])
+{
+    // relprep: --version (the one version: CMakeLists.txt's project(... VERSION ...), generated/hotd_version.h)
+    for (int i = 1; i < argc; ++i)
+        if (std::string(argv[i]) == "--version") {
+            std::printf("The House of the Dead: ReWrithe %s\n", HOTD_VERSION_TEXT);
+            return 0;
+        }
+    // padglyphs (tools): --list-prompt-icons: every icon the prompts can use, one a line (copying the packs' files)
+    for (int i = 1; i < argc; ++i)
+        if (std::string(argv[i]) == "--list-prompt-icons") {
+            std::set<std::string> all;
+            for (int pk = game::kPackXelu; pk <= game::kPackKenney; ++pk) {
+                for (int st = 0; st < game::kPsLast; ++st)
+                    for (int in = 0; in < game::kPadInputs; ++in)
+                        if (std::string ic = game::padIcon(pk, st, in); !ic.empty()) all.insert(ic);
+                std::vector<std::string> keys = {"Esc", "Enter", "Space", "Tab", "Shift", "Ctrl", "Alt", "Del", "Backspace", "Home", "End",
+                                                 "PgUp", "PgDn", "Insert", "Up", "Down", "Left", "Right", "Wheel", "Drag", "R-Drag", "-", "+"};
+                for (char ch = 'A'; ch <= 'Z'; ++ch) keys.push_back(std::string(1, ch));
+                for (char ch = '0'; ch <= '9'; ++ch) keys.push_back(std::string(1, ch));
+                for (int f = 1; f <= 12; ++f) keys.push_back("F" + std::to_string(f));
+                for (const std::string& k : keys)
+                    if (std::string ic = game::keyIcon(pk, k); !ic.empty()) all.insert(ic);
+            }
+            for (const std::string& ic : all) std::printf("%s\n", ic.c_str());
+            return 0;
+        }
+    std::string root, regions, snapshot, dumps, texsets, pcRoot, arcade, boundaryReport, audioWav, diffReplayDir;
+    bool safeMode = false;   // compat (2026-10-29): --safe-mode
+    // --frontend-shot <png> [--frontend-cursor X,Y] [--size WxH] (menuart): the ported PC main menu drawn from the PC
+    // files into a PNG (default 1280 x 720, the pointer at 321, 222 = on Arcade, as the harness capture), then exit
+    std::string frontendPng;
+    int frontendX = 321, frontendY = 222;
+    int seatBotOpt[4] = {-1, -1, -1, -1};   // --seat-bot P:L (computer teammates)
+    bool frontendSize = false;
+    int frontendScreen = 1;   // --frontend-screen (frontend.h frontendShot): 1 main menu, 2 Options, 3 / 10-15 the settings categories, 117 Gameplay's Advanced page, 4 a Controller page, 8 High Scores, 9 Chapter Select, 16 Co-op
+    int soundOpt = -1;   // --sound auto|arcade|pc (LaunchConfig::sound)
+    int frames = -1, w = 992, h = 768, players = -1, event = 0, models = -1, difficulty = -1, lives = -1, blood = -1;
+    bool devLines = false;    // --dev-lines: the developer lines from the start (F1 toggles them; polish: off for players)
+    bool devKeys = false;     // remakefix: --dev-keys: F1 toggles the developer lines in a player run (else only --dev-lines)
+    bool shotFlash = false;   // --shot-flash: the arcade light gun's screen flash on every shot
+    bool fire = false, livesKept = false, chapterStart = true, mute = false, check = false, forceCheck = false;
+    bool launcher = true, strict = false, autoStart = false, defaultRoute = false, renderHeadless = false;
+    bool endingOpt = false;
+    bool makeShortcut = false, shortcutYes = false;   // --create-shortcut [folder] [--yes]
+    std::string shortcutFolder;
+    int steamAction = 0;   // --add-to-steam 1 / --remove-from-steam 2
+    std::string steamTestVdf, steamGridOut;
+    std::vector<uint64_t> shotAt, livesOutAt, startAt;
+    long long botSeed = -1;
+    int botPlayers = 1;
+    std::map<int, uint8_t> routeForce;   // --route C:E[=V] (T1)
+    int sceneViewOpt = -1;               // --scene-view C:S: the cut-scene viewer's entry (game/scene_view.h)
+    bool castOpt = false;                // --cast given (testing): the cast is not read from / saved to launcher.ini
+    // select: --chapter N (1-4; developer: any chapter, a warning when it is not marked playable in game/chapters.h);
+    // --continue-chapters: a clear goes on into the next chapter even when it is not playable. runChapter: the chapter
+    // the run is in (0-3; -1: the start's choice), set when a clear goes on into the next one, so a game over restarts it
+    int chapterOpt = -1, runChapter = -1;
+    int menuChapter = -1;   // the menu's choice for the next game: Arcade 0, Chapter Select's (-1: launcher.ini chapter=)
+    int menuEvent = -1;     // the Cheat screen's scene (the event to start at; -1: --event)
+    bool continueChapters = false;
+    int bossModeOpt = 0;   // --boss-mode / the menu's Boss Mode: 2-6 (game/bossmode.h)
+    bool fbiOpt = false;   // --fbi-screen: the arcade attract's FBI screen even when the launcher has it off
+    int titleOpt = -1;   // --title / --no-title (title worker): the arcade's title and attract before Chapter 1; default: the
+                         // launcher's choice in a launcher run, off in every automated / developer run (--frames, --no-launcher ...)
+    // --checkpoints <file> (s1, tools\checkpoints.ps1): screenshots at game moments instead of fixed frames, one per
+    // line "<name> event <E> <frames>" (frames after event E of the chapter started) or "<name> clear <frames>"
+    // (after the chapter-clear results began) or "<name> mode <M> <S> <frames>" (after game mode M sub-mode S first
+    // began: 4 4 = the CONTINUE countdown, 5 1 / 3 / 5 = the game over scene / route map / GAME OVER); the window
+    // closes after the last. --shot-dir: where they go.
+    struct Checkpoint { std::string name; int event = -1; uint64_t after = 0; bool done = false; int mode = -1, sub = -1; };
+    std::vector<Checkpoint> checkpoints;
+    std::string checkpointFile, shotDir;
+    std::string inputTestFile;   // --input-test <file> (input): injected mouse / keyboard events, checked per frame
+    // --render-fps N (display, debug): the render rate limit (default 60; 0 = unlimited, vsync off). The game logic
+    // ticks at 60 Hz whatever this is (fixed time step). --stop-at F: a window run ends after game frame F (report).
+    int renderFps = -1;   // -1: from the launcher's "Frame rate" (rate)
+    // rate: --game-speed arcade|60 (the tick rate), --frame-rate 60|display|unlimited, --smooth on|off (render
+    // interpolation), over the launcher's choices; --interp-dump <dir> <frame>: every render of game frames F..F+2
+    // saved as PNG (the interpolated in-between pictures)
+    int gameSpeedOpt = -1, frameRateOpt = -2, smoothOpt = -1, vsyncOpt = -1;
+    int rendererOpt = -1;   // angle: --renderer auto | gl | angle (Video > Renderer; render/gl_backend.h)
+    int drawDepthOpt = -1;   // clipfix: --draw-depth buffer | sort (advanced: no menu row since depthopt; render/renderer.h)
+    std::string interpDumpDir;
+    uint64_t interpDumpAt = 0;
+    uint64_t stopAt = 0;
+    int crosshairOpt = -1;   // --crosshair auto|arcade|pc|cross|ring|brackets|gap|capped|custom:NAME (display): over the launcher choice
+    int crtOpt = -1;         // --crt off|arcade|tv|sharp|custom (render/crt.h): over launcher.ini crt=
+    bool crtAllShots = false;   // --crt-shots-all (testing, with --render --shot-at): a picture per preset (before / after)
+    int crtSightsOpt = -1;   // --crt-sights crisp|filtered
+    std::string crosshairCustomOpt;
+    int teamFlashOpt = -1;   // --teammate-flashes auto|full|reduced|off (docs/coop4.md section 13)
+    std::string scene4pOpt;  // --scene4p 00:B,09:C (docs/coop4.md section 16): players 3 / 4's cut-scene variations
+    int crossSizeOpt = -1, crossThickOpt = -1;   // --crosshair-size tiny..huge / 0-4, --crosshair-thickness thin..bold / 0-3
+    int aspectOpt = -1;      // --aspect wide|16:10|4:3 (display): over the launcher's choice
+    int musicOpt = -1, musicVolOpt = -1, sfxVolOpt = -1;   // --no-music / --music-volume N / --sfx-volume N (audio)
+    int menuMusicOpt = -1;   // --menu-music N (a PC CD track 2-12): the main menu's song
+    int menuStyleOpt = -1;   // --menu-style classic|remake (remakemenu: the menu's look)
+    // lang (docs/translating.md): --lang <code> (this run's language), --export-lang <code> [--lang-out <file>] (the
+    // language file with every key: en = English), --lang-check <code> (every screen drawn, the texts that do not fit
+    // listed), --lang-shots <folder> (with --lang: every screen as a PNG)
+    std::string langOpt, exportLang, langOut, langCheckCode, langShots;
+    int liveBgOpt = -1;      // --live-bg auto|on|off (menuperf: Options > Video > Live Background)
+    int numberingOpt = -1;   // --music-numbering auto|pc|saturn (audio: the music files' numbers)
+    int fullscreenOpt = -1;  // --fullscreen / --windowed (user 2026-10-19): over launcher.ini fullscreen=
+    int autoReloadOpt = -1;  // --auto-reload on|off (hud3): over the launcher's choice
+    bool scoreDisplayOpt = false;   // --score-display (scoredisp)
+    int gameTextOpt = -1;    // --game-text en|ja (gametext): over the launcher's Game Text
+    int sonicOpt = -1;       // --sonic-mode off|frenzy|overkill|nightmare (alias --speed): over launcher.ini sonicmode=
+    int inputOpt[2] = {-1, -1}, aimOpt[2] = {-1, -1};   // pads: --p1-input / --p2-input, --p1-aim / --p2-aim
+    int bloodRgbOpt = -1;    // --blood-rgb RRGGBB (display): the custom blood colour
+    // texture packs (docs/mods.md): --mod <pack> (repeatable: only these, the first wins), --no-mods, --export-textures <folder>
+    std::vector<std::string> modOpts, modSetOpts;
+    bool noModsOpt = false;
+    std::string exportTexOpt;
+    std::string modsDirOpt;   // --mods-dir <folder>: another folder of packs (searched first)
+    std::string jukeboxTestOpt = std::getenv("HOTD_JUKEBOX_TEST") ? std::getenv("HOTD_JUKEBOX_TEST") : "";   // --jukebox-test <folder> (game/jukebox.h)
+    std::string exportSounds[2];     // --export-sounds <folder> <arcade zip>
+    std::string jukeboxLengths[4];   // --jukebox-lengths <folder> <regions> <arcade> <part 0-3> (game/jukebox.h ArcadeLength)
+    std::string exportModelsOpt;   // --export-models <folder> --model-ids <hex,...> (custom models: docs/mods.md)
+    std::vector<uint32_t> modelIdsOpt;
+    // title-2: --name-entry (testing) the chapter clear asks for a name also without the title; --ranking-file <file>
+    // the top 10's file (default: ranking.bin in the cache folder in a window run; none with --frames)
+    bool nameEntryOpt = false;
+    std::string rankingFileOpt, nameKeysOpt;   // --name-keys <keys> (testing): typed at the name entry ('<' back, '#' END)
+    bool rankingLowOpt = false;                // --ranking-low (testing): any score places (the name entry headless)
+    net::NetArgs netArgs;   // online co-op (docs/netplay.md)
+    std::string netErr;
+    for (int i = 1; i < argc; ++i) {
+        std::string a = argv[i];
+        auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
+        if (a == "--make-game-exe") {   // (testing: util/game_exe.h for this package and a PC folder / zip, then quit)
+            std::string m;
+            const bool ok = util::makeGameExe(packageFolder(), next(), m);
+            std::printf("game exe: %s\n", m.c_str());
+            return ok ? 0 : 1;
+        }
+        if (a == "--export-sounds") { for (std::string& s : exportSounds) s = next(); continue; }   // (its own if: nesting limit)
+        if (a == "--diff-replay") {   // (its own if: the chain below is at the compiler's nesting limit)
+            diffReplayDir = next();
+            continue;
+        }
+        if (a == "--gl-check")   // compat: the graphics test (glCheck)
+            return glCheck();
+        if (a == "--safe-mode") {   // compat: Safe Mode ("Play (Safe Mode).bat"; below, after launcher.ini)
+            safeMode = true;
+            noModsOpt = true;   // (no texture packs)
+            continue;
+        }
+        if (a == "--renderer") {   // angle: auto | gl | angle (its own if, as above)
+            rendererOpt = gl::backendFromKey(next().c_str());
+            if (rendererOpt < 0) { std::fprintf(stderr, "--renderer auto, gl or angle\n"); return 1; }
+            continue;
+        }
+        if (a == "--root") root = next();
+        else if (a == "--regions") regions = next();
+        else if (a == "--arcade") arcade = next();
+        else if (a == "--snapshot") snapshot = next();
+        else if (a == "--dumps") dumps = next();
+        else if (a == "--texsets") texsets = next();
+        else if (a == "--pc") pcRoot = next();
+        else if (a == "--mute") mute = true;
+        else if (a == "--audio-wav") audioWav = next();
+        else if (a == "--check-files") check = true;
+        else if (a == "--frontend-shot") frontendPng = next();
+        else if (a == "--frontend-screen") frontendScreen = std::atoi(next().c_str());
+        else if (a == "--frontend-cursor") std::sscanf(next().c_str(), "%d,%d", &frontendX, &frontendY);
+        else if (a == "--force-check") forceCheck = true;
+        else if (a == "--no-launcher") launcher = false;
+        else if (a == "--title") titleOpt = 1;
+        else if (a == "--name-entry") nameEntryOpt = true;
+        else if (a == "--ranking-file") rankingFileOpt = next();
+        else if (a == "--name-keys") nameKeysOpt = next();
+        else if (a == "--ranking-low") rankingLowOpt = true;   // misc17 (testing): the top 10 with 0 scores
+        else if (a == "--no-title") titleOpt = 0;
+        else if (a == "--fbi-screen") fbiOpt = true;   // the arcade attract's FBI screen (off by default)
+        else if (a == "--create-shortcut") {
+            makeShortcut = true;
+            if (i + 1 < argc && std::strncmp(argv[i + 1], "--", 2) != 0) shortcutFolder = argv[++i];
+        }
+        else if (a == "--yes") shortcutYes = true;
+        else if (a == "--add-to-steam") steamAction = 1;
+        else if (a == "--remove-from-steam") steamAction = 2;
+        else if (a == "--steam-test-vdf") steamTestVdf = next();
+        else if (a == "--steam-grid-out") steamGridOut = next();
+        else if (a == "--models") models = next() == "pc" ? 1 : 0;
+        else if (a == "--sound") { const std::string s = next(); soundOpt = s == "arcade" ? 1 : s == "pc" ? 2 : 0; }
+        else if (a == "--difficulty") difficulty = std::clamp(std::atoi(next().c_str()), 0, 4);
+        else if (a == "--lives") lives = std::clamp(std::atoi(next().c_str()), 0, 11);
+        else if (a == "--blood") blood = std::clamp(std::atoi(next().c_str()), 0, 5);   // 4: yellow (the PC's B_YELLO), 5: custom (display, experimental)
+        else if (a == "--mod") modOpts.push_back(next());
+        else if (a == "--mod-set") modSetOpts.push_back(next());   // <mod>.<key>=<value> (docs/modding.md)
+        else if (a == "--no-mods") noModsOpt = true;
+        else if (a == "--mods-dir") modsDirOpt = next();
+        else if (a == "--export-models") exportModelsOpt = next();
+        else if (a == "--jukebox-test") jukeboxTestOpt = next();
+        else if (a == "--mods-test") return game::modsPageTest() == 0 ? 0 : 2;   // leftovers: the Mods page's clicks
+        else if (a == "--jukebox-lengths") { for (std::string& s : jukeboxLengths) s = next(); }
+        else if (a == "--model-ids") { std::stringstream ss(next()); std::string t; while (std::getline(ss, t, ',')) if (!t.empty()) modelIdsOpt.push_back(uint32_t(std::strtoul(t.c_str(), nullptr, 16))); }
+        else if (a == "--export-textures") exportTexOpt = next();
+        else if (a == "--blood-rgb") bloodRgbOpt = int(std::strtoul(next().c_str(), nullptr, 16) & 0xFFFFFF);
+        else if (a == "--strict") strict = true;
+        else if (a == "--auto-start") autoStart = true;
+        else if (a == "--lives-out") livesOutAt.push_back(std::strtoull(next().c_str(), nullptr, 10));
+        else if (a == "--size") { std::sscanf(next().c_str(), "%dx%d", &w, &h); frontendSize = true; }
+        else if (a == "--lives-kept") livesKept = next() != "0";
+        else if (a == "--players") players = std::clamp(std::atoi(next().c_str()), 1, 4);   // 3 / 4: the experimental 4P mode (docs/coop4.md)
+        else if (a == "--event") event = std::atoi(next().c_str());
+        else if (a == "--boss-mode") {   // Boss Mode (game/bossmode.h): chariot|hangedman|hermit|magician|all (or 2-6)
+            const std::string v = (i + 1 < argc && std::strncmp(argv[i + 1], "--", 2) != 0) ? next() : std::string("all");
+            bossModeOpt = game::bossModeParse(v);
+            if (!bossModeOpt) { std::fprintf(stderr, "--boss-mode %s: chariot, hangedman, hermit, magician or all\n", v.c_str()); return 1; }
+        }
+        else if (a == "--cast") {   // actorswap (testing, with --scene-view): the viewer's Actors by role, "g,rogan,p3,p4"
+            const std::string v = next();
+            if (!gScene.castFrom(v)) {
+                std::string words;
+                for (const game::SceneView::Actor& ac : game::SceneView::actors())
+                    words += std::string(words.empty() ? "" : ", ") + ac.key;
+                std::fprintf(stderr, "--cast %s: up to four of %s (- keeps a role's own)\n", v.c_str(), words.c_str());
+                return 1;
+            }
+            castOpt = true;
+        }
+        else if (a == "--scene-view") {   // the cut-scene viewer: C:S (chapter 1-4, cam_job18's scene number)
+            int c = 0, s = -1;
+            const std::string v = next();
+            if (std::sscanf(v.c_str(), "%d:%d", &c, &s) != 2 || (sceneViewOpt = game::sceneEntryOf(c, s)) < 0) {
+                std::fprintf(stderr, "--scene-view %s: one of", v.c_str());
+                for (const game::SceneEntry& e : game::sceneEntries())
+                    std::fprintf(stderr, " %d:%d", e.chapter + 1, e.scene);
+                std::fprintf(stderr, "\n");
+                return 1;
+            }
+        }
+        else if (a == "--chapter") chapterOpt = std::clamp(std::atoi(next().c_str()), 1, 4) - 1;
+        else if (a == "--continue-chapters") continueChapters = true;
+        else if (a == "--no-chapter-start") chapterStart = false;
+        else if (a == "--frames") frames = std::atoi(next().c_str());
+        else if (a == "--autofire") fire = true;
+        else if (a == "--shot-flash") shotFlash = true;
+        else if (a == "--start-at") {
+            unsigned pl = 1;
+            unsigned long long f = 0;
+            std::sscanf(next().c_str(), "%u:%llu", &pl, &f);
+            startAt.push_back((uint64_t(std::clamp(pl, 1u, 4u) - 1) << 32) | f);   // players 3 / 4: the 4P mode
+        }
+        else if (a == "--shot-at") shotAt.push_back(std::strtoull(next().c_str(), nullptr, 10));
+        else if (a == "--boundary-report") boundaryReport = next();
+        else if (a == "--default-route") defaultRoute = true;
+        else if (a == "--ending") endingOpt = true;   // developer (Chapter 4 worker): the ending at once (Chapter 4's world)
+        else if (a == "--route") {   // C:E[=V], comma-separated: route_choice V (default 1) in chapter C event E
+            std::string list = next();
+            for (size_t p = 0; p < list.size();) {
+                size_t q = list.find(',', p);
+                if (q == std::string::npos) q = list.size();
+                int c = 1, e = 0, v = 1;
+                if (std::sscanf(list.substr(p, q - p).c_str(), "%d:%d=%d", &c, &e, &v) >= 2)
+                    routeForce[(c - 1) * 100 + e] = uint8_t(v);
+                p = q + 1;
+            }
+        }
+        else if (a == "--bot") botSeed = std::strtoll(next().c_str(), nullptr, 10);
+        else if (a == "--bot-players") botPlayers = std::clamp(std::atoi(next().c_str()), 1, 2);
+        else if (a == "--pc-mode" || a == "--pc-free-play")   // --pc-free-play: as the Cheat screen's Free-Play (0xD5B35C)
+            { if (a == "--pc-mode") gPcMode = 1; else gPcFreePlay = true; }
+        else if (a == "--pc-char") {   // --pc-char 2,0 : the seats' PC Mode characters (implies --pc-mode)
+            std::stringstream ss(next()); std::string t; int k = 0;
+            while (std::getline(ss, t, ',') && k < 4) gPcChars[k++] = std::clamp(std::atoi(t.c_str()), 0, port::Game<port::A>::kPmCharCount - 1);   // (pmextra: 7..19 the extras)
+            gPcMode = 1;
+        }
+        else if (a == "--seat-bot") {   // computer teammate: P:L (player 2-4, level 1 easy .. 3 hard; 0 human)
+            unsigned pl = 0, lv = 0;
+            if (std::sscanf(next().c_str(), "%u:%u", &pl, &lv) == 2 && pl >= 2 && pl <= 4)
+                seatBotOpt[pl - 1] = int(std::min(lv, 3u));
+        }
+        else if (a == "--4p-boss-step") gBossStep = std::clamp(float(std::atof(next().c_str())), 0.0f, 2.0f);
+        else if (a == "--4p-enemy-step") gEnemyStep = std::clamp(float(std::atof(next().c_str())), 0.0f, 2.0f);
+        else if (a == "--bot-skill") {   // 4P balance runs: each player's skill 0..1 (e.g. 0.9,0.9,0.3,0.3)
+            const std::string v = next();
+            for (size_t i = 0; i < v.size();) {
+                const size_t c = v.find(',', i);
+                gBotSkill.push_back(float(std::atof(v.substr(i, c == std::string::npos ? std::string::npos : c - i).c_str())));
+                i = c == std::string::npos ? v.size() : c + 1;
+            }
+        }
+        else if (a == "--bot-gameovers") gBotGameOvers = std::max(1, std::atoi(next().c_str()));
+        else if (a == "--autofire-every") gAutofireEvery = std::max(1, std::atoi(next().c_str()));
+        else if (a == "--checkpoints") checkpointFile = next();
+        else if (a == "--shot-dir") shotDir = next();
+        else if (a == "--render") renderHeadless = true;
+        else if (a == "--dev-lines") devLines = true;
+        else if (a == "--dev-keys") devKeys = true;   // remakefix: F1 (the developer lines) in a player run, hidden at the start
+        else if (a == "--trailer") gTrailer = true;   // Trailer Mode on for this run (testing / recording)
+        else if (a == "--scene-no-subtitles") gScene.subtitles = false;   // the cut-scene viewer: Subtitles Off
+        else if (a == "--input-test") inputTestFile = next();
+        else if (a == "--render-fps") renderFps = std::max(0, std::atoi(next().c_str()));
+        else if (a == "--stop-at") stopAt = std::strtoull(next().c_str(), nullptr, 10);
+        else if (a == "--crosshair") { const std::string v = next(); crosshairOpt = std::max(0, game::sightStyleFromWord(v, crosshairCustomOpt)); }
+        else if (a == "--crosshair-size" || a == "--crosshair-thickness") {
+            const std::string v = next();
+            const bool sz = a == "--crosshair-size";
+            int n = std::isdigit(static_cast<unsigned char>(v.empty() ? 0 : v[0])) ? std::atoi(v.c_str()) : -1;
+            for (int i = 0; n < 0 && i < (sz ? game::kSizeSteps : game::kThickSteps); ++i)
+                if (v == (sz ? game::kSizeNames[i] : game::kThickNames[i])) n = i;
+            (sz ? crossSizeOpt : crossThickOpt) = std::clamp(n, 0, sz ? game::kSizeSteps - 1 : game::kThickSteps - 1);
+        }
+        else if (a == "--scene4p") scene4pOpt = next();
+        else if (a == "--teammate-flashes") {
+            const std::string v = next();
+            teamFlashOpt = v == "full" ? 1 : v == "reduced" ? 2 : v == "off" ? 3 : 0;
+        }
+        else if (a == "--fullscreen") fullscreenOpt = 1;
+        else if (a == "--windowed") fullscreenOpt = 0;
+        else if (a == "--aspect") { const std::string v = next(); aspectOpt = v == "4:3" ? 1 : v == "16:10" ? 2 : 0; }
+        else if (a == "--no-music") musicOpt = 0;
+        else if (a == "--menu-music") menuMusicOpt = game::menuSongOf(std::atoi(next().c_str())).track;
+        else if (a == "--menu-style") menuStyleOpt = next() == "remake" ? 1 : 0;
+        else if (a == "--lang") langOpt = next();
+        else if (a == "--export-lang") exportLang = next();
+        else if (a == "--lang-out") langOut = next();
+        else if (a == "--lang-check") langCheckCode = next();
+        else if (a == "--lang-shots") langShots = next();
+        else if (a == "--live-bg") { const std::string v = next(); liveBgOpt = v == "on" ? 1 : v == "off" ? 2 : 0; }
+        else if (a == "--music-numbering") { const std::string v = next(); numberingOpt = v == "pc" ? 1 : v == "saturn" ? 2 : 0; }
+        else if (a == "--music-volume") musicVolOpt = std::clamp(std::atoi(next().c_str()), 0, 100);
+        else if (a == "--sfx-volume") sfxVolOpt = std::clamp(std::atoi(next().c_str()), 0, 100);
+        else if (a == "--auto-reload") autoReloadOpt = next() == "off" ? 0 : 1;
+        else if (a == "--score-display") scoreDisplayOpt = true;   // scoredisp: Gameplay "Score Display" on
+        else if (a == "--game-text") gameTextOpt = next() == "ja" ? 1 : 0;
+        else if (a == "--game-speed") { const std::string s = next(); gameSpeedOpt = s == "60" ? 1 : s == "auto" ? 2 : 0; }   // (2: auto)
+        else if (a == "--frame-rate") frameRateOpt = game::parseFrameRate(next());   // display | unlimited | arcade | 24 .. 360
+        else if (a == "--vsync") vsyncOpt = next() == "off" ? 0 : 1;
+        else if (a == "--smooth") smoothOpt = next() == "off" ? 0 : 1;
+        else if (a == "--draw-depth") drawDepthOpt = next() == "buffer" ? 0 : 1;
+        else if (a == "--crt") {
+            const std::string v = next();
+            crtOpt = crtPresetParse(v);
+            if (crtOpt < 0) { std::fprintf(stderr, "--crt: off, arcade, tv, sharp or custom (not %s)\n", v.c_str()); return 2; }
+        }
+        else if (a == "--crt-shots-all") crtAllShots = true;
+        else if (a == "--crt-sights") crtSightsOpt = next() == "filtered" ? 0 : 1;
+        else if (a == "--interp-dump") { interpDumpDir = next(); interpDumpAt = std::strtoull(next().c_str(), nullptr, 10); }
+        else if (a == "--sonic-mode" || a == "--speed") {   // Sonic Mode: off|frenzy|overkill|nightmare (game/sonic.h)
+            const std::string v = next();
+            sonicOpt = game::sonicParse(v);
+            if (sonicOpt < 0) { std::fprintf(stderr, "--sonic-mode %s: off, frenzy, overkill or nightmare\n", v.c_str()); return 1; }
+        }
+        else if (a == "--p1-input" || a == "--p2-input") {   // pads: mouse | keyboard (player 2) | pad | gun
+            const std::string v = next();
+            inputOpt[a[3] - '1'] = v == "keyboard" && a[3] == '2' ? 1 : v == "pad" || v == "gamepad" ? 2 : v == "gun" ? 3 : 0;
+        }
+        else if (a == "--p1-style" || a == "--p2-style") {   // pads: auto | classic | motion | mix | touch (sideways = mix)
+            const std::string v = next();
+            aimOpt[a[3] - '1'] = v == "classic" || v == "stick" ? 1 : v == "motion" || v == "gyro" ? 2
+                                 : v == "mix" || v == "sideways" ? 3
+                                 : v == "touch" || v == "touchpad" ? 4 : 0;
+        }
+        else if (netArgs.parse(a, next, netErr)) {}   // --host / --join / --code / --net-* (docs/netplay.md)
+        else { std::fprintf(stderr, "unknown option %s (see the comment at the top of src/main.cpp)\n", a.c_str()); return 1; }
+    }
+    // the Jukebox's arcade lengths (game/jukebox.h ArcadeLength; the menu's Jukebox runs this in a process of its own:
+    // one sound board per process): --jukebox-lengths <cache folder> <regions folder or ""> <ROM zip / folder> <part>
+    // (its share of the codes: Jukebox::kMeasureParts processes at once; part -1: all of them, one after the other)
+    // --export-sounds <folder> <arcade> (trailer / audio pack, user 2026-10-31): every arcade sound code 0xA01000..0xA014FF
+    // played alone on the sound board (Jukebox::measureArcade for its length: a song = intro + two loops), one WAV each
+#ifdef HOTD_HAVE_ARCADE_SOUND
+    if (!exportSounds[0].empty()) {
+        std::vector<uint8_t> prog, samples;
+        std::string e;
+        if (!loadSoundRoms("", exportSounds[1], prog, samples, e)) { std::fprintf(stderr, "export sounds: %s\n", e.c_str()); return 1; }
+        audio::SoundBoard board;
+        if (!board.load(prog, samples, e)) { std::fprintf(stderr, "export sounds: %s\n", e.c_str()); return 1; }
+        int n = 0;
+        for (uint32_t code = 0xA01000; code <= 0xA014FF; ++code) {
+            const bool music = code <= 0xA0100E;
+            const game::Jukebox::ArcadeLength l = game::Jukebox::measureArcade(board, code, music);
+            if (l.length <= 0.02) continue;
+            const double secs = std::min(music && l.loops && l.loop > 0 ? l.intro + 2 * l.loop : l.length, 600.0) + 0.3;
+            board.reset();
+            std::vector<float> buf(882 * 2);
+            for (int i = 0; i < 25; ++i) { std::fill(buf.begin(), buf.end(), 0.0f); board.render(buf.data(), 441, 1.0f); }
+            board.command(code);
+            const size_t frames = size_t(secs * 44100.0);
+            std::vector<int16_t> pcm(frames * 2);
+            for (size_t f = 0; f < frames; f += 441) {
+                const int k = int(std::min<size_t>(441, frames - f));
+                std::fill(buf.begin(), buf.end(), 0.0f);
+                board.render(buf.data(), k, 1.0f);
+                for (int i = 0; i < k * 2; ++i) pcm[f * 2 + size_t(i)] = int16_t(std::clamp(buf[size_t(i)] * 32767.0f, -32768.0f, 32767.0f));
+            }
+            char tail[32];
+            std::snprintf(tail, sizeof tail, "/%s_%06X.wav", music ? "music" : "sfx", unsigned(code));
+            const std::string name = exportSounds[0] + tail;
+            if (std::FILE* f = std::fopen(name.c_str(), "wb")) {
+                const uint32_t bytes = uint32_t(pcm.size() * 2), rate = 44100, brate = rate * 4, hs = 16;
+                const uint16_t fmt = 1, ch = 2, align = 4, bits = 16;
+                const uint32_t riff = 36 + bytes;
+                std::fwrite("RIFF", 1, 4, f); std::fwrite(&riff, 4, 1, f); std::fwrite("WAVEfmt ", 1, 8, f); std::fwrite(&hs, 4, 1, f);
+                std::fwrite(&fmt, 2, 1, f); std::fwrite(&ch, 2, 1, f); std::fwrite(&rate, 4, 1, f); std::fwrite(&brate, 4, 1, f);
+                std::fwrite(&align, 2, 1, f); std::fwrite(&bits, 2, 1, f); std::fwrite("data", 1, 4, f); std::fwrite(&bytes, 4, 1, f);
+                std::fwrite(pcm.data(), 2, pcm.size(), f);
+                std::fclose(f);
+                ++n;
+                std::printf("export sounds: %06X %.2f s (%s)\n", unsigned(code), secs, l.text().c_str());
+                std::fflush(stdout);
+            }
+        }
+        std::printf("export sounds: %d file(s)\n", n);
+        return 0;
+    }
+#endif
+    if (!jukeboxLengths[0].empty()) {
+        std::vector<uint8_t> prog, samples;
+        std::string e;
+        if (!loadSoundRoms(jukeboxLengths[1], jukeboxLengths[2], prog, samples, e)) { std::fprintf(stderr, "jukebox lengths: %s\n", e.c_str()); return 1; }
+        const auto t0 = std::chrono::steady_clock::now();
+        auto each = [&](uint32_t c, const game::Jukebox::ArcadeLength& l, const std::string& d) {
+            std::printf("jukebox lengths: %06X %s%s%s (%.1f s)\n", c, l.text().c_str(), d.empty() ? "" : "; ", d.c_str(),
+                        std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+            std::fflush(stdout);
+        };
+        const int part = std::atoi(jukeboxLengths[3].c_str()), parts = game::Jukebox::kMeasureParts;
+        int n = 0;
+        for (int p = part < 0 ? 0 : part; p < (part < 0 ? parts : part + 1) && n >= 0; ++p) {
+            const int k = game::Jukebox::measureArcadeFile(prog, samples, game::Jukebox::lengthsFile(jukeboxLengths[0], p), p, parts, each);
+            n = k < 0 ? -1 : n + k;
+        }
+        std::printf("jukebox lengths: %d code(s) measured in %.1f s\n", n, std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+        return n < 0 ? 1 : 0;
+    }
+    if (root.empty()) {
+        // the exe sits in <root>\<build folder>\<config>\ by default (a portable package: <root>\bin\)
+        const char* base = SDL_GetBasePath();
+        root = (std::filesystem::path(base ? base : ".") / ".." / "..").lexically_normal().string();
+        if (!std::filesystem::exists(root + "/private") && std::filesystem::exists(std::filesystem::path(base ? base : ".") / ".." / "hotd_package.txt"))
+            root = (std::filesystem::path(base ? base : ".") / "..").lexically_normal().string();
+    }
+    // --diff-replay <dir> (developer; game/diff_replay.h, docs/proof.md "Whole-game differential"): a MAME run of
+    // tools\run_diff_rec.ps1 replayed headless from its snapshot, every frame recorded into <dir>\ours.rec
+    static game::DiffReplay diffReplay;
+    if (!diffReplayDir.empty()) {
+        std::string e;
+        if (!diffReplay.load(diffReplayDir, root + "/tools/state_map.tsv", e)) {
+            std::fprintf(stderr, "--diff-replay: %s\n", e.c_str());
+            return 1;
+        }
+        snapshot = diffReplayDir + "/snapshot.bin";
+        chapterStart = false;
+        strict = true;
+        livesKept = false;
+        if (frames < 0 || frames > int(diffReplay.frames()))
+            frames = int(diffReplay.frames());
+        std::printf("diff replay: arcade frames %u..%u\n", diffReplay.startFrame() + 1, diffReplay.startFrame() + diffReplay.frames());
+    }
+    // logo2: the Remake menu's "ReWrithe" wordmark (our own art): the package's data\ui, else the checkout's (--root or
+    // the exe's), else none (the logo alone)
+    {
+        const char* base = SDL_GetBasePath();
+        std::vector<std::string> dirs;
+        if (const std::string pk = packageFolder(); !pk.empty()) dirs.push_back(pk);
+        if (!root.empty()) dirs.push_back(root);
+        dirs.push_back((std::filesystem::path(base ? base : ".") / ".." / "..").lexically_normal().string());
+        for (const std::string& d : dirs) {
+            std::error_code ec;
+            if (std::filesystem::exists(d + "/data/ui/rewrithe_wordmark.png", ec)) {
+                game::Frontend::wordmarkFile = d + "/data/ui/rewrithe_wordmark.png";
+                break;
+            }
+        }
+        // padglyphs: the button prompts' icons (Kenney's Input Prompts, CC0; missing: the drawn glyphs)
+        for (const std::string& d : dirs) {
+            std::error_code ec;
+            if (std::filesystem::exists(d + "/data/ui/prompts/xelu/ps5/PS5_Cross.png", ec)) {
+                game::Frontend::promptIconDir = d + "/data/ui/prompts";
+                break;
+            }
+        }
+    }
+    // the launcher's choices (kept in the cache folder), then the command line over them
+    const std::string cache = cacheDir();
+    // firstrun (util/crash_log.h): a player's window run (not a test, a tool or a headless run) logs into the settings
+    // folder's hotd.log, closes a console of its own and shows a message box on a crash or a start-up error; every run
+    // writes a crash report (crash-*.txt in the settings folder) on a crash
+    const bool playerRun = frames < 0 && inputTestFile.empty() && !check && frontendPng.empty() && !steamAction &&
+                           !makeShortcut && !autoStart && shotAt.empty() && checkpointFile.empty() && !renderHeadless &&
+                           !std::getenv("HOTD_ONLINE_TEST") && !std::getenv("HOTD_FS_LOG") &&
+                           // (menuperf: the env-driven test runs never show a box either; the user saw one)
+                           !std::getenv("HOTD_MENU_SHOT") && !std::getenv("HOTD_GALLERY_SHOT") && !std::getenv("HOTD_JUKEBOX_SHOT") &&
+                           !std::getenv("HOTD_MENU_PERF_TOUR") && !std::getenv("HOTD_MENU_PERF") && !std::getenv("HOTD_SCENE_TEST") &&
+                           !std::getenv("HOTD_STARTUP_TIME") && !std::getenv("HOTD_MENU_TYPE") && !std::getenv("HOTD_RES_LOG") &&
+                           !std::getenv("HOTD_NET_KEYAIM_TEST") && !std::getenv("HOTD_MENU_SEQ") &&
+                           exportLang.empty() && langCheckCode.empty() && langShots.empty();
+    if (frames < 0 && !check && frontendPng.empty() && !steamAction && !makeShortcut)
+        util::logToFile(cache);
+    util::installCrashReport(cache, playerRun);
+    if (playerRun && launcher)
+        util::dropOwnConsole();
+    // F12 / end-screen / menu screenshots: a package keeps them in its own screenshots\ (nothing outside its folder)
+    const std::string shotsRoot = packageFolder().empty() ? root + "/private/screenshots" : packageFolder() + "/screenshots";
+    game::LaunchConfig cfg;
+    cfg.base = packageFolder();
+    if (frames < 0 || std::getenv("HOTD_BOSS_NAME"))   // Boss Mode's times (scores.cfg's modes 2-6): a window run
+        gBossTimesFile = cache + "bosstimes.cfg";          // (or a test run naming the time: HOTD_BOSS_NAME)
+    if (frames < 0 || std::getenv("HOTD_PM_NAME"))     // PC Mode's high scores (the PC's table 1): the same
+        gPmScoresFile = cache + "pcmode_scores.txt";
+    // a test run without its own HOTD_PREF_DIR never writes the player's launcher.ini (a worker's test once did)
+    if ((!std::getenv("HOTD_PREF_DIR") && (frames >= 0 || !inputTestFile.empty() || !frontendPng.empty() ||
+                                          !shotAt.empty() || !checkpoints.empty() || autoStart)))
+        game::LaunchConfig::readOnly = true;
+    cfg.load(cache + "launcher.ini");
+    hotd::port::gAttractGore = cfg.attractGore;   // Gameplay "Attract Gore"
+    // menufix: the input test starts from the default settings (only the game files' folders kept) and never writes
+    // launcher.ini: a settings folder that ran other tests (models=1, menustyle=1, ...) once failed its menu walks, and
+    // its own menu changes (Right / Left on Models, the Remake style) were saved and broke the next run
+    if (!inputTestFile.empty()) {
+        game::LaunchConfig d;
+        d.base = cfg.base, d.arcade = cfg.arcade, d.pc = cfg.pc;
+        d.menuStyle = 0;   // logo2: its walks start in Classic (the Remake steps switch to Remake themselves)
+        d.liveBackground = 1;   // compat: the live attract On (its checks; Auto is off on integrated / software graphics: Mesa)
+        cfg = d;
+        game::LaunchConfig::readOnly = true;
+    }
+    // lang (translations, docs/translating.md): data\lang of the package (or the checkout); --lang for this run, else
+    // launcher.ini's lang=, else (not chosen yet, a player's run) Windows' UI language when there is a file for it
+    {
+        std::vector<std::string> dirs;
+        if (const std::string pk = packageFolder(); !pk.empty()) dirs.push_back(pk);
+        if (!root.empty()) dirs.push_back(root);
+        const char* base = SDL_GetBasePath();
+        dirs.push_back((std::filesystem::path(base ? base : ".") / ".." / "..").lexically_normal().string());
+        lang::setDataDirs(dirs);
+        if (cfg.language.empty() && playerRun)
+            if (const std::string pick = lang::autoPick(); !pick.empty()) {
+                cfg.language = pick;
+                SDL_Log("language: %s (Windows' UI language; Options > System > Language changes it)", pick.c_str());
+            }
+        const std::string want = !langOpt.empty() ? langOpt : !langCheckCode.empty() ? langCheckCode : cfg.language;
+        std::string err;
+        if (!want.empty() && want != "en" && !lang::set(want, &err))
+            SDL_Log("language %s: %s (English)", want.c_str(), err.c_str());
+        else if (!err.empty())
+            SDL_Log("language %s: %s", want.c_str(), err.c_str());
+    }
+    // the player's own crosshair pictures (game/sights.h): the package's dataosshairs, and crosshairs in the settings folder
+    std::vector<std::string> xhairDirs;
+    if (const std::string pk = packageFolder(); !pk.empty()) xhairDirs.push_back(pk + "/data/crosshairs");
+    if (!root.empty()) xhairDirs.push_back(root + "/data/crosshairs");
+    xhairDirs.push_back(cache + "crosshairs");
+    // texture packs (assets/mods.h, docs/mods.md): data\mods\<pack>\ of the package (or the checkout) and mods\ in the
+    // settings folder. The active list (the renderer reads it when a chapter's models are uploaded): --no-mods none,
+    // --mod only those (in the given order), else launcher.ini's mods= order, then the packs it does not know yet (on),
+    // without modsoff=. Visual only: netplay peers may use different packs
+    std::vector<std::string> modDirs;
+    if (!modsDirOpt.empty()) modDirs.push_back(modsDirOpt);
+    if (const std::string pk = packageFolder(); !pk.empty()) modDirs.push_back(pk + "/data/mods");
+    if (!root.empty()) modDirs.push_back(root + "/data/mods");
+    modDirs.push_back(cache + "mods");
+    // mods (docs/modding.md): every folder's mod.ini (type textures: a texture pack; ragdoll: the built-in Ragdoll mod,
+    // which findMods adds when no folder holds it). Off by default where its mod.ini says so (the Ragdoll mod)
+    std::vector<ModPack> allPacks = findMods(modDirs);
+    // the mods in the Mods page's order (on ones by priority first, then the others) and whether each is on
+    auto packOrder = [&](const game::LaunchConfig& c) { return game::modOrder(c, allPacks); };
+    auto applyMods = [&](const game::LaunchConfig& c) {
+        std::vector<ModPack> act;
+        if (noModsOpt) {
+        } else if (!modOpts.empty()) {
+            for (const std::string& id : modOpts) {
+                bool found = false;
+                for (const ModPack& p : allPacks)
+                    if (SDL_strcasecmp(p.id.c_str(), id.c_str()) == 0) { act.push_back(p); found = true; }
+                if (!found) std::fprintf(stderr, "--mod %s: no such mod in data\\mods or the settings folder's mods\n", id.c_str());
+            }
+        } else {
+            for (const auto& [p, on] : packOrder(c))
+                if (on) act.push_back(*p);
+        }
+        // lang (docs/translating.md): the language's own packs (data/mods/lang/<code>/<pack>/: its pictures with words)
+        // first, over every other pack, while that language is on
+        if (!noModsOpt && lang::active()) {
+            std::vector<std::string> langDirs;
+            for (const std::string& d : modDirs) langDirs.push_back(d + "/lang/" + lang::code());
+            std::vector<ModPack> lp = findModPacks(langDirs);
+            for (ModPack& p : lp) p.id = "lang/" + lang::code() + "/" + p.id;
+            act.insert(act.begin(), lp.begin(), lp.end());
+        }
+        std::string names;
+        for (const ModPack& p : act) names += (names.empty() ? "" : ", ") + p.id;
+        SDL_Log("[mods] %zu mod(s) found, active: %s", allPacks.size(), names.empty() ? "none" : names.c_str());
+        // the code mods (game/ragdoll.h): on with their settings (launcher.ini modset.<mod>.<key>=, --mod-set; else
+        // the mod.ini defaults); the texture packs to the renderer
+        bool ragdollOn = false;
+        std::map<std::string, std::string> ragdollValues;
+        for (const ModPack& p : allPacks) {
+            if (p.type != "ragdoll") continue;
+            for (const ModPack& q : act) ragdollOn |= q.type == "ragdoll";
+            for (const ModSetting& st : p.settings) {
+                std::string v = st.def;
+                if (auto it = c.modSettings.find(p.id + "." + st.key); it != c.modSettings.end()) v = it->second;
+                for (const std::string& o : modSetOpts)
+                    if (o.rfind(p.id + "." + st.key + "=", 0) == 0) v = o.substr(p.id.size() + st.key.size() + 2);
+                ragdollValues[st.key] = v;
+            }
+            break;
+        }
+        game::ragdollConfigure(ragdollOn, ragdollValues);
+        act.erase(std::remove_if(act.begin(), act.end(), [](const ModPack& p) { return p.type != "textures"; }), act.end());
+        texturePacks().setActive(std::move(act));
+    };
+    applyMods(cfg);
+    // a portable package finds the player's own files in its data\ by itself (what Play.bat did, in the same order),
+    // so Steam or a shortcut can start bin\hotd.exe directly (user, 2026-10-17): arcade = data\hotd.zip, else the first
+    // data\arcade\*.zip; PC = data\pc with THOTD.EXE, else a folder one down with it, else the first data\pc\*.zip.
+    // The command line wins over data\, data\ over the saved choice (as with Play.bat's arguments).
+    bool filesFromData = false;   // firstrun: found in the package's data (the first start goes on to the menu by itself)
+    if (const std::string pkg = packageFolder(); !pkg.empty()) {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path data = fs::path(pkg) / "data";
+        auto firstZip = [&](const fs::path& dir) -> std::string {
+            std::vector<std::string> zips;
+            for (const auto& e : fs::directory_iterator(dir, ec))
+                if (e.is_regular_file(ec) && pcfs::isZip(e.path().string()))
+                    zips.push_back(e.path().string());
+            std::sort(zips.begin(), zips.end());
+            return zips.empty() ? std::string() : zips.front();
+        };
+        auto hasExe = [&](const fs::path& dir) {
+            for (const auto& e : fs::directory_iterator(dir, ec))
+                if (e.is_regular_file(ec) && SDL_strcasecmp(e.path().filename().string().c_str(), "THOTD.EXE") == 0)
+                    return true;
+            return false;
+        };
+        std::string a = fs::is_regular_file(data / "hotd.zip", ec) ? (data / "hotd.zip").string() : firstZip(data / "arcade");
+        std::string p;
+        if (hasExe(data / "pc"))
+            p = (data / "pc").string();
+        if (p.empty()) {
+            std::vector<std::string> dirs;
+            for (const auto& e : fs::directory_iterator(data / "pc", ec))
+                if (e.is_directory(ec) && hasExe(e.path()))
+                    dirs.push_back(e.path().string());
+            std::sort(dirs.begin(), dirs.end());
+            if (!dirs.empty()) p = dirs.front();
+        }
+        if (p.empty())
+            p = firstZip(data / "pc");
+        // firstrun: loose ROM files (or a folder of them) in the arcade folder of data count too, not only a zip
+        // (the package's "put your ... here.txt" notes do not count)
+        if (a.empty() && fs::is_directory(data / "arcade", ec)) {
+            for (const auto& e : fs::recursive_directory_iterator(data / "arcade", ec))
+                if (e.is_regular_file(ec) && SDL_strcasecmp(e.path().extension().string().c_str(), ".txt") != 0) {
+                    a = (data / "arcade").string();
+                    break;
+                }
+        }
+        filesFromData = !a.empty() || !p.empty();
+        if (arcade.empty() && !a.empty()) { cfg.arcade = a; SDL_Log("[files] arcade ROMs from the package's data: %s", a.c_str()); }
+        if (pcRoot.empty() && !p.empty()) { cfg.pc = p; SDL_Log("[files] PC files from the package's data: %s", p.c_str()); }
+    }
+    if (!arcade.empty()) cfg.arcade = arcade;
+    if (!pcRoot.empty()) cfg.pc = pcRoot;
+    if (models >= 0) cfg.models = models;
+    if (soundOpt >= 0) cfg.sound = soundOpt;
+    if (players > 0) cfg.players = players;
+    if (sceneViewOpt >= 0) {   // --scene-view: --players (default 4) and --models choose its players and models
+        gScene.entry = sceneViewOpt;
+        gScene.players = players > 0 ? players : 4;
+        gScene.models = models >= 0 ? models : cfg.models;
+    }
+    for (int p = 1; p < 4; ++p)
+        if (seatBotOpt[p] >= 0) cfg.seatBot[p] = seatBotOpt[p];
+    if (difficulty >= 0) cfg.difficulty = difficulty;
+    if (lives >= 0) cfg.lives = lives;
+    if (blood >= 0) cfg.blood = blood;
+    for (game::SeatSight& s : cfg.sights) {   // (firing range: the command line sets every player's)
+        if (crosshairOpt >= 0) { s.style = crosshairOpt; s.custom = crosshairCustomOpt; }
+        if (crossSizeOpt >= 0) s.size = crossSizeOpt;
+        if (crossThickOpt >= 0) s.thick = crossThickOpt;
+    }
+    if (teamFlashOpt >= 0) cfg.teamFlash = teamFlashOpt;
+    if (shotFlash) cfg.gunFlash = 2;   // padpass: --shot-flash = Controls > Shot Flash On (the host draws it)
+    if (!scene4pOpt.empty()) cfg.scene4p = scene4pOpt;
+    if (!castOpt && !gScene.castFrom(cfg.sceneCast))   // actors2: the viewer's Actors as last picked (scenecast=)
+        gScene.castReset();
+    if (aspectOpt >= 0) cfg.aspect = aspectOpt;
+    if (musicOpt >= 0) cfg.music = false;
+    if (numberingOpt >= 0) cfg.musicNumbering = numberingOpt;
+    if (menuMusicOpt >= 0) cfg.menuMusic = menuMusicOpt;
+    if (menuStyleOpt >= 0) cfg.menuStyle = menuStyleOpt;
+    if (liveBgOpt >= 0) cfg.liveBackground = liveBgOpt;
+    if (musicVolOpt >= 0) cfg.musicVolume = musicVolOpt;
+    if (sfxVolOpt >= 0) cfg.sfxVolume = sfxVolOpt;
+    if (autoReloadOpt >= 0) cfg.autoReload = autoReloadOpt != 0;
+    if (scoreDisplayOpt) cfg.scoreDisplay = true;
+    if (gameTextOpt >= 0) cfg.gameText = gameTextOpt;
+    if (gameSpeedOpt >= 0) cfg.gameSpeed = gameSpeedOpt == 2 ? -1 : gameSpeedOpt;
+    if (frameRateOpt >= -1) cfg.frameRate = frameRateOpt;
+    if (vsyncOpt >= 0) cfg.vsync = vsyncOpt != 0;
+    if (rendererOpt >= 0) cfg.renderer = rendererOpt;
+    if (smoothOpt >= 0) cfg.smooth = smoothOpt != 0;
+    if (drawDepthOpt >= 0) cfg.drawDepth = drawDepthOpt;
+    hotd::setDrawDepth(cfg.drawDepth);
+    if (crtOpt >= 0) cfg.crt.preset = crtOpt;
+    if (crtSightsOpt >= 0) cfg.crt.crispSights = crtSightsOpt != 0;
+    if (sonicOpt >= 0) cfg.sonic = sonicOpt;
+    // compat (coordinator 2026-10-29): Safe Mode (--safe-mode, "Play (Safe Mode).bat") for a PC that has trouble with the
+    // game: a 1280 x 720 window, no Live Background, the menus at 60 fps, vsync, no CRT filter, no texture packs (the
+    // depth pre-pass is off by default). A setting changed in Options is saved as usual (with these values)
+    if (safeMode) {
+        fullscreenOpt = 0;
+        cfg.fullscreen = false, cfg.exclusive = false;
+        cfg.resWinW = 1280, cfg.resWinH = 720;
+        cfg.liveBackground = 2;
+        cfg.menuFps = 60;
+        cfg.vsync = true;
+        cfg.crt.preset = 0;
+        cfg.trailer = false;
+        SDL_Log("Safe Mode: a 1280 x 720 window, Live Background Off, menus at 60 fps, vsync on, no CRT filter, no texture packs");
+    }
+    if (inputOpt[0] >= 0) cfg.p1Input = inputOpt[0];
+    if (inputOpt[1] >= 0) cfg.p2Input = inputOpt[1];
+    for (int p = 0; p < 2; ++p)
+        if (aimOpt[p] >= 0) cfg.pad[p].style = aimOpt[p];
+    if (bloodRgbOpt >= 0) cfg.bloodRgb = bloodRgbOpt;
+    // the view's blood setting: 0-3 the colours, 4 yellow (the PC's B_YELLO.VMC; the arcade has no yellow: its table
+    // 0xAB110 has red, green, blue, purple only, so arcade models draw red), the custom colour (display, experimental) as
+    // PcConfig::kBloodCustom | 0xRRGGBB
+    // texture packs: a pack's [recolour] blood = #RRGGBB takes the custom path while the setting is Red (the default),
+    // display only (the game logic keeps red)
+    auto bloodOf = [](const game::LaunchConfig& c) {
+        if (c.blood == 0 && texturePacks().bloodRgb() >= 0) return PcConfig::kBloodCustom | texturePacks().bloodRgb();
+        return c.blood == 5 ? (PcConfig::kBloodCustom | (c.bloodRgb & 0xFFFFFF)) : c.blood;
+    };
+    auto viewBlood = [&]() { return bloodOf(cfg); };
+    if (strict) cfg.cuts = false;
+    if (chapterOpt >= 0 && !game::chapterPlayable(chapterOpt))
+        std::fprintf(stderr, "warning: --chapter %d: Chapter %d is not marked playable (%s); started anyway (developer)\n",
+                     chapterOpt + 1, chapterOpt + 1, game::kChapters[chapterOpt].note);
+    if (cfg.arcade.empty() && std::filesystem::exists(root + "/private/hotd.zip")) cfg.arcade = root + "/private/hotd.zip";
+    if (cfg.pc.empty() && std::filesystem::exists(root + "/private/pcharness/game/SOUND"))
+        cfg.pc = root + "/private/pcharness/game";   // developer checkout; players pick their folder in the launcher
+    if (steamAction) {   // Add to Steam (util/steam_shortcut.h): this exe, the art from the PC files
+        steam::Options so;
+        so.exe = winshell::selfExePath();
+        so.pcDir = cfg.pc;
+        static const char* const kKinds[5] = {"cover", "banner", "hero", "logo", "icon"};   // the picks (launcher.ini)
+        for (int i = 0; i < 5; ++i) so.picks[kKinds[i]] = cfg.steamArt[i];
+        so.testVdf = steamTestVdf;
+        so.gridOut = steamGridOut;
+        if (steamAction == 1) {   // the defaults into the art folders too
+            std::vector<std::string> lines;
+            steam::writeDefaultPictures(so, lines);
+            for (const std::string& l : lines) std::printf("%s\n", l.c_str());
+        }
+        const steam::Result sr = steamAction == 1 ? steam::addToSteam(so) : steam::removeFromSteam(so);
+        for (const std::string& l : sr.lines)
+            std::printf("%s\n", l.c_str());
+        return sr.ok ? 0 : 1;
+    }
+    if (makeShortcut) {
+        // desktop (and Start menu) shortcut to this hotd.exe; its icon is the player's own THOTD.EXE (docs/runtime.md).
+        // With a folder: only there (testing). An existing shortcut is replaced only after a yes (or --yes).
+        std::string msg;
+        auto r = winshell::createShortcut(shortcutFolder, shortcutFolder.empty(), cfg.pc, false, msg);
+        if (r == winshell::ShortcutResult::Exists) {
+            bool yes = shortcutYes;
+            if (!yes) {
+                std::printf("%s. Replace it? [y/N] ", msg.c_str());
+                std::fflush(stdout);
+                const int c = std::getchar();
+                yes = c == 'y' || c == 'Y';
+            }
+            if (!yes) { std::printf("left as it was\n"); return 0; }
+            r = winshell::createShortcut(shortcutFolder, shortcutFolder.empty(), cfg.pc, true, msg);
+        }
+        std::printf("%s\n", msg.c_str());
+        return r == winshell::ShortcutResult::Created ? 0 : 1;
+    }
+    if (check)
+        return checkFiles(cfg.arcade, cfg.pc, forceCheck);
+    // lang (docs/translating.md): --export-lang <code> [--lang-out <file>]: the language file with every key (each menu
+    // screen drawn from the PC files in both styles, every Gallery entry, the Online Co-op pages, the in-game notes,
+    // the cut-scene subtitles); --lang-check <code>: the same screens in that language, the texts that do not fit and
+    // the keys not translated yet listed; --lang-shots <folder> (with --lang): each screen as a PNG
+    if (!exportLang.empty() || !langCheckCode.empty() || !langShots.empty())
+        return langTool(cfg, exportLang, langOut, langCheckCode, langShots, menuRegionsGuess(regions, cache, root));
+    if (!frontendPng.empty()) {
+        // --frontend-screen 120: an Online Co-op page with made-up players / messages (HOTD_FE_ONLINE=<scene>,
+        // OnlineMenu::preview); its rows as the text launcher shows them go to stdout too
+        static net::OnlineMenu shotOnline;
+        auto onlineSetup = [](game::Frontend& fe) {
+            const char* scene = std::getenv("HOTD_FE_ONLINE");
+            if (!scene || !shotOnline.preview(fe, scene)) return false;
+            for (const net::OnlineMenu::TextRow& r : shotOnline.textRows()) {   // (the launcher's layout: launcher.cpp)
+                const std::string label = r.clickable ? "[ " + r.label + " ]" : r.label;
+                std::string s = "    " + label;
+                if (!r.value.empty()) s += std::string(label.size() < 24 ? 24 - label.size() : 1, ' ') + r.value;
+                std::printf("TEXT %3zu|%s\n", s.size(), s.c_str());
+            }
+            return true;
+        };
+        if (menuStyleOpt >= 0)   // remakemenu: --menu-style remake|classic = HOTD_FE_STYLE (leftovers: the CRT's copy)
+            putEnvCrt("HOTD_FE_STYLE", menuStyleOpt == 1 ? "remake" : "classic");
+        if (const std::string rg = menuRegionsGuess(regions, cache, root); !rg.empty() && !std::getenv("HOTD_FE_REGIONS"))
+            putEnvCrt("HOTD_FE_REGIONS", rg.c_str());   // remake2: the Remake screens' blood art
+        return game::frontendShot(cfg.pc, frontendPng, frontendX, frontendY, frontendSize ? w : 1280, frontendSize ? h : 720,
+                                  frontendScreen, onlineSetup);
+    }
+    // the work RAM is built from the ROM (game/boot.h) and the textures / colours come from the ROM regions
+    // (ArcadeSource without a texset file); developer options: --snapshot <MAME work RAM dump>, --texsets <file>
+    // [--dumps <MAME dump folder>] (docs/teaser_status/s1.md)
+    if (!texsets.empty() && dumps.empty()) {
+        dumps = root + "/private/mame_dumps/fullgame_bufram";
+        if (!std::filesystem::exists(dumps + "/index.txt")) dumps = root + "/private/mame_dumps/fullgame_us";
+    }
+    if (!inputTestFile.empty()) {   // the input test: launcher -> Start -> the game -> Esc -> the launcher, hidden, silent
+        launcher = true;
+        autoStart = true;
+        mute = true;
+    }
+    if (frames >= 0 || !launcher)
+        launcher = false;
+    if (frames >= 0)
+        std::setvbuf(stdout, nullptr, _IONBF, 0);   // the log survives a crash
+    // the regions: --regions, else (no launcher) from --arcade through the files check, else the extracted ones
+    auto arcadeRegions = [&](std::string& err) -> bool {
+        if (!regions.empty() && arcade.empty())
+            return true;
+        // robust-2: without the developer's extracted regions (a portable package: --frames / --no-launcher), the
+        // ROMs the launcher remembers (launcher.ini) go through the files check as with --arcade (was: "arcade regions
+        // missing in <package>/private/arcade_exports/regions")
+        const bool noExtracted = !std::filesystem::exists(root + "/private/arcade_exports/regions/maincpu.bin");
+        if (!arcade.empty() || launcher || (noExtracted && !cfg.arcade.empty())) {
+            game::CheckReport r = game::checkArcade(cfg.arcade, cache + "arcade_regions", forceCheck);
+            for (const std::string& l : r.lines)
+                SDL_Log("[files] %s", l.c_str());
+            if (!r.ok) {
+                err = "the arcade ROMs did not pass the files check";
+                return false;
+            }
+            regions = cache + "arcade_regions";
+            return true;
+        }
+        if (noExtracted) {   // robust-2: a player's package without launcher.ini (was a developer path in the message)
+            err = "no arcade ROMs chosen: start the setup (HOTDReWritheSetup.bat) once, or pass --arcade <ROM zip or folder>";
+            return false;
+        }
+        regions = root + "/private/arcade_exports/regions";
+        return true;
+    };
+
+    // texture packs: hotd --export-textures <folder> [--models arcade|pc] (docs/mods.md), from the player's own files
+    if (!exportTexOpt.empty()) {
+        std::string e;
+        if (cfg.models != 1 && !arcadeRegions(e)) { std::fprintf(stderr, "export: %s\n", e.c_str()); return 1; }
+        const int n = exportTextures(exportTexOpt, cfg.models == 1 ? 1 : 0, regions, cfg.pc, e);
+        if (n < 0) { std::fprintf(stderr, "export: %s\n", e.c_str()); return 1; }
+        std::printf("export: %d textures written to %s\\%s (index.tsv lists them)\n", n, exportTexOpt.c_str(), cfg.models == 1 ? "pc" : "arcade");
+        return 0;
+    }
+    // custom models: hotd --export-models <folder> --model-ids <hex,...> [--models arcade|pc] (docs/mods.md)
+    if (!exportModelsOpt.empty()) {
+        std::string e;
+        if (modelIdsOpt.empty()) { std::fprintf(stderr, "--export-models: which models? --model-ids <hex,hex,...>\n"); return 1; }
+        if (cfg.models != 1 && !arcadeRegions(e)) { std::fprintf(stderr, "export: %s\n", e.c_str()); return 1; }
+        const int n = exportModels(exportModelsOpt, cfg.models == 1 ? 1 : 0, regions, cfg.pc, modelIdsOpt, e);
+        if (n < 0) { std::fprintf(stderr, "export: %s\n", e.c_str()); return 1; }
+        std::printf("export: %d model(s) written\n", n);
+        return 0;
+    }
+    // the Jukebox's test (game/jukebox.h): every song, effect and voice of both sound sources played headless (no
+    // device), its RMS, the loop points and WAVs into the folder; exit code = the failures
+    if (!jukeboxTestOpt.empty()) {
+        game::Audio ja;
+        ja.log = [](const std::string& s) { SDL_Log("[sound] %s", s.c_str()); };
+        ja.packageRoot = root;
+        ja.musicNumbering = cfg.musicNumbering;
+        ja.setVolume(0.8f, 0.6f);
+        ja.setTickRate(60.0);
+        std::string e;
+        if (!ja.init(cfg.pc, false, e)) { std::fprintf(stderr, "jukebox test: %s\n", e.c_str()); return 1; }
+        std::vector<uint8_t> prog, samples;
+        const bool board = arcadeRegions(e) && loadSoundRoms(regions, cfg.arcade, prog, samples, e) && ja.startBoard(prog, samples, e);
+        if (!board) std::printf("jukebox test: no arcade sound board (%s)\n", e.c_str());
+        ja.stopBoard();   // (started by the Jukebox when the arcade source plays, as in the menu)
+        // the arcade lengths as the menu makes them (the measuring processes, the settings folder's cache), waited for
+        if (board) {
+            const auto t0 = std::chrono::steady_clock::now();
+            LengthsJob job;
+            job.start(cache, regions, cfg.arcade);
+            job.wait(900);
+            std::printf("jukebox test: arcade lengths ready in %.1f s (%s)\n",
+                        std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(), cache.c_str());
+        }
+        auto start = [&]() { std::string se; return ja.startBoard(prog, samples, se); };
+        return game::Jukebox::test(ja, board, start, jukeboxTestOpt, cache) == 0 ? 0 : 2;
+    }
+    // online co-op (docs/netplay.md): connect before anything starts; the host's game settings go to the client, which
+    // starts the same game (no launcher, no title: straight into the chapter)
+    // the host's game as netplay settings (the command line's and the launcher's choices), and a game's settings applied
+    // to this run (the client: the host's; restored by netRestore when the online game ends)
+    // pc: the host's game is PC Mode (docs/pcmode.md "Online"; NetGame::hostStart fills each seat's character)
+    auto netSettingsOf = [&](const game::LaunchConfig& c, bool pc) {
+        net::Settings ns;
+        ns.chapter = uint8_t(chapterOpt >= 0 ? chapterOpt : c.chapter > 0 && game::chapterPlayable(c.chapter) ? c.chapter : 0);
+        ns.event = uint8_t(std::clamp(event, 0, 255));
+        ns.seats = uint8_t(c.players >= 3 ? 4 : 2);   // the 4P mode online: two PCs, two seats each (docs/coop4.md phase 7)
+        ns.players = uint8_t(std::clamp(c.players, 1, int(ns.seats)));
+        ns.models = uint8_t(c.models == 1 ? 1 : 0);
+        ns.difficulty = uint8_t(std::clamp(c.difficulty, 0, 4));
+        ns.lives = uint8_t(std::clamp(c.lives, 0, 11));
+        ns.blood = uint8_t(std::clamp(c.blood, 0, 5));
+        ns.sound = uint8_t(std::clamp(c.sound, 0, 2));
+        ns.livesKept = livesKept, ns.cuts = c.cuts, ns.defaultRoute = defaultRoute;
+        ns.continueChapters = continueChapters, ns.chapterStart = chapterStart;
+        ns.delay = uint8_t(netArgs.delay);   // 0: auto (hostStart picks it from the ping)
+        ns.hashEvery = uint16_t(netArgs.hashEvery);
+        // rate: both PCs tick at the host's rate (Auto: PC Mode's 60 Hz, the arcade's 57.52 Hz: gameSpeedNow's rule)
+        ns.gameSpeed = uint8_t(c.gameSpeed == 1 || (c.gameSpeed < 0 && pc) ? 1 : 0);
+        // PC Mode (protocol 16): the host's Continues and Free-Play (hostStart clears them in an arcade game)
+        ns.pmContinues = uint8_t(std::clamp(c.continues, 0, 9));
+        ns.pmFreePlay = c.freePlay || gPcFreePlay ? 1 : 0;
+        ns.sonic = uint8_t(std::clamp(c.sonic, 0, game::kSonicPresets - 1));   // Sonic Mode: the host's preset
+        ns.autoReload = c.autoReload ? 1 : 0;   // Auto Reload: the host's, for every seat
+        ns.gameText = uint8_t(c.gameText == 1 ? 1 : 0);   // Game Text: the host's (its bank loads differ in the RAM)
+        // the 4P bosses' hit points / creatures' toughness (cpuai): the host's (its --4p-boss-step / --4p-enemy-step over
+        // its launcher.ini), as whole percents (every PC the same steps)
+        ns.boss4p = uint8_t(std::clamp(gBossStep >= 0 ? int(std::lround(gBossStep * 100.0f)) : c.boss4p, 0, 200));
+        ns.enemy4p = uint8_t(std::clamp(gEnemyStep >= 0 ? int(std::lround(gEnemyStep * 100.0f)) : c.enemy4p, 0, 200));
+        for (const auto& [key, v] : routeForce)
+            if (key >= 0 && key < 1000 && v <= 2 && ns.routes.size() < 32)
+                ns.routes.push_back({uint16_t(key), v});
+        return ns;
+    };
+    struct NetSaved {
+        int chapterOpt, event; bool livesKept, defaultRoute, continueChapters, chapterStart; std::map<int, uint8_t> routeForce;
+        int pcMode; std::array<int, 4> pcChars; int bossMode;
+    };
+    std::optional<NetSaved> netSaved;
+    std::optional<net::Settings> netGameSettings;   // the online game's settings (enterGame applies them over cfg)
+    auto netApply = [&](const net::Settings& ns, game::LaunchConfig& c) {
+        if (!netSaved)
+            netSaved = NetSaved{chapterOpt, event, livesKept, defaultRoute, continueChapters, chapterStart, routeForce,
+                                gPcMode, {gPcChars[0], gPcChars[1], gPcChars[2], gPcChars[3]}, bossModeOpt};
+        // PC Mode online (protocol 16): the host's choice, every seat's character, its Continues / Free-Play
+        gPcMode = ns.pcMode;
+        bossModeOpt = ns.bossMode;   // Boss Mode online (protocol 18): the host's boss game (0: none)
+        if (ns.pcMode) {
+            for (int k = 0; k < 4; ++k) gPcChars[k] = ns.pmChar[k];
+            c.continues = ns.pmContinues, c.freePlay = ns.pmFreePlay != 0;
+        }
+        chapterOpt = ns.chapter;
+        event = ns.event;
+        c.players = ns.players, c.models = ns.models, c.difficulty = ns.difficulty, c.lives = ns.lives;
+        c.blood = ns.blood, c.sound = ns.sound, c.cuts = ns.cuts != 0, c.gameSpeed = ns.gameSpeed, c.sonic = ns.sonic;
+        c.autoReload = ns.autoReload != 0;
+        c.gameText = ns.gameText;
+        c.boss4p = ns.boss4p, c.enemy4p = ns.enemy4p;   // the host's 4P Boss Hit Points / 4P Enemy Toughness (protocol 14)
+        gBossStep = gEnemyStep = -1.0f;                 // (this PC's --4p-boss-step / --4p-enemy-step: the host's instead)
+        livesKept = ns.livesKept != 0, defaultRoute = ns.defaultRoute != 0, continueChapters = ns.continueChapters != 0;
+        chapterStart = ns.chapterStart != 0;
+        routeForce.clear();
+        for (const net::Settings::Route& r : ns.routes)
+            routeForce[r.key] = r.v;
+    };
+    auto netRestore = [&]() {
+        if (!netSaved) return;
+        chapterOpt = netSaved->chapterOpt, event = netSaved->event, livesKept = netSaved->livesKept;
+        defaultRoute = netSaved->defaultRoute, continueChapters = netSaved->continueChapters;
+        chapterStart = netSaved->chapterStart, routeForce = netSaved->routeForce;
+        gPcMode = netSaved->pcMode;
+        bossModeOpt = netSaved->bossMode;
+        for (int k = 0; k < 4; ++k) gPcChars[k] = netSaved->pcChars[size_t(k)];
+        netSaved.reset();
+        netGameSettings.reset();
+    };
+    if (netArgs.active() || !netErr.empty()) {
+        if (!netErr.empty()) { std::fprintf(stderr, "%s\n", netErr.c_str()); return 1; }
+        if (!netArgs.host.empty() && !netArgs.join.empty()) { std::fprintf(stderr, "--host and --join: one of them\n"); return 1; }
+        std::setvbuf(stdout, nullptr, _IONBF, 0);
+        gNetTimeout = netArgs.timeout;
+        gNet = std::make_unique<net::NetGame>();
+        gNet->log = [](const std::string& s) { std::printf("[net] %s\n", s.c_str()); };
+        gNet->askOnDrop = frames < 0;   // (a window: a player leaving waits for the host's choice)
+        const bool hosting = !netArgs.host.empty();
+        if (hosting)   // --pc-mode: an online PC Mode game (the joiners' --pc-mode is not needed: the host's choice)
+            netArgs.pcMode = gPcMode != 0 && !bossModeOpt;
+        if (hosting)   // --boss-mode: an online Boss Mode game (protocol 18; the joiners get it in the settings)
+            netArgs.bossMode = bossModeOpt;
+        net::Settings ns = hosting ? netSettingsOf(cfg, netArgs.pcMode) : net::Settings{};
+        {   // the same game data (protocol 19): this PC's ROMs and PC Mode data, compared when a player joins
+            std::string re;
+            if (regions.empty()) arcadeRegions(re);   // (the game needs them next anyway)
+            netArgs.romData = romDigest(regions);
+            netArgs.pcData = pmData(cfg.pc).digest;
+        }
+        // the host waits for its player 2 (a window run: until one joins; headless: --net-timeout)
+        std::string ne;
+        if (!gNet->connect(netArgs, ns, ne, hosting && frames < 0 ? 0 : netArgs.timeout)) {
+            std::fprintf(stderr, "netplay: %s\n", ne.c_str());
+            // (refused: a wrong code, or other game data, protocol 19)
+            const bool refused = ne.find("refused") != std::string::npos || ne.find("1998 PC files") != std::string::npos ||
+                                 ne.find("arcade ROMs") != std::string::npos;
+            std::printf("NET: result=%s (%s)\n", refused ? "refused" : "failed", ne.c_str());
+            return 3;
+        }
+        if (hosting) {   // the game's players as sent (alone: 1; the 4-seat game: its seats decided by the settings)
+            cfg.players = gNet->gameSettings().players;
+            // the 4P steps as sent (whole percents: the joiners play these; a --4p-boss-step of 0.333 is 33 here too)
+            cfg.boss4p = gNet->gameSettings().boss4p, cfg.enemy4p = gNet->gameSettings().enemy4p;
+            gBossStep = gEnemyStep = -1.0f;
+            const net::Settings& gs = gNet->gameSettings();   // PC Mode: the seats' characters as settled (the joiners' picks)
+            if (gs.pcMode)
+                for (int k = 0; k < 4; ++k) gPcChars[k] = gs.pmChar[k];
+            cfg.gameSpeed = gs.gameSpeed;   // (the rate as sent: Auto resolved)
+        }
+        if (!hosting) {   // the host's game
+            netApply(ns, cfg);
+            std::printf("[net] the host's game: chapter %d event %d, %d player(s), %s models, difficulty %d, Sonic Mode %s, game speed %s, 4P boss +%d %% / enemy +%d %%\n",
+                        ns.chapter + 1, ns.event, ns.players, ns.models ? "PC" : "arcade", ns.difficulty, game::sonicKey(ns.sonic),
+                        ns.gameSpeed ? "60 Hz" : "arcade", int(ns.boss4p), int(ns.enemy4p));
+        }
+        if (!hosting && gNet->gameSettings().bossMode)   // (the host logged it at its start)
+            std::printf("[net] Boss Mode: %s\n", game::kBossNames[gNet->gameSettings().bossMode - 2]);
+        if (gNet->gameSettings().pcMode)
+            std::printf("[net] PC Mode: characters %d, %d, %d, %d, continues %d%s\n", gPcChars[0], gPcChars[1], gPcChars[2],
+                        gPcChars[3], int(gNet->gameSettings().pmContinues), gNet->gameSettings().pmFreePlay ? ", free play" : "");
+        launcher = false;
+        titleOpt = 0;
+        botSeed = -1;   // (the bot plays both players: not with netplay)
+    }
+    game::Host host;
+    std::string err;
+    game::Audio audio;
+    if (frames < 0 && !SDL_Init(SDL_INIT_VIDEO))
+        return util::fatalError(std::string("Windows' video could not be started (SDL: ") + SDL_GetError() + ").\nUpdate the graphics driver and start the game again.", playerRun);
+    audio.log = [](const std::string& s) { SDL_Log("[sound] %s", s.c_str()); };
+    audio.packageRoot = root;   // data\music: the CD tracks when the PC files have none
+    bool audioOn = false;
+    auto audioStart = [&](const std::string& pc) {
+        if (audioOn)
+            audio.shutdown();
+        audioOn = false;
+        // --mute / --audio-wav / headless: no device, the cues are still decoded and counted (--audio-wav: mixed into
+        // the file, one game frame at a time)
+        audio.musicNumbering = cfg.musicNumbering;
+        if (!audio.init(pc, frames < 0 && !mute && audioWav.empty(), err)) {
+            SDL_Log("no sound: %s", err.c_str());
+            return;
+        }
+        audioOn = true;
+        audio.setVolume(0.8f * cfg.sfxVolume / 100.0f, 0.6f * cfg.musicVolume / 100.0f);
+        audio.setMusicOn(cfg.music);
+        audio.setTickRate(gameTickHz(cfg.gameSpeed));   // rate: the WAV's time per game frame
+        audio.traceCues = std::getenv("HOTD_TRACE_SOUND") != nullptr;
+        if (!audioWav.empty() && !audio.openWav(audioWav, err))
+            SDL_Log("no WAV output: %s", err.c_str());
+        // the sound source (LaunchConfig::sound; user 2026-10-20): Auto and Arcade = the arcade sound board (every mode,
+        // PC Mode too), PC = the PC sound. No arcade sound ROMs: the PC sound.
+        if (cfg.sound != 2) {
+            static std::vector<uint8_t> prog, samples;   // read once
+            std::string e;
+            if ((!prog.empty() || loadSoundRoms(regions, cfg.arcade, prog, samples, e)) && audio.startBoard(prog, samples, e))
+                SDL_Log("[sound] the arcade sound board (68000 + SCSP)");
+            else
+                SDL_Log("[sound] the PC sound (arcade sound board: %s)", e.c_str());
+        } else
+            audio.stopBoard();
+    };
+    // the game from the snapshot (again after a game over: next_mode would go to the attract mode, the teaser starts
+    // the chapter again)
+    bool pcFilesOk = true;   // the launcher's PC check (the PC model source needs it)
+    // menuboot: the window's flow sets this before enterGame: 1 = the attract (the PC's boot / idle attract, any
+    // chapter choice: it ends in the main menu), 0 = no title (the main menu's Arcade: Chapter 1 directly), -1 = as before
+    int titleNow = -1;
+    bool sceneStarting = false;   // the cut-scene viewer's start (sceneStart): enterGame applies sceneConfig
+    auto startGame = [&]() -> bool {
+        if (!host.load(regions, snapshot, root + "/tools/ghidra/names.tsv", err)) {
+            std::fprintf(stderr, "%s\n", err.c_str());
+            return false;
+        }
+        game::Runtime& r = host.runtime();
+        r.livesKept = livesKept;
+        {   // pmbody: PC Mode's camera paths and motion table from the PC's own files (pmData: CAMALL.RBH, THOTD.EXE);
+            // without them PC Mode evaluates the ROM's keys
+            const PmData& pm = pmData(cfg.pc);
+            r.pm_cam = pm.cam;
+            r.pm_motion_tbl = pm.mot;
+        }
+        r.diffReplay = diffReplayDir.empty() ? nullptr : &diffReplay;
+        if (r.diffReplay) {   // arcfix2: palette RAM bank 2 (src/game/palette.cpp)
+            r.diff_replay_start(diffReplay.palette2);
+            diffReplay.onVblankRan = [&r](uint32_t routine, uint32_t p) { r.diff_vblank_ran(routine, p); };
+        }
+        (void)shotFlash;   // (padpass: the shot flash is the host's now: GunFlash, drawGunAids)
+        // title-2: the ranking's backup (the arcade's NVRAM) and the name entry after the chapter clear
+        // Sonic Mode (game/sonic.h): the preset of this game (online: the host's, netApply), its own top 10
+        // (ranking_<preset>.bin: fast runs do not mix with the arcade's)
+        gSonic = game::SonicClock{};
+        gSonic.preset = std::clamp(cfg.sonic, 0, game::kSonicPresets - 1);
+        if (gSonic.preset)
+            SDL_Log("Sonic Mode: %s", game::sonicName(gSonic.preset));
+        r.rankingFile = !rankingFileOpt.empty() ? rankingFileOpt : frames < 0 ? cacheDir() + rankingName(gSonic.preset) : std::string();
+        r.nameKeysTest = nameKeysOpt;
+        r.rankingLowTest = rankingLowOpt;
+        r.nameEntryOnClear = nameEntryOpt || (launcher && inputTestFile.empty() && !autoStart && checkpoints.empty());
+        r.audio = audioOn ? &audio : nullptr;
+        r.settings.difficulty = cfg.difficulty;
+        r.settings.lives = cfg.lives;
+        // custom: the game logic runs with red (the colour is the view's). Yellow: the PC's blood byte is 4 (table 0x5CE884's
+        // fifth file), i.e. not red, so its "not red" model choices (0x5E7 / 0x5E9 / 0x5E5, the props' +1) apply; the
+        // arcade logic (four GGSET colours) gets green for that with PC models (GGSET's rows recolour only the arcade
+        // palette) and red with arcade models (the arcade has no yellow)
+        r.settings.bloodColor = cfg.blood == 5 ? 0 : cfg.blood == 4 ? (cfg.models == 1 ? 1 : 0) : cfg.blood;
+        r.cuts.guards = cfg.cuts;   // T1 (2026-10-16): the route is no longer held at 0 (all branches play); --default-route holds it
+        r.cuts.defaultRoute = false;
+        if (defaultRoute)   // --default-route (T1): route_choice held at 0 also with --strict
+            r.cuts.defaultRoute = true;
+        // display2: --route checked against the branch table (route_branches 0xAAF80 -> per chapter 16-byte entries:
+        // type 1 = pick target[route_choice] of 3, 0xFF = none). A choice without a target made NEXTEV go to event
+        // 255 (--route 1:4=2: event 4 branches to 5 / 7 only; the game hung)
+        for (const auto& [key, v] : routeForce) {
+            const int c = key / 100, e = key % 100;
+            const uint32_t tbl = c >= 0 && c < 7 && r.mem.mapped(game::A::G::route_branches)   // (7: the ending, slot 6)
+                                     ? r.mem.u32(game::A::G::route_branches + uint32_t(c) * 4) : 0;
+            if (!tbl || !r.mem.mapped(tbl)) {
+                std::fprintf(stderr, "--route %d:%d=%d: no chapter %d\n", c + 1, e, v, c + 1);
+                err = "--route: no such chapter";
+                return false;
+            }
+            const uint32_t b = tbl + uint32_t(e) * 16;
+            if (!r.mem.mapped(b + 15) || r.mem.at<uint8_t>(b) != 1) {
+                std::fprintf(stderr, "--route %d:%d=%d: event %d does not branch by the route choice (ignored)\n", c + 1, e, v, e);
+                continue;
+            }
+            if (v > 2 || r.mem.at<uint8_t>(b + 4 + uint32_t(v) * 4) == 0xFF) {
+                std::string valid;
+                for (uint32_t k = 0; k < 3; ++k)
+                    if (r.mem.at<uint8_t>(b + 4 + k * 4) != 0xFF)
+                        valid += (valid.empty() ? "" : ", ") + std::to_string(k) + " (event " +
+                                 std::to_string(r.mem.at<uint8_t>(b + 4 + k * 4)) + ")";
+                std::fprintf(stderr, "--route %d:%d=%d: invalid choice; chapter %d event %d branches by %s\n", c + 1, e, v,
+                             c + 1, e, valid.c_str());
+                err = "--route: invalid route choice";
+                return false;
+            }
+        }
+        r.routeForce = routeForce;
+        r.pcModels = cfg.models == 1 && pcFilesOk;
+        r.fbiScreen = cfg.fbi || fbiOpt;
+        r.log = [](const std::string& s) { SDL_Log("[runtime] %s", s.c_str()); };
+        if (frames >= 0)
+            r.log = [&r](const std::string& s) { std::printf("[runtime %llu] %s\n", (unsigned long long)r.frameCount, s.c_str()); };
+        r.continueUnplayable = continueChapters;
+        // the experimental 4P mode (docs/coop4.md): seats 3 / 4; online the host's settings decide (each PC two seats)
+        r.seats4 = (gNet ? gNet->gameSettings().seats == 4 : cfg.players >= 3) ? 1 : 0;
+        // Game Text (gametext): the JAPAN region's texts, text only (the RAM differs: online the host's for both PCs)
+        r.jaText = (gNet ? gNet->gameSettings().gameText : cfg.gameText) == 1;
+        r.teammateFlash = cfg.teamFlash;   // Teammate Flashes (draws only; each PC its own)
+        r.hideMarks = gTrailer;   // (--trailer)
+        r.scene4p = cfg.scene4p;   // players 3 / 4's cut-scene variations (draws only; each PC its own)
+        r.ownSeat = gNet ? gNet->localPlayer() : -1;   // (menufb: a local game: every seat this PC's own, full flashes)
+        // PC Mode on the arcade logic (docs/pcmode.md); online the host's settings for every PC (protocol 16: PC Mode,
+        // each seat's character, Continues, Free-Play, Auto Reload)
+        if (gNet) {
+            const net::Settings& gs = gNet->gameSettings();
+            r.pcmode = gs.pcMode && !bossModeOpt ? 1 : 0;
+            r.pm_continues = r.pcmode ? gs.pmContinues : cfg.continues;   // (an arcade game: as before; unused)
+            r.pm_free_play = r.pcmode ? gs.pmFreePlay != 0 : cfg.freePlay || gPcFreePlay;
+            for (int k = 0; k < 4; ++k) {
+                r.pm_char[k] = r.pcmode ? gs.pmChar[k] : gPcChars[k];
+                r.pm_reload_at[k] = 0;
+            }
+            if (r.pcmode)
+                r.pm_auto_reload = gs.autoReload != 0;
+        } else {
+            r.pcmode = gPcMode && !bossModeOpt ? 1 : 0;
+            r.pm_continues = cfg.continues;   // PC Mode's Continues option (docs/pcmode.md row 8)
+            r.pm_free_play = cfg.freePlay || gPcFreePlay;   // the Cheat screen's Free-Play (0xD5B35C), --pc-free-play
+            for (int k = 0; k < 4; ++k) {
+                r.pm_char[k] = gPcChars[k];
+                r.pm_reload_at[k] = 0;
+            }
+        }
+        r.coop4BossStep = gBossStep >= 0 ? gBossStep : cfg.boss4p / 100.0f;   // --4p-boss-step, else launcher.ini boss4p= (docs/coop4.md: the bosses' hit points for 3 / 4 players)
+        r.coop4EnemyStep = gEnemyStep >= 0 ? gEnemyStep : cfg.enemy4p / 100.0f;   // --4p-enemy-step, else launcher.ini enemy4p= (docs/coop4.md "Enemy pressure")
+        {   // computer teammates: the seats set to a bot (players 3 / 4 only in the 4P mode). Online (docs/netplay.md
+            // "CPU teammates") only seats this PC owns that no one plays: its second seat in the 4P game on two PCs
+            // (player 3 or 4 set to CPU on this PC), the free seats of a host of up to four PCs; their input goes
+            // through the lockstep (netTeamSeat). Seeded from the seats and levels, never the clock: runs repeat
+            uint8_t mask = 0;
+            int level[4] = {cfg.seatBot[0], cfg.seatBot[1], cfg.seatBot[2], cfg.seatBot[3]};
+            if (!gNet) {
+                for (int p = 1; p < 4; ++p)
+                    if (cfg.seatBot[p] > 0 && (p == 1 || r.seats4) && (!r.pcmode || gPcCpuSeats < 0 || (gPcCpuSeats >> p & 1)))
+                        mask = uint8_t(mask | (1u << p));
+            } else if (r.seats4 && gNet->multi()) {
+                for (int p = 1; p < 4; ++p)
+                    if (cfg.seatBot[p] > 0 && gNet->session().isHost())
+                        mask = uint8_t(mask | (1u << p));
+            } else if (r.seats4) {
+                const int s = gNet->localPlayer() + 2;   // the host's player 3, the joiner's player 4
+                level[s] = cfg.seatBot[s] > 0 ? cfg.seatBot[s] : cfg.seatBot[s ^ 1];
+                if (level[s] > 0)
+                    mask = uint8_t(1u << s);
+            }
+            gTeam.reset();
+            if (mask) {
+                gTeam = std::make_unique<game::Bot>(game::Bot::teamSeed(mask, level), 2);
+                gTeam->teammates(mask, level);
+            }
+            if (gNet)
+                gNet->hostSeats = gTeam && gNet->multi() ? netHostSeats : nullptr;
+        }   // --4p-boss-step (docs/coop4.md: the bosses' hit points for 3 / 4 players)
+        // select: the chapter: the one the run went on into (a game over restarts it), --chapter, the launcher's choice
+        // (a playable one), else the work RAM's (0 after the boot; a --snapshot's own)
+        const int chapter = runChapter >= 0 ? runChapter : menuChapter >= 0 ? menuChapter : chapterOpt >= 0 ? chapterOpt
+                            : cfg.chapter > 0 && game::chapterPlayable(cfg.chapter) ? cfg.chapter
+                                                                                    : int(r.mem.at<int8_t>(game::A::G::chapter));
+        // the title / attract (src/game/attract.cpp): the boot's first mode runs; the start button starts Chapter 1
+        // (only when Chapter 1 is chosen: another chapter starts straight away)
+        const bool title = titleNow >= 0 ? titleNow == 1
+                           : chapter == 0 && (titleOpt >= 0 ? titleOpt == 1 : launcher && cfg.title && inputTestFile.empty() && !autoStart);
+        // menus3 (user 2026-10-28: "make clock start accurately like on pc"): Boss Mode is the PC's mode: its game runs
+        // at the PC's 60 Hz (pc_main_loop 0x419168: timeGetTime x 60 / 1000) with Game Speed Auto, as PC Mode, so the
+        // fight and its clock (1000 / 60 ms a tick) go as on the PC; it ran at the arcade's 57.52 Hz (the times 4 % long)
+        gBossTick = bossModeOpt && chapterStart ? 1 : 0;
+        if (title && chapterStart) {
+            r.apply_settings();
+            r.attract_begin();
+        } else if (bossModeOpt) {   // Boss Mode: the boss's start (game_new 0x458588 from boss_starts 0x5CD384; online the host's, protocol 18)
+            r.boss.begin(bossModeOpt);
+            r.boss.players = cfg.players;
+            if (gNet)   // online: the clock counts game ticks (1000 / the game's tick rate each), alike on every PC
+                r.boss.tickMs = 1000.0 / gameTickHz(cfg.gameSpeed);
+            r.bossNoContinue = true;
+            r.boss.startGame(r, cfg.players);
+            SDL_Log("Boss Mode: %s (chapter %d event %d)", game::kBossNames[bossModeOpt - 2], r.boss.start().chapter + 1, r.boss.start().event);
+        } else if (chapterStart) {
+            r.chapter_start(endingOpt ? 3 : chapter, menuEvent >= 0 && runChapter < 0 ? menuEvent : event, cfg.players);   // (menuEvent: the Cheat screen)
+            if (menuEvent >= 0 && runChapter < 0)
+                SDL_Log("Cheat screen: chapter %d from event %d", chapter + 1, menuEvent);
+            if (endingOpt) {   // --ending: Chapter 4's end count at its last frame (game_chapter_end_wait: sub-mode 7)
+                r.mem.set32(0x53E0B0, 1);
+                r.mem.set32(game::A::G::game_submode, 6);
+                // endlook: the texture area the game holds when Chapter 4 ends, the Magician's room's: area 12, which
+                // event 4's script loads (TEXCHG, after chapter_load's area 9; seen in a played-through --chapter 4).
+                // game_ending_start 0x35160 loads no area (no call to texture_area_load 0x34FF0) before the ending's
+                // own first TEXCHG, so its closing room is drawn with that set (MAME fullgame_us 724-786: grey walls,
+                // blue-grey floor); this start used to leave Chapter 4's first area (4: the sepia floor)
+                r.texture_area_load(12, -1);
+            }
+        }
+        else {
+            r.apply_settings();
+            if (cfg.players == 2)
+                r.player_join(1);
+        }
+        return true;
+    };
+    // netplay, joining a game already running (docs/netplay.md): the host's log replayed from the start settings to its
+    // join frame (no sound, no log lines; its restarts as the window does them), then the lockstep from there
+    auto netCatchUp = [&](std::string& e) -> bool {
+        if (!gNet || gNet->joinFrame() == 0)
+            return true;
+        std::vector<std::array<net::Input, 2>> log;
+        std::vector<uint32_t> restarts;
+        if (!gNet->joinLog(log, restarts, e))
+            return false;
+        const uint64_t t0 = SDL_GetTicksNS();
+        game::Audio* au = host.runtime().audio;
+        auto mute = [&]() { host.runtime().audio = nullptr; host.runtime().log = [](const std::string&) {}; };
+        auto lg = host.runtime().log;
+        mute();
+        size_t ri = 0;
+        for (uint32_t f = 0; f < log.size(); ++f) {
+            for (; ri < restarts.size() && restarts[ri] == f; ++ri) {   // the host's game over: the chapter again
+                if (!startGame()) { e = "the replay's restart failed"; return false; }
+                au = host.runtime().audio;
+                lg = host.runtime().log;
+                mute();
+            }
+            game::Runtime& r = host.runtime();
+            r.gun[0] = r.gun[1] = {};
+            gNet->applyInputs(r, log[f].data());
+            r.frame();
+            if (r.chapterChanged >= 0) {   // (the window: the run's chapter after a clear)
+                runChapter = r.chapterChanged;
+                r.chapterChanged = -1;
+            }
+        }
+        host.runtime().audio = au;
+        host.runtime().log = lg;
+        gNet->joinedAt(uint32_t(log.size()));
+        if (gNet->log)
+            gNet->log("caught up with the host's game: " + std::to_string(log.size()) + " frames in " +
+                      std::to_string(int(double(SDL_GetTicksNS() - t0) / 1e6)) + " ms");
+        return true;
+    };
+    if (frames >= 0) {
+        if (sceneViewOpt >= 0) {   // --scene-view with --frames (testing): its chapter, route and players
+            sceneConfig(cfg, routeForce);
+            chapterOpt = gScene.scene().chapter;
+            livesKept = true;
+            titleOpt = 0;
+        }
+        // perf: the start's parts, as the launcher's Start runs them (enterGame)
+        const uint64_t s0 = SDL_GetTicksNS();
+        if (!arcadeRegions(err)) { std::fprintf(stderr, "%s\n", err.c_str()); return 1; }
+        const uint64_t s1 = SDL_GetTicksNS();
+        audioStart(cfg.pc);
+        const uint64_t s2 = SDL_GetTicksNS();
+        if (!startGame())
+            return 1;
+        std::printf("start: regions %.0f ms, sound %.0f ms, game %.0f ms\n", double(s1 - s0) / 1e6, double(s2 - s1) / 1e6,
+                    double(SDL_GetTicksNS() - s2) / 1e6);
+        const uint32_t joinedAt = gNet ? gNet->joinFrame() : 0;   // (a game already running: the frames left)
+        gNetFrames = frames;
+        if (!netCatchUp(err) || (gNet && !gNet->ready(host.runtime(), err, gNetTimeout))) {
+            std::printf("NET: result=mismatch (%s)\n", err.c_str());
+            return 3;
+        }
+        frames = std::max(0, frames - int(joinedAt));
+        if (botSeed >= 0) {
+            gBot = std::make_unique<game::Bot>(uint64_t(botSeed), botPlayers);
+            for (size_t k = 0; k < gBotSkill.size() && k < 4; ++k) gBot->setSkill(int(k), gBotSkill[k]);
+            gRestart = startGame;
+            std::printf("bot seed %lld: P1 skill %.2f reaction %d gap %d continue %.2f; P2 skill %.2f continue %.2f\n", botSeed,
+                        gBot->profile[0].skill, gBot->profile[0].reaction, gBot->profile[0].fireGap, gBot->profile[0].continueChance,
+                        gBot->profile[1].skill, gBot->profile[1].continueChance);
+        }
+        // --render (robust-2): a hidden window's GL context, an offscreen framebuffer, the game view and the HUD
+        struct RenderRun {
+            SDL_Window* window = nullptr;
+            SDL_GLContext ctx = nullptr;
+            gl::GLuint fbo = 0, color = 0, depth = 0;
+            std::unique_ptr<game::GameView> view;
+            game::Hud hud;
+            std::vector<float> ms;
+            std::vector<uint32_t> calls;
+            std::vector<uint32_t> drawn;
+            uint64_t glErrors = 0, firstErrorFrame = 0, spikes = 0, slow = 0;
+            std::vector<uint64_t> shotAt;   // --shot-at with --render: PNGs of the offscreen picture (--shot-dir)
+            std::string shotDir;
+            int aspect = 0;   // the launcher's Aspect (drawPillarbox)
+            uint32_t firstError = 0;
+        };
+        static RenderRun rr;
+        if (renderHeadless) {
+            if (!SDL_Init(SDL_INIT_VIDEO)) { std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError()); return 1; }
+            gl::contextAttributes();   // (compat: + the debug flag with HOTD_GL_DEBUG=1)
+            gl::setShaderCacheFile(cacheDir() + "angle_shaders.bin");   // (angle: ANGLE's compiled shaders, kept for the next start)
+            gl::prepareWindow(cfg.renderer);   // (angle: ANGLE sets the window up for EGL)
+            rr.window = SDL_CreateWindow("hotd --render", w, h, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
+            std::string ctxErr = rr.window ? std::string() : std::string(SDL_GetError());
+            rr.ctx = rr.window ? gl::createContext(rr.window, cfg.renderer, ctxErr) : nullptr;   // (angle: OpenGL or ANGLE)
+            if (!rr.ctx) { std::fprintf(stderr, "render context: %s\n", ctxErr.c_str()); return 1; }
+            gl::debugInit();             // compat: HOTD_GL_DEBUG=1
+            gl::logDriver("graphics");
+            depthPrepassAuto();
+            SDL_GL_SetSwapInterval(0);
+            std::printf("render: %s, %s, %dx%d offscreen\n", (const char*)gl::GetString(gl::RENDERER),
+                        (const char*)gl::GetString(gl::VERSION), w, h);
+            gl::GenFramebuffers(1, &rr.fbo);
+            gl::BindFramebuffer(gl::FRAMEBUFFER, rr.fbo);
+            gl::GenTextures(1, &rr.color);
+            gl::BindTexture(gl::TEXTURE_2D, rr.color);
+            gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, w, h, 0, gl::RGBA, gl::UNSIGNED_BYTE, nullptr);
+            gl::FramebufferTexture2D(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, rr.color, 0);
+            gl::GenRenderbuffers(1, &rr.depth);
+            gl::BindRenderbuffer(gl::RENDERBUFFER, rr.depth);
+            gl::RenderbufferStorage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT24, w, h);
+            gl::FramebufferRenderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, rr.depth);
+            if (gl::CheckFramebufferStatus(gl::FRAMEBUFFER) != gl::FRAMEBUFFER_COMPLETE) { std::fprintf(stderr, "render: framebuffer incomplete\n"); return 1; }
+            rr.view = std::make_unique<game::GameView>();
+            const std::string pcDir = cfg.models == 1 ? cfg.pc : std::string();
+            const auto v0 = std::chrono::steady_clock::now();
+            const int vc = int(host.mem().at<uint8_t>(game::A::G::chapter));   // slots past Chapter 4: 6 = Chapter 4's world
+            if (!rr.view->init(regions, dumps, texsets, vc >= 4 ? (vc == 6 ? 3 : 0) : vc, err, pcDir, viewBlood())) {
+                std::fprintf(stderr, "render: %s\n", err.c_str());
+                return 1;
+            }
+            if (!rr.hud.init(err)) { std::fprintf(stderr, "render: %s\n", err.c_str()); return 1; }
+            rr.hud.setPcDir(cfg.pc, viewBlood());   // the PC sight's shape is used by the arcade style too
+            host.runtime().modelAvailable = [](uint32_t m) { return rr.view && rr.view->hasModel(m); };   // (PC Mode's car models)
+            host.runtime().ragdollWorld = []() { return rr.view ? rr.view->ragdollWalls() : nullptr; };   // (leftovers: the ragdolls' walls)
+            rr.hud.anchorEdges = cfg.aspect != 1;   // display2: widescreen (and 16:10): the corners at the edges
+            rr.hud.maxAspect = cfg.aspect == 2 ? 1.6f : 0.0f;
+            std::copy(cfg.sights, cfg.sights + 4, rr.hud.sights);
+            rr.hud.customDirs = xhairDirs;
+            rr.hud.widescreen = cfg.aspect != 1;
+            rr.shotAt = shotAt;
+            rr.shotDir = shotDir.empty() ? shotsRoot : shotDir;
+            rr.aspect = cfg.aspect;
+            std::printf("render: view ready in %.0f ms (%s)\n",
+                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - v0).count(), memoryReport().c_str());
+            for (gl::GLenum e = gl::GetError(); e != 0; e = gl::GetError())
+                std::printf("render: GL error 0x%X after the set-up\n", e);
+            // crt: the filter over the offscreen picture (--crt / launcher.ini crt=); the arcade's 384 lines, the PC's 480
+            const int crtLines = cfg.models == 1 ? 480 : 384, crtAcross = cfg.models == 1 ? 640 : 496;
+            const CrtSettings crtSet = cfg.crt;
+            gCrt.configure(crtSet, crtLines, crtAcross);
+            if (crtSet.preset != 0)
+                std::printf("render: CRT filter %s (%s), %d lines, sights %s\n", crtPresetName(crtSet.preset),
+                            gCrt.active() ? "on" : "failed", crtLines, crtSet.crispSights ? "crisp" : "filtered");
+            static const long long crtBenchAt = std::getenv("HOTD_CRT_BENCH") ? std::atoll(std::getenv("HOTD_CRT_BENCH")) : -1;
+            gRenderFrame = [w, h, crtAllShots, crtSet, crtLines, crtAcross](game::Runtime& rt) {
+                // hangcheck (testing): HOTD_INTERP_CLIP=<out.mp4>,<from>,<to>,<hz>[,off]: game frames from..to drawn as a
+                // <hz> Hz display shows them with Smooth Motion (one tick behind; alpha = the display instant's place
+                // between the arcade's 57.524 Hz ticks), piped to the local ffmpeg at <hz> fps; ",off": Smooth Motion
+                // off (the newest frame at every instant, with the repeats that brings). No CRT filter, no sights
+                static struct InterpClip {
+                    bool on = false, smooth = true;
+                    std::string out;
+                    uint64_t from = 0, to = 0;
+                    int hz = 60;
+                    long long shown = 0;   // display instants written
+                    FILE* pipe = nullptr;
+                    game::FrameSnapshot prev;
+                } ic = [] {
+                    InterpClip c;
+                    if (const char* e = std::getenv("HOTD_INTERP_CLIP")) {
+                        std::vector<std::string> f;
+                        for (const char* p = e;;) {
+                            const char* q = std::strchr(p, ',');
+                            f.emplace_back(p, q ? size_t(q - p) : std::strlen(p));
+                            if (!q) break;
+                            p = q + 1;
+                        }
+                        if (f.size() >= 4) {
+                            c.on = true;
+                            c.out = f[0];
+                            c.from = std::strtoull(f[1].c_str(), nullptr, 10);
+                            c.to = std::strtoull(f[2].c_str(), nullptr, 10);
+                            c.hz = std::max(1, std::atoi(f[3].c_str()));
+                            c.smooth = !(f.size() >= 5 && f[4] == "off");
+                        }
+                    }
+                    return c;
+                }();
+                if (ic.on && rt.frameCount >= ic.from && rt.frameCount <= ic.to) {
+                    if (!ic.pipe) {
+                        char cmd[1024];
+                        std::snprintf(cmd, sizeof cmd, "ffmpeg -y -loglevel error -f rawvideo -pix_fmt rgb24 -s %dx%d -r %d -i - "
+                                      "-c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -movflags +faststart \"%s\"",
+                                      w, h, ic.hz, ic.out.c_str());
+                        ic.pipe = _popen(cmd, "wb");
+                    }
+                    // the display instants n / hz inside [T_k, T_k+1), T_k = (k - from) / 57.524 s
+                    const double P = 17384000.0 / 1e9, k0 = double(rt.frameCount - ic.from);
+                    for (;;) {
+                        const double t = double(ic.shown) / double(ic.hz);
+                        if (t >= (k0 + 1.0) * P)
+                            break;
+                        const float alpha = float(std::clamp((t - k0 * P) / P, 0.0, 1.0));
+                        const bool blend = ic.smooth && ic.prev.valid;
+                        gl::BindFramebuffer(gl::FRAMEBUFFER, rr.fbo);
+                        float aim[4][2];
+                        for (int p = 0; p < 4; ++p)
+                            rr.view->fromArcade(rt.gun[p].x, rt.gun[p].y, w, h, aim[p][0], aim[p][1]);
+                        rr.view->opt.clearColor = !rr.hud.drawUnder(rt, w, h, rr.view->opt.clear);
+                        rr.view->draw(rt, w, h, blend ? &ic.prev : nullptr, blend ? alpha : 1.0f);
+                        drawPillarbox(rr.aspect, w, h);
+                        rr.hud.deferSights = true;
+                        rr.hud.clean = rr.hud.noText = gTrailer;   // (--trailer: Trailer Mode)
+                        rr.hud.draw(rt, w, h, aim, false, {});
+                        rr.hud.deferSights = false;
+                        if (ic.pipe) {
+                            const std::vector<uint8_t> a = rr.view->renderer.readBack(w, h);
+                            std::fwrite(a.data(), 1, a.size(), ic.pipe);
+                        }
+                        ++ic.shown;
+                    }
+                    if (rt.frameCount == ic.to && ic.pipe) {
+                        const int rc = _pclose(ic.pipe);
+                        ic.pipe = nullptr;
+                        std::printf("interp clip: %s: frames %llu..%llu, %lld pictures at %d Hz, smooth %s (ffmpeg %d)\n",
+                                    ic.out.c_str(), (unsigned long long)ic.from, (unsigned long long)ic.to, ic.shown, ic.hz,
+                                    ic.smooth ? "on" : "off", rc);
+                    }
+                }
+                if (ic.on)
+                    ic.prev.take(rt);
+                const bool crt = gCrt.begin(w, h);   // crt: the frame into the filter's target, then through it
+                if (!crt) gl::BindFramebuffer(gl::FRAMEBUFFER, rr.fbo);
+                float aim[4][2], aimSeen[4][2];   // players 3 / 4: the 4P mode; aimSeen: where the curved screen shows it
+                for (int p = 0; p < 4; ++p) {
+                    float ax = rt.gun[p].x, ay = rt.gun[p].y;
+                    rr.hud.cpu[p] = teamSeatShown(p);   // computer teammates: their aim
+                    if (rr.hud.cpu[p])
+                        gTeam->aim(p, ax, ay);
+                    rr.view->fromArcade(ax, ay, w, h, aim[p][0], aim[p][1]);
+                    aimSeen[p][0] = aim[p][0], aimSeen[p][1] = aim[p][1];
+                    gCrt.toScreen(aimSeen[p][0], aimSeen[p][1], w, h);
+                }
+                const bool crisp = crt && crtSet.crispSights;
+                const bool shotNow = std::find(rr.shotAt.begin(), rr.shotAt.end(), rt.frameCount) != rr.shotAt.end();
+                const uint64_t c0 = rr.view->renderer.drawCalls, sc0 = rr.view->renderer.stateCalls;
+                const auto t0 = std::chrono::steady_clock::now();
+                // pcsparks: the 2D drawn under the 3D as the window's frame does (the arcade's low-priority cells, the
+                // PC's game-over route map under its walker)
+                rr.view->opt.clearColor = !rr.hud.drawUnder(rt, w, h, rr.view->opt.clear);
+                const auto tUnder = std::chrono::steady_clock::now();
+                // HOTD_SCENE_FREECAM="F,right,up,forward,yaw,pitch[,zoom]" (testing the cut-scene viewer's Free Cam
+                // headless): F frames after the watch starts it goes on from the scene's camera, moved by that much
+                // (world units along its axes, degrees, wheel notches), then held there
+                if (const char* fc = std::getenv("HOTD_SCENE_FREECAM"); fc && gScene.active()) {
+                    float f[7] = {0, 0, 0, 0, 0, 0, 0};
+                    std::sscanf(fc, "%f,%f,%f,%f,%f,%f,%f", &f[0], &f[1], &f[2], &f[3], &f[4], &f[5], &f[6]);
+                    if (!gScene.freeCam && rt.frameCount == gScene.watchFrom + uint64_t(f[0])) {
+                        gScene.freeCamToggle(rr.view->cam);
+                        game::SceneView::FreeCamInput in;
+                        for (int k = 0; k < 3; ++k)   // (ten steps of 0.1 s, its longest: the units given in all)
+                            in.move[k] = f[1 + k] / game::SceneView::kFreeCamSpeed;
+                        in.look[0] = f[4] * 3.14159265f / 180.0f, in.look[1] = f[5] * 3.14159265f / 180.0f;
+                        in.zoom = f[6];
+                        for (int k = 0; k < 10; ++k) {
+                            gScene.freeCamStep(in, 0.1f);
+                            in.look[0] = in.look[1] = in.zoom = 0;
+                        }
+                    }
+                }
+                rr.view->camOverride = gScene.freeCamNow();
+                static gl::GLuint q3d = 0, qfs = 0;
+                // HOTD_FS_COUNT=1 (earlyz): the 3D's fragment shader runs a frame too (ARB_pipeline_statistics_query:
+                // what the early depth test saves, whatever the GPU's speed)
+                static const bool fsCount = std::getenv("HOTD_FS_COUNT") != nullptr;
+                constexpr gl::GLenum kFsInvocations = 0x82F4;   // GL_FRAGMENT_SHADER_INVOCATIONS_ARB
+                if (!q3d) gl::GenQueries(1, &q3d);
+                if (fsCount && !qfs) gl::GenQueries(1, &qfs);
+                gl::BeginQuery(gl::TIME_ELAPSED, q3d);
+                if (fsCount) gl::BeginQuery(kFsInvocations, qfs);
+                rr.view->draw(rt, w, h);
+                if (fsCount) gl::EndQuery(kFsInvocations);
+                gl::EndQuery(gl::TIME_ELAPSED);
+                drawPillarbox(rr.aspect, w, h);   // (the window's Aspect bars in renders too)
+                const auto tView = std::chrono::steady_clock::now();
+                rr.hud.deferSights = crisp || gClipPipe;   // (a clip: no sights)
+                rr.hud.clean = rr.hud.noText = gTrailer;   // (--trailer: Trailer Mode)
+                rr.hud.draw(rt, w, h, aim, false, {});
+                rr.hud.deferSights = false;
+                if (crt && crtAllShots && shotNow) {   // --crt-shots-all: each preset's picture, then the plain one
+                    std::filesystem::create_directories(rr.shotDir);
+                    for (int pr = 1; pr < kCrtPresets; ++pr) {
+                        CrtSettings s = crtSet;
+                        s.preset = pr;
+                        gCrt.configure(s, crtLines, crtAcross);
+                        float seen[4][2];
+                        for (int p = 0; p < 4; ++p) {
+                            seen[p][0] = aim[p][0], seen[p][1] = aim[p][1];
+                            gCrt.toScreen(seen[p][0], seen[p][1], w, h);
+                        }
+                        const std::vector<uint8_t> img = gCrt.presentToImage(w, h, [&] { if (crisp) rr.hud.drawSights(rt, w, h, seen); });
+                        writePng(rr.shotDir + "/render_f" + std::to_string(rt.frameCount) + "_crt_" + crtPresetKey(pr) + ".png", w, h, img);
+                    }
+                    gCrt.configure(crtSet, crtLines, crtAcross);
+                    gl::BindFramebuffer(gl::FRAMEBUFFER, gCrt.sceneFramebuffer());
+                    if (crisp) rr.hud.drawSights(rt, w, h, aim);
+                    writePng(rr.shotDir + "/render_f" + std::to_string(rt.frameCount) + "_crt_off.png", w, h, rr.view->renderer.readBack(w, h));
+                    std::printf("render: CRT pictures of frame %llu (every preset)\n", (unsigned long long)rt.frameCount);
+                }
+                if (crt && crtBenchAt >= 0 && rt.frameCount == uint64_t(crtBenchAt)) {   // HOTD_CRT_BENCH=F: the filter alone
+                    for (int pr = 1; pr < kCrtPresets; ++pr) {
+                        CrtSettings s = crtSet;
+                        s.preset = pr;
+                        gCrt.configure(s, crtLines, crtAcross);
+                        std::printf("render: CRT bench %dx%d %s: %.3f ms per frame (200 frames)\n", w, h, crtPresetName(pr),
+                                    gCrt.benchPresent(w, h, 200));
+                    }
+                    gCrt.configure(crtSet, crtLines, crtAcross);
+                }
+                if (crt) {
+                    gCrt.present(w, h, rr.fbo);
+                    if (crisp) rr.hud.drawSights(rt, w, h, aimSeen);
+                }
+                // skipfix (developer): HOTD_SKIP_SHOT=1 with --render --shot-at: the hold-to-skip's ring drawn 60 % full
+                // wherever it could be (a cut-scene the arcade cannot skip, bars up, not the card), to check its place
+                // against the prompts in the bars (4P: every seat's HOLD YOUR FIRE!)
+                if (static const bool skipShot = std::getenv("HOTD_SKIP_SHOT") != nullptr; skipShot &&
+                    rt.mem.at<int16_t>(game::A::G::game_mode) == 4 && rt.mem.u32(game::A::G::shot_enable) == 0 && rt.letterbox > 0 &&
+                    rt.mem.u32(game::A::G::evt_skip_on) == 0 && (rt.mem.u32(game::A::G::evt_clrgfst_flags) & 0x20u) == 0) {
+                    static SkipRing ring;
+                    static int ringInit = 0;
+                    if (!ringInit) { std::string e2; ringInit = ring.init(e2) ? 1 : -1; }
+                    float pl, pr, py, rx, ry, rsize;
+                    rr.view->fromArcade(-248.0f, 0, w, h, pl, py);
+                    rr.view->fromArcade(248.0f, 0, w, h, pr, py);
+                    if (ringInit > 0 && skipRingSpot(rt, w, h, pl, pr - pl, rx, ry, rsize))
+                        ring.draw(w, h, rx, ry, rsize, 0.6f);
+                }
+                const auto tCpu = std::chrono::steady_clock::now();
+                uint8_t px[4];
+                gl::ReadPixels(0, 0, 1, 1, gl::RGBA, gl::UNSIGNED_BYTE, px);   // waits for the GPU
+                const auto t1 = std::chrono::steady_clock::now();
+                rr.ms.push_back(float(std::chrono::duration<double, std::milli>(t1 - t0).count()));
+                gPerf.under.push_back(float(std::chrono::duration<double, std::milli>(tUnder - t0).count()));
+                gPerf.view.push_back(float(std::chrono::duration<double, std::milli>(tView - tUnder).count()));
+                gPerf.hud.push_back(float(std::chrono::duration<double, std::milli>(tCpu - tView).count()));
+                gPerf.gpu.push_back(float(std::chrono::duration<double, std::milli>(t1 - tCpu).count()));
+                {
+                    uint64_t ns = 0;
+                    gl::GetQueryObjectui64v(q3d, gl::QUERY_RESULT, &ns);   // (the frame is finished: no wait)
+                    gPerf.gpu3d.push_back(float(double(ns) / 1e6));
+                    if (fsCount) {
+                        gl::GetQueryObjectui64v(qfs, gl::QUERY_RESULT, &ns);
+                        gPerf.fs3d.push_back(float(double(ns) / double(w) / double(h)));   // (screens of pixels)
+                    }
+                }
+                gPerf.state.push_back(uint32_t(rr.view->renderer.stateCalls - sc0));
+                if (rr.ms.back() > 16.7f && rr.slow++ < 40)   // a frame over the 60 Hz budget: where the time went
+                    std::printf("render: slow frame %llu (event %d): %.1f ms (view %.1f, hud %.1f, GPU wait %.1f), %llu calls, "
+                                "draw list %zu, grey %d\n", (unsigned long long)rt.frameCount,
+                                int(rt.mem.at<int8_t>(game::A::G::event_index)), rr.ms.back(),
+                                std::chrono::duration<double, std::milli>(tView - t0).count(),
+                                std::chrono::duration<double, std::milli>(tCpu - tView).count(),
+                                std::chrono::duration<double, std::milli>(t1 - tCpu).count(),
+                                (unsigned long long)(rr.view->renderer.drawCalls - c0), rt.drawList.size(), rt.greyPalette.on ? 1 : 0);
+                if (gClipPipe && gClipOn && rt.frameCount % 2 == 0) {   // HOTD_SCENE_CLIP: this frame to ffmpeg
+                    const std::vector<uint8_t> a = rr.view->renderer.readBack(w, h);
+                    std::fwrite(a.data(), 1, a.size(), gClipPipe);
+                }
+                // depthfix (testing): HOTD_SHOT_EVERY=N also shoots every Nth frame; HOTD_SHOT_MODES=1 adds the frame drawn
+                // with each Draw Depth (render_f<F>_buffer.png / _sort.png; draw-only, the setting comes back)
+                static const int shotEvery = std::getenv("HOTD_SHOT_EVERY") ? std::max(1, std::atoi(std::getenv("HOTD_SHOT_EVERY"))) : 0;
+                if (std::find(rr.shotAt.begin(), rr.shotAt.end(), rt.frameCount) != rr.shotAt.end() ||
+                    (shotEvery && rt.frameCount % uint64_t(shotEvery) == 0)) {   // --shot-at F
+                    std::filesystem::create_directories(rr.shotDir);
+                    if (const char* sm = std::getenv("HOTD_SHOT_MODES"); sm && *sm && *sm != '0') {
+                        const int was = hotd::drawDepth();
+                        for (int m = 0; m < 2; ++m) {
+                            hotd::setDrawDepth(m);
+                            rr.view->opt.clearColor = !rr.hud.drawUnder(rt, w, h, rr.view->opt.clear);
+                            rr.view->draw(rt, w, h);
+                            writePng(rr.shotDir + "/render_f" + std::to_string(rt.frameCount) + (m ? "_sort.png" : "_buffer.png"), w, h,
+                                     rr.view->renderer.readBack(w, h));
+                        }
+                        hotd::setDrawDepth(was);
+                    }
+                    const std::string path = rr.shotDir + "/render_f" + std::to_string(rt.frameCount) + ".png";
+                    const std::vector<uint8_t> a = rr.view->renderer.readBack(w, h);
+                    if (writePng(path, w, h, a))
+                        std::printf("render: screenshot %s\n", path.c_str());
+                    // debugging: HOTD_IDSHOT=1: ids_f<F>.png, every 3D item drawn in a flat colour = its index (red + green * 256),
+                    // and the list of indexes with what they are
+                    if (std::getenv("HOTD_IDSHOT")) {
+                        rr.view->renderer.debugIds = true;
+                        rr.view->renderer.debugNames.clear();
+                        rr.view->opt.clearColor = !rr.hud.drawUnder(rt, w, h, rr.view->opt.clear);
+                        rr.view->draw(rt, w, h);
+                        rr.view->renderer.debugIds = false;
+                        writePng(rr.shotDir + "/ids_f" + std::to_string(rt.frameCount) + ".png", w, h, rr.view->renderer.readBack(w, h));
+                        for (size_t k = 0; k < rr.view->renderer.debugNames.size(); ++k)
+                            std::printf("render: id %zu %s\n", k, rr.view->renderer.debugNames[k].c_str());
+                    }
+                    // polish3: HOTD_ZFIGHT=1: the 3D drawn twice more with every triangle's depth moved a hair to a
+                    // pseudo-random side, then to the other (Renderer::debugTie); pixels whose winner changes inside an
+                    // area (all 3x3 neighbours too, not a crossing line) are depth ties between surfaces (z-fighting,
+                    // the texture flicker as the camera moves): zfight_f<F>.png marks them red
+                    if (std::getenv("HOTD_ZFIGHT")) {
+                        auto again = [&](int tie, bool ids = false) {
+                            rr.view->renderer.debugTie = tie;
+                            rr.view->renderer.debugIds = ids;
+                            rr.view->renderer.debugNames.clear();
+                            rr.view->opt.clearColor = !rr.hud.drawUnder(rt, w, h, rr.view->opt.clear);
+                            rr.view->draw(rt, w, h);
+                            rr.view->renderer.debugTie = 0;
+                            rr.view->renderer.debugIds = false;
+                            return rr.view->renderer.readBack(w, h);
+                        };
+                        const std::vector<uint8_t> a = again(1), same = again(1), b = again(-1);   // 3D only (no HUD)
+                        auto changed = [&](const std::vector<uint8_t>& x, int px, int py) {
+                            const size_t o = (size_t(py) * size_t(w) + size_t(px)) * 3;
+                            int m = 0;
+                            for (int c = 0; c < 3; ++c) m = std::max(m, std::abs(int(x[o + size_t(c)]) - int(a[o + size_t(c)])));
+                            return m > 24;
+                        };
+                        std::vector<uint8_t> out = a;
+                        size_t n = 0, n0 = 0;
+                        for (int py = 1; py + 1 < h; ++py)
+                            for (int px = 1; px + 1 < w; ++px) {
+                                if (changed(same, px, py)) ++n0;
+                                bool all = true;
+                                for (int dy = -1; dy <= 1 && all; ++dy)
+                                    for (int dx = -1; dx <= 1 && all; ++dx) all = changed(b, px + dx, py + dy);
+                                if (all) {
+                                    ++n;
+                                    const size_t o = (size_t(py) * size_t(w) + size_t(px)) * 3;
+                                    out[o] = 255; out[o + 1] = 0; out[o + 2] = 0;
+                                }
+                            }
+                        writePng(rr.shotDir + "/zfight_f" + std::to_string(rt.frameCount) + ".png", w, h, out);
+                        writePng(rr.shotDir + "/zfight_other_f" + std::to_string(rt.frameCount) + ".png", w, h, b);
+                        std::printf("render: zfight frame %llu (event %d): %zu pixels (redraw unchanged: %zu differ)\n",
+                                    (unsigned long long)rt.frameCount, int(rt.mem.at<int8_t>(game::A::G::event_index)), n, n0);
+                        if (n > 0) {   // which items tie: the winner's index with each side
+                            const std::vector<uint8_t> ia = again(1, true), ib = again(-1, true);
+                            const std::vector<std::string> names = rr.view->renderer.debugNames;
+                            std::map<std::pair<int, int>, int> pairs;
+                            for (size_t p = 0; p < size_t(w) * size_t(h); ++p)
+                                if (out[p * 3] == 255 && out[p * 3 + 1] == 0 && out[p * 3 + 2] == 0) {
+                                    const int x = ia[p * 3] | (ia[p * 3 + 1] << 8), y = ib[p * 3] | (ib[p * 3 + 1] << 8);
+                                    ++pairs[{std::min(x, y), std::max(x, y)}];
+                                }
+                            for (const auto& [k, c] : pairs) {
+                                auto nm = [&](int i) { return size_t(i) < names.size() ? names[size_t(i)] : std::string("?"); };
+                                std::printf("render: zfight   %d px: [%d] %s  |  [%d] %s\n", c, k.first, nm(k.first).c_str(), k.second,
+                                            nm(k.second).c_str());
+                            }
+                        }
+                    }
+                }
+                const uint32_t calls = uint32_t(rr.view->renderer.drawCalls - c0);
+                rr.calls.push_back(calls);
+                rr.drawn.push_back(uint32_t(rt.drawList.size()));
+                for (gl::GLenum e = gl::GetError(); e != 0; e = gl::GetError()) {
+                    if (rr.glErrors++ == 0) { rr.firstError = e; rr.firstErrorFrame = rt.frameCount; }
+                    if (rr.glErrors <= 20)
+                        std::printf("render: GL error 0x%X at frame %llu (event %d)\n", e, (unsigned long long)rt.frameCount,
+                                    int(rt.mem.at<int8_t>(game::A::G::event_index)));
+                }
+                // a sudden spike: more than twice the median of the last 120 frames and 300 calls above it
+                const size_t n = rr.calls.size();
+                if (n > 120) {
+                    std::vector<uint32_t> win(rr.calls.end() - 121, rr.calls.end() - 1);
+                    std::nth_element(win.begin(), win.begin() + 60, win.end());
+                    const uint32_t med = win[60];
+                    if (calls > 2 * med && calls > med + 300 && rr.spikes++ < 30)
+                        std::printf("render: draw-call spike at frame %llu (event %d): %u calls, median %u, draw list %zu\n",
+                                    (unsigned long long)rt.frameCount, int(rt.mem.at<int8_t>(game::A::G::event_index)), calls, med,
+                                    rt.drawList.size());
+                }
+            };
+            // perf: the chapter clear prepares the next chapter's view on a worker (ViewPrefetch), as the window does
+            gViewTick = [&](game::Runtime& rt) {
+                if (const int c = rt.mem.at<int8_t>(game::A::G::chapter); rr.view && rt.clear.active && c >= 0 && c < 3)
+                    gViewPrefetch.start(regions, dumps, texsets, c + 1, cfg.models == 1 ? cfg.pc : std::string(), viewBlood());
+            };
+        }
+        gChapterChanged = [&](int c) {
+            runChapter = c;
+            if (rr.view) {   // --render: the new chapter's world (as at the start)
+                const auto l0 = std::chrono::steady_clock::now();
+                rr.view->shutdown();   // perf: the old world's GL buffers and textures (were left behind: +250 MB a chapter)
+                rr.view = std::make_unique<game::GameView>();
+                const std::string pcDir = cfg.models == 1 ? cfg.pc : std::string();
+                std::unique_ptr<game::GameView::Prepared> ready = gViewPrefetch.take(c, pcDir, viewBlood());
+                if (ready)
+                    std::printf("render: chapter %d's view was prepared ahead\n", c + 1);
+                if (!(ready ? rr.view->finish(std::move(ready), err) : rr.view->init(regions, dumps, texsets, c, err, pcDir, viewBlood()))) {
+                    std::printf("render: chapter %d: %s (drawing stops)\n", c + 1, err.c_str());
+                    gRenderFrame = nullptr;
+                }
+                const float ms = float(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - l0).count());
+                gPerf.chapterLoads.push_back({c, ms});
+                std::printf("render: chapter %d's view loaded in %.0f ms\n", c + 1, ms);
+            }
+        };
+        if (sceneViewOpt >= 0) {
+            // --scene-view C:S --frames N (testing, the viewer without the window): the seek, the scene watched (--render
+            // --shot-at: its pictures), Replay, then a new start with the kept save-state; the three must end alike
+            gAutofireQuiet = true;
+            const auto input = [](game::Runtime& r) { autofire(r, int(r.frameCount)); };
+            const auto hashRam = [](game::Runtime& r) {
+                uint64_t h = 1469598103934665603ull;
+                for (const port::Mem::Region& g : r.mem.regions())
+                    if (g.base >= 0x500000 && g.base < 0x2000000)
+                        for (size_t k = 0; k < g.size; ++k)
+                            h = (h ^ g.bytes[k]) * 1099511628211ull;
+                return h;
+            };
+            const auto watch = [&](const char* what) {
+                game::Runtime& r = host.runtime();
+                const uint64_t from = r.frameCount;
+                for (int n = 0; gScene.phase == game::SceneView::Phase::Watching && n < 6000; ++n) {
+                    if (gScene.leadIn())
+                        input(r);
+                    else
+                        for (auto& g : r.gun) g = {};
+                    r.frame();
+                    gScene.afterFrame(r);
+                    if (gRenderFrame)
+                        gRenderFrame(r);
+                    if (std::getenv("HOTD_SCENE_DIFF")) {   // testing: the first frame that differs from the first watch's
+                        static std::map<uint64_t, uint64_t> per;
+                        static bool told = false;
+                        const uint64_t h = hashRam(r);
+                        if (!per.count(r.frameCount)) per[r.frameCount] = h;
+                        else if (per[r.frameCount] != h && !told) {
+                            told = true;
+                            std::printf("  first frame that differs: %llu\n", (unsigned long long)r.frameCount);
+                        }
+                    }
+                }
+                const uint64_t h = hashRam(r);
+                if (std::getenv("HOTD_SCENE_DIFF")) {   // testing: the bytes that differ from the first watch's end
+                    static std::map<uint32_t, std::vector<uint8_t>> first;
+                    int shown = 0;
+                    for (const port::Mem::Region& g : r.mem.regions())
+                        if (g.base >= 0x500000 && g.base < 0x2000000) {
+                            auto& f = first[g.base];
+                            std::printf("  region 0x%X size 0x%X\n", g.base, g.size);
+                            if (f.empty()) { f.assign(g.bytes.get(), g.bytes.get() + g.size); continue; }
+                            for (uint32_t k = 0; k < g.size && shown < 40; ++k)
+                                if (f[k] != g.bytes[k]) {
+                                    std::printf("  differs: 0x%X %02X -> %02X\n", g.base + k, f[k], g.bytes[k]);
+                                    ++shown;
+                                }
+                        }
+                }
+                std::printf("scene view: %s: frames %llu..%llu, %s, state %016llx\n", what, (unsigned long long)from,
+                            (unsigned long long)r.frameCount, gScene.phase == game::SceneView::Phase::Over ? "over" : "NOT OVER",
+                            (unsigned long long)h);
+                return h;
+            };
+            const uint64_t t0 = SDL_GetTicksNS();
+            gScene.begin(host.runtime());
+            while (gScene.phase == game::SceneView::Phase::Seeking)
+                gScene.seek(host.runtime(), 1e9, input);
+            if (!gScene.active()) {
+                std::printf("scene view: %s\n", gScene.error.c_str());
+                return 2;
+            }
+            std::printf("scene view: Chapter %d scene %02d (%s), %d players, %s models: starts at frame %llu, watched from %llu "
+                        "(seek %llu frames, %.1f s)\n", gScene.scene().chapter + 1, gScene.scene().scene, gScene.scene().name,
+                        gScene.players, gScene.models ? "PC" : "arcade", (unsigned long long)gScene.foundAt,
+                        (unsigned long long)gScene.watchFrom, (unsigned long long)gScene.seekFrames, double(SDL_GetTicksNS() - t0) / 1e9);
+            if (const char* clip = std::getenv("HOTD_SCENE_CLIP"); clip && gRenderFrame) {
+                // the scene once to an MP4 (H.264, 30 fps) through the local ffmpeg, then done (no replay checks)
+                char cmd[1024];
+                std::snprintf(cmd, sizeof cmd, "ffmpeg -y -loglevel error -f rawvideo -pix_fmt rgb24 -s %dx%d -r 30 -i - "
+                              "-c:v libx264 -preset slow -crf %s -pix_fmt yuv420p -movflags +faststart \"%s\"", w, h,
+                              std::getenv("HOTD_SCENE_CLIP_CRF") ? std::getenv("HOTD_SCENE_CLIP_CRF") : "26", clip);
+                gClipPipe = _popen(cmd, "wb");
+                if (!gClipPipe) {
+                    std::printf("scene view: ffmpeg did not start\n");
+                    return 2;
+                }
+                game::Runtime& r = host.runtime();
+                const uint64_t from = r.frameCount;
+                for (int n = 0; gScene.phase == game::SceneView::Phase::Watching && n < 6000; ++n) {
+                    gClipOn = r.frameCount + (gScene.endingScene() ? 0 : 15) >= gScene.foundAt;   // (from 15 frames before the start; the ending's: its start)
+                    if (gScene.leadIn())
+                        input(r);
+                    else
+                        for (auto& g : r.gun) g = {};
+                    r.frame();
+                    gScene.afterFrame(r);
+                    gRenderFrame(r);
+                }
+                const int rc = _pclose(gClipPipe);
+                gClipPipe = nullptr;
+                std::printf("scene view: clip %s: frames %llu..%llu (ffmpeg %d)\n", clip, (unsigned long long)from,
+                            (unsigned long long)r.frameCount, rc);
+                return rc == 0 ? 0 : 2;
+            }
+            const uint64_t h1 = watch("first");
+            gScene.replay(host.runtime());
+            const uint64_t h2 = watch("replay");
+            if (!startGame())
+                return 1;
+            gScene.begin(host.runtime());   // (a new game: the seek again)
+            while (gScene.phase == game::SceneView::Phase::Seeking)
+                gScene.seek(host.runtime(), 1e9, input);
+            const uint64_t h3 = watch("new start, seek again");
+            const bool ok = h1 == h2 && h2 == h3 && gScene.phase == game::SceneView::Phase::Over;
+            std::printf("SCENE VIEW: result=%s\n", ok ? "ok" : "MISMATCH");
+            return ok ? 0 : 3;
+        }
+        gAutoReload = cfg.autoReload;
+        gScoreDisplay = cfg.scoreDisplay;
+        int rc = runHeadless(host, frames, fire, livesOutAt, startAt, audio);
+        if (gNet) {   // the final frame and state compared with the other PC's
+            const std::string r = gNet->finish(host.runtime(), 5000);
+            std::printf("%s\n", r.c_str());
+            if (r.find("result=ok") == std::string::npos && rc == 0)
+                rc = 4;
+        }
+        gl::debugSummary();   // compat: HOTD_GL_DEBUG=1
+        if (renderHeadless && !rr.ms.empty()) {
+            std::vector<float> v = rr.ms;
+            std::sort(v.begin(), v.end());
+            double sum = 0;
+            for (float x : v) sum += x;
+            // the mean of the worst 1 % and the 99th percentile
+            const size_t k = std::max<size_t>(1, v.size() / 100);
+            double worst = 0;
+            for (size_t i = v.size() - k; i < v.size(); ++i) worst += v[i];
+            const size_t maxAt = size_t(std::max_element(rr.ms.begin(), rr.ms.end()) - rr.ms.begin());
+            std::printf("RENDER: frames=%zu ms_mean=%.3f ms_p50=%.3f ms_p99=%.3f ms_worst1pct=%.3f ms_max=%.3f ms_max_at=%zu "
+                        "calls_mean=%.0f calls_max=%u calls_max_at=%zu drawlist_max=%u gl_errors=%llu first_error=0x%X "
+                        "first_error_frame=%llu spikes=%llu\n",
+                        v.size(), sum / double(v.size()), v[v.size() / 2], v[std::min(v.size() - 1, v.size() * 99 / 100)],
+                        worst / double(k), v.back(), maxAt,
+                        [&] { double s = 0; for (uint32_t c : rr.calls) s += c; return s / double(rr.calls.size()); }(),
+                        *std::max_element(rr.calls.begin(), rr.calls.end()),
+                        size_t(std::max_element(rr.calls.begin(), rr.calls.end()) - rr.calls.begin()),
+                        *std::max_element(rr.drawn.begin(), rr.drawn.end()), (unsigned long long)rr.glErrors, rr.firstError,
+                        (unsigned long long)rr.firstErrorFrame, (unsigned long long)rr.spikes);
+            std::printf("MEMORY: %s\n", memoryReport().c_str());
+        }
+        if (renderHeadless || std::getenv("HOTD_PERF")) {   // perf: where a frame's time goes (docs/performance.md)
+            std::vector<float> st;
+            for (uint32_t s : gPerf.state) st.push_back(float(s));
+            std::printf("PERF: %s; %s; %s; %s; %s; %s; %s\n", perfSummary("logic", gPerf.logic).c_str(),
+                        perfSummary("sound", gPerf.audio).c_str(), perfSummary("under", gPerf.under).c_str(), perfSummary("view", gPerf.view).c_str(),
+                        perfSummary("hud", gPerf.hud).c_str(), perfSummary("gpu_wait", gPerf.gpu).c_str(),
+                        perfSummary("gl_state_calls", st).c_str());
+            if (!gPerf.gpu3d.empty()) std::printf("PERF: %s\n", perfSummary("gpu_3d", gPerf.gpu3d).c_str());
+            if (!gPerf.fs3d.empty()) std::printf("PERF: %s\n", perfSummary("fs_screens_3d", gPerf.fs3d).c_str());
+            for (const auto& [c, ms] : gPerf.chapterLoads)
+                std::printf("PERF: chapter %d load %.0f ms\n", c + 1, ms);
+        }
+        if (!boundaryReport.empty()) {   // T1: the work queue (docs/teaser_status/t1_boundaries.md)
+            std::string title = "hotd";
+            for (int i = 1; i < argc; ++i)
+                if (std::string(argv[i]) != "--root" && (i == 1 || std::string(argv[i - 1]) != "--root") &&
+                    std::string(argv[i]) != "--boundary-report" && std::string(argv[i - 1]) != "--boundary-report")
+                    title += std::string(" ") + argv[i];
+            host.runtime().writeBoundaryReport(boundaryReport, title);
+        }
+        return rc;
+    }
+
+    if (botSeed >= 0) {   // --bot in the window (polish: tools\checkpoints.ps1's game-over run); game overs restart
+        gBot = std::make_unique<game::Bot>(uint64_t(botSeed), botPlayers);
+        for (size_t k = 0; k < gBotSkill.size() && k < 4; ++k) gBot->setSkill(int(k), gBotSkill[k]);   // (soak: was outside
+    }                                                                                                     // the if: --bot-skill alone crashed)
+    // scripted runs (screenshots, --auto-start): the window opens without taking the focus from the user's desktop
+    if (!checkpointFile.empty()) {
+        std::FILE* f = std::fopen(checkpointFile.c_str(), "r");
+        char line[256];
+        while (f && std::fgets(line, sizeof line, f)) {
+            char name[96], kind[16];
+            int a = 0, b = 0, c = 0;
+            const int n = std::sscanf(line, "%95s %15s %d %d %d", name, kind, &a, &b, &c);
+            if (name[0] == '#' || n < 3)
+                continue;
+            if (std::string(kind) == "mode" && n == 5) {
+                Checkpoint cp{name, -3, uint64_t(c)};
+                cp.mode = a;
+                cp.sub = b;
+                checkpoints.push_back(cp);
+            }
+            else if (std::string(kind) == "event" && n == 4)
+                checkpoints.push_back({name, a, uint64_t(b)});
+            else if (std::string(kind) == "clear")
+                checkpoints.push_back({name, -2, uint64_t(a)});
+        }
+        if (f)
+            std::fclose(f);
+        if (checkpoints.empty()) { std::fprintf(stderr, "no checkpoints in %s\n", checkpointFile.c_str()); return 1; }
+        launcher = false;
+    }
+    if (!shotAt.empty() || autoStart || !checkpoints.empty())
+        SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
+    gl::contextAttributes();   // 3.3 core, 24-bit depth, double buffered (compat: + the debug flag with HOTD_GL_DEBUG=1)
+    // relative mouse mode (two mice, enterGame): the mice as fast as the desktop cursor (the Windows pointer speed)
+    SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE, "1");
+    // automated runs (checkpoints, screenshots at frames, auto start, input test) never appear on the main monitor and
+    // never take focus (the user works on the PC meanwhile): created hidden, then shown on the second display without
+    // activation if there is one (HOTD_WINDOW_DISPLAY=<index> picks another), else they stay hidden (offscreen drawing)
+    const bool automated = !inputTestFile.empty() || !shotAt.empty() || autoStart || !checkpoints.empty() ||
+                           std::getenv("HOTD_ONLINE_TEST") != nullptr ||   // (the online menu's test: hidden too)
+                           std::getenv("HOTD_NET_KEYAIM_TEST") != nullptr ||   // (the online keyboard aim test: hidden too)
+                           std::getenv("HOTD_MENU_TYPE") != nullptr ||     // (the secret codes' pictures: hidden)
+                           std::getenv("HOTD_MENU_SHOT") != nullptr ||     // (remakemenu: the menu's pictures: hidden too)
+                           std::getenv("HOTD_PREVIEW_TEST") != nullptr ||   // (menus3: the settings pictures' test: hidden)
+                           std::getenv("HOTD_GALLERY_SHOT") != nullptr ||   // (the Gallery's pictures: hidden too)
+                           std::getenv("HOTD_JUKEBOX_SHOT") != nullptr ||   // (the Jukebox's pictures: hidden too)
+                           std::getenv("HOTD_SCENE_TEST") != nullptr ||    // (the cut-scene viewer's test: hidden too)
+                           std::getenv("HOTD_CURSOR_TEST") != nullptr ||   // (padglyphs: the pad cursor's test: hidden)
+                           std::getenv("HOTD_STARTUP_TIME") != nullptr ||  // (perf: the start-up time, hidden)
+                           gMenuTourN > 0 ||                               // (menuperf: the menu's perf tour, hidden)
+                           std::getenv("HOTD_RES_LOG") != nullptr ||       // (the resolution test: hidden)
+                           std::getenv("HOTD_MENU_SEQ") != nullptr ||      // (menuperf: the menu's picture sequence: hidden too)
+                           std::getenv("HOTD_MENU_PERF") != nullptr ||     // (the menu's frame times: hidden too)
+                           std::getenv("HOTD_SETUP_TEST") != nullptr;      // (setup: the setup window's switch, hidden)
+    // borderless fullscreen at the start (user 2026-10-19): launcher.ini fullscreen= (default on; the state the player
+    // left it in), --fullscreen / --windowed over it. Automated runs never (hidden / off-screen); a developer run
+    // (--no-launcher) only with --fullscreen. HOTD_FS_LOG=1: print the decision and exit (a test, no window).
+    // HOTD_SETUP_TEST=1 (setup, testing): as a player's start (hidden): the saved fullscreen, the setup page shown even
+    // with the files known, Enter pressed; the window's state printed on each switch, the run ends at the menu
+    const bool setupTest = std::getenv("HOTD_SETUP_TEST") != nullptr;
+    const bool startFullscreen = (!automated || setupTest) && (fullscreenOpt >= 0 ? fullscreenOpt != 0 : (cfg.fullscreen && launcher));
+    if (std::getenv("HOTD_FS_LOG")) {
+        std::printf("start fullscreen: %d (automated %d)\n", startFullscreen ? 1 : 0, automated ? 1 : 0);
+        return 0;
+    }
+    gl::setShaderCacheFile(cacheDir() + "angle_shaders.bin");   // (angle: ANGLE's compiled shaders, kept for the next start)
+    gl::prepareWindow(cfg.renderer);   // (angle: ANGLE sets the window up for EGL)
+    int backend = cfg.renderer;
+    if (cfg.updateCheck && !automated) util::updateCheckStart(HOTD_VERSION_TEXT);   // Options > System > Check for Updates
+    SDL_Window* window = SDL_CreateWindow("The House of the Dead: ReWrithe", w, h,
+                                          SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | (automated ? SDL_WINDOW_HIDDEN : 0));
+    if (!window && backend == gl::kBackendAngle) {   // angle: ANGLE's window surface failed (Direct3D 10.0 / 9): OpenGL
+        SDL_Log("renderer: DirectX (ANGLE): %s (the graphics need DirectX 10.1); trying OpenGL", SDL_GetError());
+        gl::prepareWindow(backend = gl::kBackendGL);
+        window = SDL_CreateWindow("The House of the Dead: ReWrithe", w, h,
+                                  SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | (automated ? SDL_WINDOW_HIDDEN : 0));
+    }
+    if (!window)
+        return util::fatalError(std::string("The game's window could not be opened (SDL: ") + SDL_GetError() + ").\nThe game needs OpenGL 3.3: update the graphics driver (NVIDIA, AMD or Intel) and start the game again.", playerRun);
+    SDL_SetWindowMinimumSize(window, 320, 240);   // firstrun: a window dragged tiny keeps the launcher / HUD drawable
+    setWindowIconFromPc(window, cfg.pc);   // the player's own THOTD.EXE icon; the launcher sets it again once the folder is chosen
+    // (once: the line was doubled, so the second toggle put the window back and every start was windowed; firstrun)
+    // the chosen resolution (Video > Resolution; util/resolution.h): fullscreen in it, or the window at its size
+    util::resolutionLive() = {{cfg.resFullW, cfg.resFullH}, {cfg.resWinW, cfg.resWinH}, cfg.exclusive};
+    // remakefix: the monitor chosen (Video > Display; launcher.ini display=; not found: the primary one), before the
+    // fullscreen: it fills that monitor (a player's window only: the automated runs keep to their second monitor)
+    if (!automated && launcher && !cfg.display.empty()) {
+        const SDL_DisplayID d = util::displayByKey(cfg.display);
+        SDL_SetWindowPosition(window, int(SDL_WINDOWPOS_CENTERED_DISPLAY(d)), int(SDL_WINDOWPOS_CENTERED_DISPLAY(d)));
+        SDL_SyncWindow(window);
+    }
+    if (startFullscreen) toggleFullscreen(window);   // before the first frame: the launcher, splash and menu too
+    else if (!automated && launcher) util::applyResolution(window);
+    if (std::getenv("HOTD_RES_LOG")) {   // testing (a hidden window): the Resolution page's sizes, a window size set and kept
+        auto list = [](const char* what, const std::vector<util::Size>& v) {
+            std::printf("%s (%zu):", what, v.size());
+            for (const util::Size& s : v) std::printf(" %s", util::sizeKey(s).c_str());
+            std::printf("\n");
+        };
+        list("fullscreen modes", util::fullscreenSizes(window));
+        list("window sizes", util::windowSizes(window));
+        int ww = 0, wh = 0;
+        util::resolutionLive() = {{}, {1024, 768}};
+        util::applyResolution(window);
+        SDL_GetWindowSize(window, &ww, &wh);
+        std::printf("window 1024x768 applied: %d x %d, fullscreen %d\n", ww, wh, util::windowFullscreen(window) ? 1 : 0);
+        util::resolutionLive() = {};
+        util::applyResolution(window);
+        SDL_GetWindowSize(window, &ww, &wh);
+        std::printf("window auto: %d x %d (kept)\n", ww, wh);
+        std::printf("launcher.ini: %s %s %s\n", util::sizeKey(util::parseSize("1920x1080")).c_str(),
+                    util::sizeKey(util::parseSize("auto")).c_str(), util::sizeKey(util::parseSize("12x5")).c_str());
+        return 0;
+    }
+    if (automated && inputTestFile.empty() && !setupTest) {   // (HOTD_SETUP_TEST: stays hidden)
+        int count = 0;
+        SDL_DisplayID* displays = SDL_GetDisplays(&count);
+        const char* pick = std::getenv("HOTD_WINDOW_DISPLAY");
+        const int index = pick ? std::atoi(pick) : 1;
+        if (displays && index > 0 && index < count) {
+            SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED_DISPLAY(displays[index]), SDL_WINDOWPOS_CENTERED_DISPLAY(displays[index]));
+            SDL_ShowWindow(window);   // SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN is 0 for these runs: no focus
+        }
+        SDL_free(displays);
+    }
+    // angle: Video > Renderer (launcher.ini renderer=, --renderer): Auto = OpenGL 3.3, else DirectX through ANGLE
+    std::string ctxErr;
+    SDL_Window* const windowBefore = window;
+    SDL_GLContext ctx = gl::createContext(window, backend, ctxErr);
+    if (window != windowBefore && window) setWindowIconFromPc(window, cfg.pc);   // (Auto fell back to ANGLE: a new window)
+    if (!ctx)   // firstrun: say so in a box (was: the log only, the window just closed)
+        return util::fatalError(std::string("This PC's graphics cannot run the game: it needs OpenGL 3.3 or DirectX 10.1 (") + ctxErr +
+                                    ").\nUpdate the graphics driver (from NVIDIA, AMD or Intel, not only Windows Update). Older graphics (DirectX 10.0 or 9 only) or virtual graphics adapters (remote desktop, some virtual machines) cannot run it." +
+                                    (cfg.renderer == gl::kBackendGL ? "\nVideo > Renderer is OpenGL: Auto (launcher.ini renderer=auto) also tries DirectX." : ""),
+                                playerRun);
+    SDL_Log("renderer: %s (%s)", gl::backendInUse().c_str(), reinterpret_cast<const char*>(gl::GetString(gl::VERSION)));
+    gl::debugInit();             // compat: HOTD_GL_DEBUG=1's messages into hotd.log
+    gl::logDriver("graphics");   // compat: vendor, renderer, OpenGL / GLSL versions (a warning below 3.3)
+    util::crashHandlerCheck();   // rescrash: the driver's modules are loaded now (one may set its own handler)
+    depthPrepassAuto();
+    // rendering (rate: launcher "Frame rate" + "Vsync"): a cap of N fps = the frame limiter at the loop's end at N;
+    // the display's refresh = with vsync on, vsync paces it (the limiter a little over the refresh only as the fallback
+    // where the driver gives no vsync), with vsync off the limiter at the refresh; unlimited = no limiter, vsync off.
+    // Vsync on with a cap: both (a cap under the refresh). --render-fps N (debug) over it: the limiter at N (0 none),
+    // vsync only for 60. The game logic is separate (the tick, below).
+    int vsyncNow = -1;
+    Uint64 renderNs = 0, menuNs = 16666667;
+    int renderLimit = 60;   // the limit in effect (the timing line)
+    // menuperf (user 2026-10-26: "the menu lags"): the menus' frame pacer: frames on a fixed beat (menuNs; vsync on:
+    // the swap waits for the display, this only as the fallback), not a 16 ms sleep after each frame's own time (which
+    // gave 16 + its time a frame: 45-58 fps, uneven, and with vsync a missed refresh now and then)
+    Uint64 menuNext = 0;
+    std::function<void()> menuRate;   // optui: the menus' own cap (Menu Frame Rate; set below, once the graphics are known)
+    auto menuPace = [&]() {
+        if (menuRate)
+            menuRate();
+        const Uint64 now = SDL_GetTicksNS();
+        if (!menuNext || now > menuNext + menuNs)   // (a stall, the first frame: the beat starts again from now)
+            menuNext = now;
+        menuNext += menuNs;
+        if (menuNext > now)
+            SDL_DelayPrecise(menuNext - now);
+    };
+    auto applyPresentation = [&]() {
+        bool vs = false;
+        int fps = 0;
+        double capHz = 0;
+        if (renderFps >= 0) {
+            vs = renderFps == 60;
+            fps = renderFps;
+        } else if (cfg.frameRate > 0) {
+            vs = cfg.vsync;
+            fps = cfg.frameRate;
+            capHz = game::frameRateHz(cfg.frameRate);   // (optui: Arcade's 57.524)
+        } else if (cfg.frameRate == 0) {
+            vs = cfg.vsync;
+            const SDL_DisplayMode* dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
+            const float hz = dm && dm->refresh_rate > 1.0f ? dm->refresh_rate : 60.0f;
+            fps = int(std::lround(hz * (vs ? 1.1f : 1.0f)));
+        }   // unlimited (-1): neither
+        if (!inputTestFile.empty() && renderFps < 0)
+            fps = 60;   // the input test: one game frame per loop at 60 loops a second, as before (the pads' held times)
+        vs = vs && inputTestFile.empty();
+        if (int(vs) != vsyncNow) {
+            if (!SDL_GL_SetSwapInterval(vs ? 1 : 0) && vs)
+                SDL_Log("vsync: %s (the frame limiter alone keeps the rate)", SDL_GetError());
+            vsyncNow = vs ? 1 : 0;
+        }
+        renderNs = fps > 0 ? (capHz > 0 && fps == cfg.frameRate ? Uint64(1e9 / capHz) : 1000000000ull / uint64_t(fps)) : 0;
+        renderLimit = fps;
+        // menuperf: the menus' pace: the same limiter, but never unlimited (the display's refresh)
+        menuNs = renderNs;
+        if (!menuNs) {
+            const SDL_DisplayMode* dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
+            menuNs = Uint64(1e9 / double(dm && dm->refresh_rate > 1.0f ? dm->refresh_rate : 60.0f));
+        }
+    };
+    applyPresentation();
+    // timing statistics (display): game ticks and rendered frames per second of wall-clock time in the game screen
+    // launcher "Aspect" (display): widescreen (default) = hor+, the view fits the window's height (GameView::fromArcade)
+    // and the whole window is the game area (wider horizontal view); original 4:3 = the arcade's 496 x 384 screen
+    // pillarboxed: black bars over the sides (the guns there are off the screen: |x| >= 248, the shot reloads);
+    // aspect1610: 16:10 = hor+ up to a 16:10 picture (a 16:10 window: the same as widescreen; wider: thin bars, the guns
+    // there off the screen: |x| >= 307.2)
+    auto pillarbox = [&](int ww, int wh) { drawPillarbox(cfg.aspect, ww, wh); };
+    struct Timing { uint64_t ticks = 0, renders = 0, ns = 0, start = 0, lastLog = 0, ticksAtLog = 0, rendersAtLog = 0; } timing;
+    SDL_Cursor* cross = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR);
+    SDL_Cursor* arrow = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT);
+
+    game::Launcher menu;
+    menu.cfg = cfg;
+    menu.cacheDir = cache;
+    menu.wordmarkFile = game::Frontend::wordmarkFile;   // setup: our wordmark in its picture strip
+    if (!snapshot.empty())
+        menu.notes.push_back("Developer: work RAM from " + std::filesystem::path(snapshot).filename().string() +
+                             (std::filesystem::exists(snapshot) ? "" : " (NOT FOUND)"));
+    if (!menu.init(err)) return util::fatalError("The launcher could not be drawn: " + err, playerRun);
+    // (setup, user 2026-10-31: no welcome paragraph or health warning on the setup page any more; its own lines say
+    // what each file is, and an empty result line asks for both files)
+    game::Hud hud;
+    if (!hud.init(err)) { SDL_Log("%s", err.c_str()); return 1; }
+    Overlay endScreen;
+    if (!endScreen.init(err)) { SDL_Log("%s", err.c_str()); return 1; }
+    endScreen.setStyle(190, 255, 240, 200);
+    Overlay netMsg;   // netplay: "waiting for the other player" / "connection lost" / a desync, centred
+    if (!netMsg.init(err)) { SDL_Log("%s", err.c_str()); return 1; }
+    netMsg.setStyle(200, 255, 230, 150);
+    std::unique_ptr<game::GameView> view;
+    int viewChapter = -1;   // select: the chapter whose world the view has loaded
+
+    // menuart: Menu = the PC port's own front end (game/frontend.h), after the files check; the text launcher only on
+    // the first start (no files chosen yet), for Options (for now) and when the PC menu art cannot be read
+    enum class Screen { Launcher, Menu, Game, End } screen = launcher ? Screen::Launcher : Screen::Game;
+    game::Frontend fe;
+    // the Gallery (game/gallery.h): the main menu's Gallery page draws its model (loaded when the page opens, freed
+    // when it closes)
+    game::Gallery gallery;
+    // pmfix2: the PC Mode extras' portraits (game/pm_portraits.h): 0 look in the settings folder, 1 open pmGallery, 2
+    // make character pmPortraitCh, -1 done
+    game::Gallery pmGallery;
+    int pmPortraitState = std::getenv("HOTD_NO_PM_PORTRAITS") ? -1 : 0, pmPortraitCh = 0;
+    int pmPortraitSet = -1, pmPortraitFailed = 0;   // pmpick: the model set loaded / being made (0 arcade, 1 PC); bits: failed
+    uint64_t pmPortraitT0 = 0;
+    bool galleryDrag = false;          // the left button held on the model's window: turning it
+    float galleryDragX = 0, galleryDragY = 0;
+    Uint64 galleryTick = 0;
+    int galleryFrames = 0;             // HOTD_GALLERY_SHOT: frames the page has been drawn
+    bool galleryPad = false;           // the last Gallery input came from a pad (its controls line)
+    bool feLeftHeld = false;           // galfix3: the left button held, from the menu's events (the input test's drags)
+    // a pad's axes (-1..1): [0] / [1] the right stick (turn), [2] / [3] the left stick (pan), [4] / [5] the left / right
+    // trigger (zoom out / in) (gallery3)
+    float galleryStick[6] = {};
+    int galleryTrigger = 0;            // the trigger held for the category step (edge: 1 right, -1 left)
+    // gallery3: the full view (F / Start), the info panel (I), the controls' prompts' time left (seconds; the full
+    // view's band fades out over the last one), the right / middle button held on the model: panning
+    bool galleryFull = false, galleryInfo = true, galleryPanDrag = false;
+    float galleryHint = 0;
+    int galleryPage = 0;               // gallery3, the Remake layout: the description's page (Tab)
+    auto galleryRemake = [&]() { return menu.cfg.galleryLayout == 1 && !galleryFull; };
+    // the Remake layout's grid: the entry dk places on in the shown category (left / right 1, up / down 3), kept inside
+    auto galleryGrid = [&](int dk) {
+        std::vector<int> list;
+        const auto& es = game::galleryEntries();
+        for (int i = 0; i < int(es.size()); ++i)
+            if (es[size_t(i)].category == gallery.category()) list.push_back(i);
+        const int k = gallery.indexInCategory() + dk;
+        if (k >= 0 && k < int(list.size())) gallery.select(list[size_t(k)]);
+        galleryPage = 0;
+    };
+    // the Remake layout's page is drawn in three parts (Gallery::drawSplit): a window point (mx, my in lw x lh) on
+    // the page (rx, ry: 640 x 480 units), false between the parts (the model's)
+    auto galleryCanvasPoint = [](float mx, float my, float lw, float lh, int& rx, int& ry) {
+        float s, x0[3], y0;
+        game::Gallery::splitRect(lw, lh, s, x0, y0);
+        ry = int((my - y0) / s);
+        const float parts[4] = {0, 200, 440, 640};
+        for (int i = 0; i < 3; ++i)
+            if (mx >= x0[i] && mx < x0[i] + (parts[i + 1] - parts[i]) * s) {
+                rx = int(parts[i] + (mx - x0[i]) / s);
+                return true;
+            }
+        rx = -1;
+        return false;
+    };
+    // the Gallery's entry and background kept in launcher.ini (gallery= / gallerybg=) when it closes
+    auto saveGallery = [&]() {
+        if (!gallery.isOpen()) return;
+        menu.cfg.galleryEntry = cfg.galleryEntry = gallery.key();
+        menu.cfg.galleryBg = cfg.galleryBg = gallery.background;
+        menu.cfg.save(cache + "launcher.ini");
+    };
+    // the Jukebox (game/jukebox.h): the main menu's Jukebox page; the menu music stops while it is open
+    game::Jukebox jukebox;
+    Uint64 jukeboxTick = 0;
+    bool jukeboxBoard = false;         // the Jukebox started the arcade board (the setting is PC sound): stopped on exit
+    // prerel (user 2026-10-27: "add the cut soundtrack (unused) too"): a Menu Music choice from the arcade's unused songs
+    // (launcher.h kArcadeSongCue): the arcade sound board plays its code (started for it when the setting is the PC
+    // sound, stopped again when the song ends: another song, the Jukebox, a game). The code goes in once the board's
+    // program runs (Jukebox kBoardBoot, 0.25 s)
+    struct { uint32_t code = 0; Uint64 at = 0; bool on = false, ours = false; } menuBoard;
+    auto menuBoardStop = [&]() {
+        if (!menuBoard.on)
+            return;
+        if (audio.boardOn())
+            audio.resetBoard();
+        audio.setBoardVolume(-1);
+        if (menuBoard.ours)
+            audio.stopBoard();
+        menuBoard.on = menuBoard.ours = false;
+        menuBoard.code = 0;
+    };
+    auto menuBoardPlay = [&](uint32_t code) {
+        menuBoardStop();
+        if (!audioOn || !menu.cfg.music)
+            return;
+        if (!audio.boardOn()) {
+            static std::vector<uint8_t> prog, samples;   // read once
+            std::string e;
+            if (regions.empty())
+                arcadeRegions(e);
+            if ((prog.empty() && !loadSoundRoms(regions, cfg.arcade, prog, samples, e)) || !audio.startBoard(prog, samples, e)) {
+                SDL_Log("menu music: no arcade sound board (%s)", e.c_str());
+                return;
+            }
+            menuBoard.ours = true;
+        }
+        audio.stopPcSound();
+        audio.resetBoard();
+        menuBoard.on = true;
+        menuBoard.code = code;
+        menuBoard.at = SDL_GetTicksNS() + 250000000ull;
+    };
+    auto menuBoardTick = [&]() {   // (the menu's frames)
+        if (!menuBoard.on)
+            return;
+        audio.setBoardVolume(menu.cfg.musicVolume / 100.0f);
+        if (audio.wavOpen())
+            audio.renderFrame();   // (--audio-wav: the song in the file, as the Jukebox does)
+        if (menuBoard.code && SDL_GetTicksNS() >= menuBoard.at) {
+            audio.cue(menuBoard.code);
+            menuBoard.code = 0;
+        }
+    };
+    LengthsJob jukeboxMeasure;         // the arcade lengths' measuring processes (started on the first visit)
+    Uint64 jukeboxLengthsRead = 0;
+    // online co-op in the menu (src/net/online_menu.h): More Options > Online Co-op
+    net::OnlineMenu online;
+    online.base = netArgs;   // (tests: --lobby, --upnp dry-run, --net-bind, --net-port)
+    if (netArgs.menuPort) online.port = uint16_t(netArgs.menuPort);
+    online.hostSettings = [&]() { return netSettingsOf(menu.cfg, online.base.pcMode); };
+    online.copy = [](const std::string& s) { SDL_SetClipboardText(s.c_str()); };
+    online.paste = []() {
+        char* t = SDL_GetClipboardText();
+        std::string s = t ? t : "";
+        SDL_free(t);
+        return s;
+    };
+    online.log = [](const std::string& s) { SDL_Log("[net] %s", s.c_str()); };
+    if (const char* u = std::getenv("USERNAME"); u && *u)
+        online.name = util::utf8Head(std::string(u), 16) + "'s game";
+    // this player's name in the waiting rooms (launcher.ini netname=; else the Windows user name; --net-name wins) and
+    // the in-game connection info (launcher.ini netinfo=; the menu's "In-game Info", F3 in play)
+    online.playerName = net::sanitiseName(!netArgs.playerName.empty() ? netArgs.playerName : !cfg.netName.empty() ? cfg.netName
+                                          : std::getenv("USERNAME") ? std::getenv("USERNAME") : "");
+    if (online.playerName.empty()) online.playerName = "Player";
+    online.netInfo = cfg.netInfo;
+    // online PC Mode: the Host page's Game Mode and this PC's characters as last chosen (launcher.ini netpcmode=,
+    // netpcchar=; --net-pc-char wins)
+    online.base.pcMode = online.base.pcMode || cfg.netPcMode;
+    if (!online.base.pcMode && online.base.bossMode == 0)   // (netdata: Boss Mode and its boss too, launcher.ini netbossmode=)
+        online.base.bossMode = cfg.netBossMode;
+    if (netArgs.pcChar[0] == 0 && netArgs.pcChar[1] == 0)
+        online.base.pcChar[0] = cfg.netPcChar[0], online.base.pcChar[1] = cfg.netPcChar[1];
+    online.saveSettings = [&]() {
+        menu.cfg.netName = cfg.netName = online.playerName;
+        menu.cfg.netInfo = cfg.netInfo = online.netInfo;
+        menu.cfg.netPcMode = cfg.netPcMode = online.base.pcMode;
+        menu.cfg.netBossMode = cfg.netBossMode = online.base.pcMode ? 0 : online.base.bossMode;
+        for (int k = 0; k < 2; ++k)
+            menu.cfg.netPcChar[k] = cfg.netPcChar[k] = online.base.pcChar[k];
+        menu.cfg.save(cache + "launcher.ini");
+    };
+    online.gameData = [&](net::NetArgs& a) {   // the same game data online (protocol 19): the digests the host compares
+        std::string re;
+        if (regions.empty()) arcadeRegions(re);
+        a.romData = romDigest(regions);
+        a.pcData = pmData(menu.cfg.pc).digest;
+    };
+    int& netInfo = online.netInfo;   // F3 in an online game: Small (the ping in a corner) -> Detailed -> Off
+    bool feLoaded = false, feFailed = false, autoArcade = false;
+    // menuboot: THOTD.EXE's order: the attract (title, prologue, demos) first; Esc / Enter / keypad Enter / Space / a
+    // mouse button (pc_main_loop 0x419168: frontend_state 7; ours: any key or button) -> the main menu; 30 s idle on
+    // the main menu (0x420A60, frontend_state 6) -> the attract again. Off with --no-title / the launcher's "Title /
+    // attract" off / the automated runs (--input-test, --auto-start)
+    bool feAttract = false;   // the game screen runs that attract (it ends in the menu, not in Chapter 1)
+    const bool attractFirst = titleOpt != 0 && inputTestFile.empty() && !autoStart && sceneViewOpt < 0 &&   // (--scene-view: the viewer at once)
+                             // (galact: the Gallery / Jukebox picture harnesses open their page at the menu; the boot attract
+                             // took the window first and its end went back to the menu, closing the page: "left the page")
+                             !std::getenv("HOTD_GALLERY_SHOT") && !std::getenv("HOTD_JUKEBOX_SHOT");
+    static const int attractExitAt = std::getenv("HOTD_ATTRACT_EXIT") ? std::atoi(std::getenv("HOTD_ATTRACT_EXIT")) : -1;
+    int attractFrames = 0;   // HOTD_ATTRACT_EXIT=N (developer, menuboot): Enter at the attract's N-th frame
+    // liveattract: which attract the game screen runs: 0 the Classic boot's / the idle one (until a key), 1 the Remake
+    // style's boot (SEGA logo, the story, the attract once: after the ranking the menu by itself), 2 the Gallery's
+    // Attract Demo (until a key; then its page again)
+    int attractKind = 0;
+    bool attractRanked = false;   // (kind 1: the ranking came)
+    bool bootTest = false;        // the input test: the Remake style's boot (splash, attract) though it skips the boot
+    int feAction = -1;
+    int feBoss = 0;            // Boss Mode: the boss picture chosen (2-6)
+    bool bossEnded = false;    // Boss Mode: the game ended (bossModeFinish): back to the menu's times table
+    bool menuAudioHeld = false;   // the menu's music held while the window is inactive (released when the menu is left)
+    bool feHeld[4] = {};   // up, down, left, right (from the key events, as the players' arrows)
+    std::vector<uint8_t> feCanvas;
+    // a known setup (both paths: launcher.ini, the package's data, the command line): the launcher's Start (the files
+    // check) is pressed once by itself, so the menu comes up; a failed check stays in the launcher with its report.
+    // remakefix (user 2026-10-22 "hide the debug menu at the start"): whatever else launcher.ini lacks (defaults), and
+    // the launcher draws nothing meanwhile (quiet: black); setup (2026-10-31): the launcher is one setup dialog for
+    // everyone (the files and the check; every other setting is Options in the menu)
+    bool autoMenu = launcher && inputTestFile.empty() && !cfg.arcade.empty() && !cfg.pc.empty();
+    (void)filesFromData;
+    menu.quiet = autoMenu && !setupTest;
+    bool running = true, paused = false, step = false, shot = false, debugLines = devLines;
+    // the PC port's in-game pause (game/pause.h, THOTD.EXE 0x41ADF0 ..): Escape / P in play; `paused` mirrors it
+    game::Pause pause;
+    game::PauseInput pauseIn;   // this loop's edges
+    bool pauseExit = false;     // the pause menu's Exit (0x41AD34) was chosen
+    pause.onCue = [&](int c) { audio.pcCue(c); };
+    pause.onSound = [&](bool hold) { audio.pause(hold); };
+    pause.onExit = [&]() { pauseExit = true; };
+    // bossbug (user 2026-10-26): hold to skip a cut-scene (ours, local games). Holding a player's trigger (mouse
+    // button, fire key), start key, or a pad's A / right trigger (its Start pauses) for kSkipHold seconds while a cut-scene runs
+    // (play, the shots off, the letterbox up) fills a ring in the letterbox bar, then the game runs the rest of the
+    // scene at once (up to kSkipTicks game frames a loop, undrawn sounds silent) until the shots / the bars come back.
+    // The logic is untouched: it gets the same input as a player who holds the button through the scene (the press
+    // itself is the arcade's own skip where a scene allows one: SKIP sections); only the pace changes. Online: off
+    // (one PC cannot run ahead of the lockstep; the host's trigger skips as in the arcade)
+    // skipfix (user 2026-10-27: "only for unskippable cutscenes with black bars showing", "a simple red ring"): only
+    // where the arcade has no skip of its own (no SKIP section: evt_skip_on 0), never on the chapter card (kind 177,
+    // evt_clrgfst_flags 0x20); only a press made after such a scene began counts (a trigger held from the play or from
+    // the card's own skip does not fill it); Gameplay "Hold to Skip Cut-scenes" (cfg.holdSkip) Off: none. The ring:
+    // small, red, in the bottom bar's right end. fix28 (user 2026-10-27: "a little too long", "should not be allowed to
+    // skip during the scenes where researchers reward you life ups"): held 2 s; never in a rescue scene (a researcher /
+    // hostage rescued: scene_state 5, the gift's run to the camera and its life-up / item, enemy_researchers.cpp,
+    // hostages*.cpp): from the rescue until the play is back, scene_state 2 (skipReward)
+    constexpr double kSkipHold = 2.0;
+    constexpr int kSkipTicks = 30;
+    bool skipMouse = false, skipFast = false, skipStale = true;
+    int skipLoop = -2;   // (skipfix: the main loop pass that last tracked the buttons)
+    std::vector<bool> skipKeys(SDL_SCANCODE_COUNT, false);
+    double skipHeldS = 0;
+    Uint64 skipAt = 0;
+    bool skipReward = false;   // (fix28: a rescue scene seen in this cut-scene: no hold-to-skip until it ends)
+    auto cutSceneNow = [&](const game::Runtime& r) {   // a cut-scene in play: shots off, the letterbox up
+        return !gNet && !feAttract && !gScene.active() && r.mem.at<int16_t>(game::A::G::game_mode) == 4 &&
+               r.mem.u32(game::A::G::shot_enable) == 0 && r.letterbox > 0;
+    };
+    auto rewardScene = [&](const game::Runtime& r) {   // fix28: a researcher / hostage rescue scene (its gift)
+        return r.mem.at<uint8_t>(game::A::G::scene_state) == 5;
+    };
+    auto holdSkipScene = [&](const game::Runtime& r) {   // ... that the arcade cannot skip, not the chapter card
+        return cfg.holdSkip && cutSceneNow(r) && !skipReward && !rewardScene(r) && r.mem.u32(game::A::G::evt_skip_on) == 0 &&
+               (r.mem.u32(game::A::G::evt_clrgfst_flags) & 0x20u) == 0;
+    };
+    int cpEvent = -1;                     // --checkpoints: the current event and when it began, the results' start
+    uint64_t cpEventStart = 0, cpClearStart = 0;
+    std::map<int, uint64_t> cpModeStart;
+    uint64_t cpFrames = 0;                  // game frames since the window's game began (across game-over restarts)    // --checkpoints: (mode << 8 | sub-mode) -> the frame it first began
+    std::string shotName;
+    // rate: the tick's period (launcher "Game speed", set again by enterGame: the menu / an online game's host may change
+    // it); `next` advances by num / den ns a tick (gSonic.advanceNs carries the remainder); lastTickNs: the last advance
+    // (the render interpolation's period)
+    TickPeriod tick = gameTickPeriod(cfg.gameSpeed);
+    Uint64 frameNs = tick.num / tick.den, lastTickNs = frameNs;
+    Uint64 next = SDL_GetTicksNS();
+    // rate: render interpolation (launcher "Smooth motion"): the drawn state of the frame before the newest
+    game::FrameSnapshot prevFrame;
+    uint64_t interpDumped = 0;   // --interp-dump: pictures saved
+    struct InterpPic { std::string path; int w, h; std::vector<uint8_t> px; };
+    std::vector<InterpPic> interpPics;   // kept in memory while the run goes (a PNG write would stall the timing)
+    // the players' light guns in window coordinates, and trigger / reload since the last game frame. Player 1: the
+    // first mouse that reports its own ID (and the shared cursor, ID 0); player 2: another mouse (moved by its own
+    // relative motion) or the keyboard.
+    using Gun = game::GunState;
+    Gun guns[game::kInputPlayers];   // players 3 / 4: the 4P mode (docs/coop4.md)
+    // pads (game/pads.h): gamepads (stick / gyro aim) and light guns (absolute pointer devices) per player
+    game::Pads pads;
+    pads.virtualOnly = !inputTestFile.empty() || std::getenv("HOTD_GALLERY_SHOT") || std::getenv("HOTD_JUKEBOX_SHOT") || std::getenv("HOTD_CURSOR_TEST");   // the input test: its own virtual pads only (a real pad plugged in changes nothing)
+    game::LightGuns lightGuns;
+    gLightGuns = &lightGuns;
+    game::GunFlash gunFlash;   // padpass: the shot flash's cycle (Controls > Shot Flash)
+    if (!inputTestFile.empty() || std::getenv("HOTD_SCENE_TEST") || std::getenv("HOTD_CURSOR_TEST"))   // the hidden test window never has the focus: SDL would drop the pads' events
+        SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    pads.configure(cfg);
+    lightGuns.configure(cfg);
+    // PC Mode's four panels (fe.pcSeats 4; docs/pcmode.md "4 players in PC Mode"): an event that is a seat's own input
+    // picks for that seat: a pad assigned to the seat (d-pad / stick left / right the arrows, South / Start Ready, East /
+    // Back takes Ready back, else it is the menu's Escape) or the seat's keyboard keys (game/keybinds.h: Aim Left / Right
+    // the arrows, Fire / Start Ready, Reload takes it back; player 1's 1, player 2's arrows / Space, player 3's A / D / F,
+    // player 4's J / L / H ...). Computer seats are left to the mouse. true: the event was used (its key-up too)
+    auto pcSeatEvent = [&](const SDL_Event& e) -> bool {
+        int seat = -1, act = -1;
+        bool used = false;
+        if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || e.type == SDL_EVENT_GAMEPAD_BUTTON_UP || e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION) {
+            seat = pads.playerOf(e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION ? e.gaxis.which : e.gbutton.which);
+            if (seat < 0 || fe.pcCpu[seat])
+                return false;
+            SDL_Event k;
+            if (!pads.menuKey(e, k)) {
+                pads.event(e);   // (another button / axis: the pad's own handling, as the menus')
+                return true;
+            }
+            if (k.type != SDL_EVENT_KEY_DOWN)
+                return true;
+            switch (k.key.scancode) {
+            case SDL_SCANCODE_LEFT: act = game::Frontend::kPcPrev; break;
+            case SDL_SCANCODE_RIGHT: act = game::Frontend::kPcNext; break;
+            case SDL_SCANCODE_RETURN: act = game::Frontend::kPcReady; break;
+            case SDL_SCANCODE_ESCAPE:
+                if (!fe.pcReady[seat])
+                    return false;   // (not ready: the menu's Escape, Exit)
+                act = game::Frontend::kPcUnready;
+                break;
+            default: break;   // up / down: nothing
+            }
+            used = true;
+        } else if ((e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP) && !isSystemKey(e)) {
+            const SDL_Scancode sc = e.key.scancode;
+            if (sc == SDL_SCANCODE_ESCAPE)
+                return false;
+            for (int p = 0; p < 4 && seat < 0; ++p) {
+                if (fe.pcCpu[p])
+                    continue;
+                const game::KeyBinds& kb = menu.cfg.keys[p];
+                for (int a = 0; a < game::kKeyActions; ++a)
+                    if (kb.has(a, sc)) {
+                        seat = p;
+                        act = a == game::kActLeft ? game::Frontend::kPcPrev : a == game::kActRight ? game::Frontend::kPcNext
+                              : a == game::kActFire || a == game::kActStart ? game::Frontend::kPcReady
+                              : a == game::kActReload ? game::Frontend::kPcUnready : -1;
+                        if (act >= 0)
+                            break;
+                    }
+            }
+            if (seat < 0)
+                return false;
+            used = true;
+            if (e.type != SDL_EVENT_KEY_DOWN || e.key.repeat)
+                act = -1;
+        }
+        if (act >= 0)
+            fe.pcModeSeat(seat, act);
+        return used;
+    };
+    // perf (2026-10-21): the gamepad subsystem (~150 ms of Windows' device enumeration) starts after the first frame is
+    // on the screen (the launcher / menu come up that much sooner); the input test's virtual pads at once, as before
+    bool padsPending = inputTestFile.empty() && !pads.virtualOnly;
+    if (!padsPending)
+        pads.start();
+    Overlay padNote, padTarget;   // a lost pad's message / the calibration's text, and its target
+    if (!padNote.init(err) || !padTarget.init(err)) { SDL_Log("%s", err.c_str()); return 1; }
+    padNote.setStyle(200, 255, 230, 120);
+    padTarget.setStyle(0, 255, 60, 40);
+    int fingersDown = 0;   // edgereload: touch-screen fingers down (a second one = reload)
+    int gunW = 0, gunH = 0;           // the window size the guns' coordinates belong to (resize / fullscreen: rescaled)
+    bool keyAim[4][4] = {};           // keybind: each player's keyboard aim held: up, down, left, right (from the key events)
+    // input: Windows tells the mice apart (SDL_MouseID) only in relative mouse mode (raw input); otherwise every mouse
+    // reports ID 0 and moves the one cursor. Once a second mouse has really been used (gMiceUsed, P2 input "a second
+    // mouse"), the game runs in relative mode: every gun moves by its own mouse's motion.
+    bool relMice = false;
+    bool rawWatch = false;   // watching Windows' raw mouse input for a second mouse (rawMiceWatch)
+    SDL_MouseID mouse1 = 0, mouse2 = 0;
+    auto playerOf = [&](SDL_MouseID id) -> int {
+        if (id == 0 || id == SDL_TOUCH_MOUSEID || id == SDL_PEN_MOUSEID || id == mouse1)
+            return cfg.p1Input != 0 && cfg.p2Input == 0 ? 1 : 0;   // pads: player 1 on a pad / gun: the mouse is player 2's
+        if (cfg.p2Input != 0)   // player 2 on the keyboard (a pad, a gun): every mouse is player 1's
+            return 0;
+        if (mouse1 == 0) { mouse1 = id; return 0; }
+        if (mouse2 == 0) { mouse2 = id; SDL_Log("player 2: mouse %u", unsigned(id)); }
+        return id == mouse2 ? 1 : 0;
+    };
+    // liveattract (user 2026-10-21): the Remake menu's background is the attract running live: its own runtime (the
+    // arcade's attract loop: story, title, how to play, the demos, the ranking, over and over) and its own GameView
+    // (the normal renderer), muted under the menu music, no input (the menu's keys / clicks / pads never reach it),
+    // drawn into an offscreen texture that the backdrop shader greys / darkens / tints / vignettes (Hud::drawRemake).
+    // Only its 3D: no HUD, 2D layers or white fades (those are the HUD's); the frames without its 3D (the warning
+    // screen; the story's first black seconds, where the world draws nothing) are not shown: the last 3D frame stays
+    // (two textures: a frame is drawn into the other one and shown only when the world drew something). It follows the menu's model source and Blood Color (another one:
+    // loaded again, the old picture shown meanwhile). Loaded on a worker (the menu goes on); without the arcade files:
+    // the hall picture. Only in the Remake style; the Classic style never runs it. HOTD_NO_LIVE_ATTRACT=1: off
+    struct LivePrep {
+        std::unique_ptr<game::Host> host;
+        std::unique_ptr<game::GameView::Prepared> view;
+        std::string err;
+    };
+    std::unique_ptr<game::Host> liveHost;
+    std::unique_ptr<game::GameView> liveView;
+    std::future<LivePrep> liveJob;
+    std::string liveKey, liveJobKey;   // the models / blood running, the ones loading
+    std::string liveFailedKey;         // could not load with these (the hall until they change)
+    // remakefix (user 2026-10-22: "when loading, the background does not load quickly enough so it is stuck there"):
+    // three textures (the one shown, the one drawn into, the one a cross-fade comes from), never a picture before its
+    // first real frame (the story's first frames drew the wrong world: a pink, blocky Chapter 1 frame held for seconds),
+    // the story started at its desk / telephone shot, a still of that very frame (menu_backdrop_*.png in the settings
+    // folder, written once) shown while the attract loads, then cross-faded (0.5 s) into the live picture; a camera
+    // cut / another part of the attract cross-fades too
+    gl::GLuint liveFbo = 0, liveTex[3] = {}, liveDepth = 0;
+    int liveW = 0, liveH = 0, liveCur = 0, liveOld = -1;   // liveTex[liveCur]: the picture shown; liveOld: faded from (-1 none)
+    bool liveDrawn = false;            // the texture holds a picture
+    bool liveFirst = true;             // the next picture is the run's first (a new runtime)
+    Uint64 liveNext = 0;
+    double liveCpuMs = 0;              // this frame's live part (ticks + the 3D's CPU side; HOTD_MENU_PERF)
+    uint64_t liveRenders = 0;
+    // menuperf (user 2026-10-26: "optimise for low-end devices"): Live Background (Options > Video; launcher.ini
+    // livebg=): On, Off (the still / the hall, no attract running), Auto: off on integrated / software graphics
+    // (weakGpu) and once the menu runs slow with it (the menu loop's budget check: liveSlow). On weak graphics (or a
+    // GPU over its budget) the attract is drawn at 30 pictures a second (liveHalf), on weak graphics at most 1080 lines
+    int liveWeak = -1;                 // the graphics: -1 not looked at yet, 0 a graphics card, 1 integrated / software
+    bool liveSlow = false, liveHalf = false, liveSkip = false;
+    std::string liveGpuName;
+    auto liveBgOn = [&]() {
+        if (liveWeak < 0) {
+            const char* v = reinterpret_cast<const char*>(gl::GetString(gl::VENDOR));
+            const char* r = reinterpret_cast<const char*>(gl::GetString(gl::RENDERER));
+            liveGpuName = r ? r : "?";
+            liveWeak = weakGpu(v, r) ? 1 : 0;
+            liveHalf = liveHalf || liveWeak == 1;
+            SDL_Log("live background: %s (%s): %s", liveGpuName.c_str(), liveWeak ? "integrated / software graphics" : "a graphics card",
+                    menu.cfg.liveBackground == 1 ? "On" : menu.cfg.liveBackground == 2 ? "Off" : liveWeak ? "Auto: off" : "Auto: on");
+        }
+        return menu.cfg.liveBackground == 1 || (menu.cfg.liveBackground == 0 && liveWeak == 0 && !liveSlow);
+    };
+    // optui (coordinator 2026-10-26, the user: "the menu lags"; a high menu frame rate): the menus' own cap, every front-
+    // end page, the Gallery and the Jukebox (the game follows Frame Rate). Menu Frame Rate (launcher.ini menufps=): Auto
+    // by the graphics (120 a graphics card, 60 when the menu runs slow (liveSlow), HOTD_GPU_CLASS=mid or integrated / (misc18: was 30)
+    // software graphics (weakGpu)), or 30 / 60 / 120; never above the display's refresh. With vsync: when the refresh
+    // is a whole multiple of the cap the swap waits that many refreshes (an even beat, no tearing); else every refresh
+    // with the limiter at the cap (no tearing; on a 144 Hz display 60 / 120 show a picture 2 or 3 refreshes, or VRR)
+    // misc18 (the Auto tier, user: "the Remake menu is laggy on my Surface Pro 7"): integrated graphics start at 60
+    // (was 30: the menu itself was the lag), and Auto steps down by what this PC measures, not by its name: the menu
+    // loop's GPU time (timer queries) and its late frames, 180 frames at a time: at 120, over 6 ms or a third late: 60;
+    // at 60, over 12 ms or a third late: 30. Only down, for this run (menuTierCap; 0: no step yet)
+    int menuFpsShown = -1, menuIntervalShown = -1, menuTierCap = 0;
+    auto menuFpsAuto = [&]() {
+        if (liveWeak < 0)
+            liveBgOn();
+        const char* e = std::getenv("HOTD_GPU_CLASS");
+        const int byName = liveWeak == 1 ? 60 : liveSlow || (e && std::string(e) == "mid") ? 60 : 120;
+        return menuTierCap > 0 ? std::min(byName, menuTierCap) : byName;
+    };
+    menuRate = [&]() {
+        if (!inputTestFile.empty() || renderFps >= 0)
+            return;   // (the input test's / --render-fps's own pace)
+        const SDL_DisplayMode* dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
+        const double hz = dm && dm->refresh_rate > 1.0f ? double(dm->refresh_rate) : 60.0;
+        const int cap = menu.cfg.menuFps > 0 ? menu.cfg.menuFps : menuFpsAuto();
+        const double fps = std::min(double(cap), hz);
+        int interval = menu.cfg.vsync && menu.cfg.frameRate >= 0 ? 1 : 0;
+        const double k = hz / fps, kr = std::round(k);
+        const bool even = interval && kr >= 1 && std::abs(k - kr) < 0.03 * kr;
+        if (even)
+            interval = int(kr);
+        if (interval != vsyncNow) {
+            if (!SDL_GL_SetSwapInterval(interval) && interval > 1)
+                SDL_GL_SetSwapInterval(1), interval = 1;
+            vsyncNow = interval;   // (the game's applyPresentation sets its own again)
+        }
+        // (the swap paces an even beat: the limiter a little faster, only the fallback)
+        menuNs = Uint64(1e9 / (even ? hz / double(interval) * 1.08 : fps));
+        if (int(fps + 0.5) != menuFpsShown || interval != menuIntervalShown) {
+            menuFpsShown = int(fps + 0.5), menuIntervalShown = interval;
+            SDL_Log("menu frame rate: %d fps (%s; the display %.0f Hz; %s)", menuFpsShown,
+                    menu.cfg.menuFps > 0 ? "set" : "Auto", hz,
+                    interval == 0 ? "vsync off" : even ? ("vsync every " + std::to_string(interval) + " refreshes").c_str() : "vsync, limiter");
+        }
+    };
+    float liveCam[12] = {};            // the camera of the picture shown (a cut: cross-faded)
+    int16_t liveShownMode = -1, liveLastMode = -1;
+    uint64_t liveShownFrame = 0, liveModeStart = 0;
+    // the cross-fade: from (a GL texture, 0 the dark fill, its size), since (ns)
+    gl::GLuint liveFadeTex = 0;
+    int liveFadeW = 0, liveFadeH = 0;
+    Uint64 liveFadeFrom = 0;
+    bool liveFading = false;
+    constexpr Uint64 kLiveFadeNs = 500000000;   // 0.5 s
+    // the still (the story's first picture shown, saved once per models / blood colour)
+    gl::GLuint stillTex = 0;
+    int stillW = 0, stillH = 0;
+    std::string stillKey, stillJobKey;
+    struct StillImg { int w = 0, h = 0; std::vector<uint8_t> rgba; };
+    std::future<StillImg> stillJob;
+    std::future<void> stillWrite;
+    auto stillFile = [&](const std::string& pcDir, int blood) {
+        return cache + "menu_backdrop_" + (pcDir.empty() ? "arcade" : "pc") + "_" + std::to_string(blood) + ".png";
+    };
+    // menufb (user 2026-10-26: "with the live background turned off ... show the other scenes but just freeze frame
+    // them like a screensaver"): the attract's scenes as stills, saved once per models / blood colour (slide 0 the
+    // story's start: the still above; slide 2p + j: part p of the attract (a game mode) kLiveSlideAt[j] frames in).
+    // Saved whenever the live attract runs; with Live Background Off and none saved yet the attract runs once unseen,
+    // 8 game frames a picture, until its parts went by (a marker file: done). Off shows them in turn, kSlideNs each,
+    // cross-faded (kSlideFadeNs), like a screensaver.
+    constexpr int kSlides = 12;
+    constexpr uint64_t kLiveSlideAt[2] = {400, 1200};
+    constexpr Uint64 kSlideNs = 8000000000ull, kSlideFadeNs = 1200000000ull;
+    auto slideFile = [&](const std::string& pcDir, int blood, int k) {
+        return k == 0 ? stillFile(pcDir, blood)
+                      : cache + "menu_backdrop_" + (pcDir.empty() ? "arcade" : "pc") + "_" + std::to_string(blood) + "_s" + std::to_string(k) + ".png";
+    };
+    auto slidesDoneFile = [&](const std::string& pcDir, int blood) {
+        return cache + "menu_backdrop_" + (pcDir.empty() ? "arcade" : "pc") + "_" + std::to_string(blood) + "_slides.done";
+    };
+    std::string slideKey;              // the models / blood the slides below are for
+    bool slideHave[kSlides] = {};      // its file is there (or being written)
+    gl::GLuint slideTex[kSlides] = {};
+    int slideW[kSlides] = {}, slideH[kSlides] = {};
+    std::future<StillImg> slideJob;
+    int slideJobK = -1;
+    std::future<bool> slideWrite;
+    int slideCur = -1, slidePrev = -1;
+    Uint64 slideSince = 0;
+    bool liveCapture = false;          // Off: the attract runs unseen for the slides
+    int livePart = 0;                  // the attract's part (a game mode change) since its start
+    uint64_t liveRunStart = 0;
+    std::string captureChecked;        // the models / blood the marker was looked for
+    bool captureNeed = false;          // (no marker: the slides not taken yet)
+    // the runtime and the view gone; keepPicture: the texture stays (shown until the next one's first frame)
+    auto liveStop = [&](bool keepPicture) {
+        if (liveJob.valid())
+            liveJob.get();   // (a load in progress: finished and dropped)
+        liveJobKey.clear();
+        if (liveView)
+            liveView->shutdown();
+        liveView.reset();
+        liveHost.reset();
+        liveKey.clear();
+        liveFirst = true;
+        liveLastMode = -1;
+        if (!keepPicture) {
+            if (liveFbo) gl::DeleteFramebuffers(1, &liveFbo);
+            if (liveTex[0]) gl::DeleteTextures(3, liveTex);
+            if (liveDepth) gl::DeleteRenderbuffers(1, &liveDepth);
+            liveFbo = liveTex[0] = liveTex[1] = liveTex[2] = liveDepth = 0;
+            liveW = liveH = 0;
+            liveDrawn = false;
+            liveOld = -1;
+            liveFading = false;
+            fe.liveTex = fe.liveOldTex = 0;
+            fe.liveMix = 1.0f;
+            fe.liveHold = false;
+        }
+    };
+    // the menu's frame: load / tick / draw the live attract (want: a Remake screen with its backdrop shows)
+    auto liveFrame = [&](bool want, int ww, int wh) {
+        const auto t0 = std::chrono::steady_clock::now();
+        liveCpuMs = 0;
+        static const bool off = std::getenv("HOTD_NO_LIVE_ATTRACT") != nullptr;
+        if (off || menu.cfg.menuStyle != 1 || !feLoaded) {
+            if (liveHost || liveJob.valid() || liveFbo)
+                liveStop(false);
+            fe.liveHold = false;
+            return;
+        }
+        const std::string pcDir = menu.cfg.models == 1 && menu.pcOk ? menu.cfg.pc : std::string();
+        // menus3 (user 2026-10-28: Blood Color Custom "is super laggy on my 5080"): each step of a dragged colour bar was
+        // another custom colour, so another key: the live attract loaded again (a runtime and a view) every step. Now the
+        // arcade models take a new custom colour at once (GameView::setBloodCustom: their palette entry 1023), one load
+        // for all custom colours; the PC models (their blood pages recoloured at the load) load again only once the
+        // colour has rested 0.8 s
+        const int bloodNow = bloodOf(menu.cfg);
+        static int bloodSeen = -1, bloodPc = -1;
+        static Uint64 bloodSince = 0;
+        if (bloodNow != bloodSeen)
+            bloodSeen = bloodNow, bloodSince = SDL_GetTicks();
+        const bool bloodCustom = (bloodNow & PcConfig::kBloodCustom) != 0;
+        if (bloodPc < 0 || !bloodCustom || SDL_GetTicks() - bloodSince >= 800)
+            bloodPc = bloodNow;
+        const int blood = !bloodCustom ? bloodNow : pcDir.empty() ? PcConfig::kBloodCustom : bloodPc;
+        if (liveView && pcDir.empty())
+            liveView->setBloodCustom(bloodCustom ? (bloodNow & 0xFFFFFF) : -1);
+        const std::string key = pcDir + "|" + std::to_string(blood);
+        // the still for these models / blood colour: read on a worker, shown until the live picture comes
+        if (key != stillKey && key != stillJobKey && key != liveFailedKey && !stillJob.valid()) {
+            stillJobKey = key;
+            const std::string f = stillFile(pcDir, blood);
+            stillJob = std::async(std::launch::async, [f] {
+                StillImg s;
+                std::string e2;
+                std::error_code ec;
+                if (std::filesystem::exists(f, ec) && readPngRgba(f, s.w, s.h, s.rgba, e2)) {
+                    std::vector<uint8_t> flip(s.rgba.size());   // (rows bottom-up, as the live textures)
+                    const size_t row = size_t(s.w) * 4;
+                    for (int y = 0; y < s.h; ++y)
+                        std::memcpy(&flip[size_t(s.h - 1 - y) * row], &s.rgba[size_t(y) * row], row);
+                    s.rgba.swap(flip);
+                } else
+                    s.w = s.h = 0;
+                return s;
+            });
+        }
+        if (stillJob.valid() && stillJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            StillImg s = stillJob.get();
+            stillKey = stillJobKey;
+            stillJobKey.clear();
+            stillW = stillH = 0;
+            if (s.w > 0 && s.h > 0 && s.rgba.size() >= size_t(s.w) * size_t(s.h) * 4) {
+                if (!stillTex)
+                    gl::GenTextures(1, &stillTex);
+                gl::BindTexture(gl::TEXTURE_2D, stillTex);
+                gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
+                gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, s.w, s.h, 0, gl::RGBA, gl::UNSIGNED_BYTE, s.rgba.data());
+                gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR);
+                gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR);
+                gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE);
+                gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE);
+                stillW = s.w, stillH = s.h;
+                if (!liveDrawn) {   // (shown after the dark fill: faded in from it, no pop)
+                    liveFading = true;
+                    liveFadeTex = 0, liveFadeW = liveFadeH = 0;
+                    liveFadeFrom = SDL_GetTicksNS();
+                }
+            }
+        }
+        const bool stillOk = stillTex && stillW > 0 && stillKey == key;
+        // menufb: the slides for these models / blood colour: which are saved; each read on a worker once wanted
+        auto readFlipped = [](std::string f) {
+            StillImg s;
+            std::string e2;
+            std::error_code ec;
+            if (std::filesystem::exists(f, ec) && readPngRgba(f, s.w, s.h, s.rgba, e2)) {
+                std::vector<uint8_t> flip(s.rgba.size());   // (rows bottom-up, as the live textures)
+                const size_t row = size_t(s.w) * 4;
+                for (int y = 0; y < s.h; ++y)
+                    std::memcpy(&flip[size_t(s.h - 1 - y) * row], &s.rgba[size_t(y) * row], row);
+                s.rgba.swap(flip);
+            } else
+                s.w = s.h = 0;
+            return s;
+        };
+        if (key != slideKey) {
+            if (slideJob.valid())
+                slideJob.get();
+            slideJobK = -1;
+            for (int k = 0; k < kSlides; ++k) {
+                if (slideTex[k])
+                    gl::DeleteTextures(1, &slideTex[k]);
+                slideTex[k] = 0;
+                slideW[k] = slideH[k] = 0;
+                std::error_code ec;
+                slideHave[k] = k > 0 && std::filesystem::exists(slideFile(pcDir, blood, k), ec);
+            }
+            slideKey = key;
+            slideCur = slidePrev = -1;
+        }
+        if (slideWrite.valid() && slideWrite.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+            slideWrite.get();
+        if (slideJob.valid() && slideJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            StillImg s = slideJob.get();
+            const int k = slideJobK;
+            slideJobK = -1;
+            if (k > 0 && s.w > 0 && s.h > 0 && s.rgba.size() >= size_t(s.w) * size_t(s.h) * 4) {
+                gl::GenTextures(1, &slideTex[k]);
+                gl::BindTexture(gl::TEXTURE_2D, slideTex[k]);
+                gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
+                gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, s.w, s.h, 0, gl::RGBA, gl::UNSIGNED_BYTE, s.rgba.data());
+                gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR);
+                gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR);
+                gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE);
+                gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE);
+                slideW[k] = s.w, slideH[k] = s.h;
+            } else if (k > 0)
+                slideW[k] = -1;   // (unreadable: left out)
+        }
+        const bool bgOff = !liveBgOn();
+        if (bgOff && !slideJob.valid())
+            for (int k = 1; k < kSlides; ++k)
+                if (slideHave[k] && !slideTex[k] && slideW[k] == 0) {
+                    slideJobK = k;
+                    slideJob = std::async(std::launch::async, readFlipped, slideFile(pcDir, blood, k));
+                    break;
+                }
+        // Off: the slides in turn (the still first), each kSlideNs, cross-faded
+        auto slideShow = [&]() {
+            auto avail = [&](int k) { return k == 0 ? stillOk : slideTex[k] != 0; };
+            auto texOf = [&](int k, int& w, int& h) {
+                w = k == 0 ? stillW : slideW[k], h = k == 0 ? stillH : slideH[k];
+                return k == 0 ? stillTex : slideTex[k];
+            };
+            const Uint64 now = SDL_GetTicksNS();
+            auto nextAfter = [&](int k) {
+                for (int d = 1; d <= kSlides; ++d)
+                    if (avail((k + d) % kSlides)) return (k + d) % kSlides;
+                return -1;
+            };
+            if (slideCur < 0 || !avail(slideCur)) {
+                slideCur = nextAfter(kSlides - 1);
+                slidePrev = -1;
+                slideSince = now;
+            } else if (now - slideSince >= kSlideNs) {
+                const int n = nextAfter(slideCur);
+                if (n >= 0 && n != slideCur)
+                    slidePrev = slideCur, slideCur = n;
+                slideSince = now;
+            }
+            int w = 0, h = 0;
+            fe.liveTex = slideCur >= 0 ? texOf(slideCur, w, h) : 0;
+            fe.liveW = w, fe.liveH = h;
+            fe.liveHold = false;
+            const bool fading = slidePrev >= 0 && avail(slidePrev) && now - slideSince < kSlideFadeNs;
+            if (fading) {
+                const float t = float(double(now - slideSince) / double(kSlideFadeNs));
+                fe.liveMix = t * t * (3.0f - 2.0f * t);
+                fe.liveOldTex = texOf(slidePrev, fe.liveOldW, fe.liveOldH);
+            } else {
+                fe.liveMix = 1.0f;
+                fe.liveOldTex = 0;
+            }
+        };
+        if (bgOff) {   // menuperf: Live Background Off (or Auto here): the stills in turn (the hall without one)
+            if (captureChecked != key) {   // menufb: the slides not taken yet: the attract runs once, unseen
+                std::error_code ec;
+                captureChecked = key;
+                captureNeed = !game::LaunchConfig::readOnly && !std::filesystem::exists(slidesDoneFile(pcDir, blood), ec) &&
+                              !std::getenv("HOTD_NO_SLIDE_CAPTURE");
+            }
+            liveCapture = captureNeed && key != liveFailedKey;
+            if (!liveCapture) {
+                if (liveHost || liveJob.valid() || liveFbo)
+                    liveStop(false);
+                slideShow();
+                liveCpuMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+                return;
+            }
+        } else
+            liveCapture = false;
+        if (want && key != liveKey && key != liveJobKey && key != liveFailedKey) {   // (another model source / blood: again)
+            liveStop(true);
+            std::string e2;
+            if (regions.empty() && !arcadeRegions(e2)) {
+                SDL_Log("live attract: no arcade files (%s): the hall picture", e2.c_str());
+                liveFailedKey = key;
+                fe.liveHold = false;
+                return;
+            }
+            liveJobKey = key;
+            const std::string rg = regions, dm = dumps, ts = texsets;
+            liveJob = std::async(std::launch::async, [rg, dm, ts, pcDir, blood] {
+                LivePrep p;
+                p.host = std::make_unique<game::Host>();
+                if (!p.host->load(rg, std::string(), std::string(), p.err)) {
+                    p.host.reset();
+                    return p;
+                }
+                p.view = game::GameView::prepare(rg, dm, ts, 0, pcDir, blood, true);
+                return p;
+            });
+            SDL_Log("live attract: loading (%s models)", pcDir.empty() ? "arcade" : "PC");
+        }
+        if (liveJob.valid() && liveJob.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            LivePrep p = liveJob.get();
+            const std::string k = liveJobKey;
+            liveJobKey.clear();
+            std::string e2 = p.err;
+            if (e2.empty() && p.view && !p.view->ok)
+                e2 = p.view->err;
+            auto fresh = std::make_unique<game::GameView>();
+            if (p.host && p.view && p.view->ok && fresh->finish(std::move(p.view), e2)) {
+                if (liveView) liveView->shutdown();
+                liveView = std::move(fresh);
+                liveHost = std::move(p.host);
+                liveKey = k;
+                liveFirst = true;
+                liveLastMode = -1;
+                game::Runtime& r = liveHost->runtime();
+                r.audio = nullptr;   // (muted: the menu's music plays)
+                r.log = nullptr;
+                r.settings.difficulty = menu.cfg.difficulty;
+                r.settings.lives = menu.cfg.lives;
+                r.settings.bloodColor = menu.cfg.blood == 5 ? 0 : menu.cfg.blood == 4 ? (menu.cfg.models == 1 ? 1 : 0) : menu.cfg.blood;
+                r.pcModels = !pcDir.empty();
+                r.fbiScreen = false;   // (a 2D-only screen)
+                r.jaText = menu.cfg.gameText == 1;   // (Game Text: the tutorial's texts)
+                r.apply_settings();
+                r.attract_begin();
+                livePart = 0;   // (menufb: the slides' parts from here)
+                liveRunStart = r.frameCount;
+                // HOTD_LIVE_SKIP=N (developer, the menu's pictures): the attract N frames on at once
+                for (int f = std::getenv("HOTD_LIVE_SKIP") ? std::atoi(std::getenv("HOTD_LIVE_SKIP")) : 0; f > 0; --f) {
+                    r.frame();
+                    r.chapterChanged = -1;
+                }
+                liveNext = SDL_GetTicksNS();
+                SDL_Log("live attract: running (%s models)", pcDir.empty() ? "arcade" : "PC");
+            } else {
+                SDL_Log("live attract: cannot start (%s): the hall picture", e2.c_str());
+                liveFailedKey = k;
+            }
+        }
+        // what the backdrop shows: the live picture, else (loading) the still or the dark fill; the hall only when the
+        // live attract cannot run (liveFailedKey)
+        auto publish = [&]() {
+            const Uint64 nowNs = SDL_GetTicksNS();
+            float mix = 1.0f;
+            if (liveFading) {
+                const float t = std::clamp(float(double(nowNs - liveFadeFrom) / double(kLiveFadeNs)), 0.0f, 1.0f);
+                mix = t * t * (3.0f - 2.0f * t);
+                if (t >= 1.0f) {
+                    liveFading = false;
+                    liveOld = -1;
+                }
+            }
+            const bool loading = key != liveFailedKey && (liveJob.valid() || liveHost);
+            if (liveDrawn)
+                fe.liveTex = liveTex[liveCur], fe.liveW = liveW, fe.liveH = liveH;
+            else if (loading && stillOk)
+                fe.liveTex = stillTex, fe.liveW = stillW, fe.liveH = stillH;
+            else
+                fe.liveTex = 0;
+            fe.liveHold = loading && !fe.liveTex;
+            fe.liveMix = liveFading ? mix : 1.0f;
+            fe.liveOldTex = liveFading ? liveFadeTex : 0;
+            fe.liveOldW = liveFadeW, fe.liveOldH = liveFadeH;
+        };
+        if (!liveHost || !liveView || !want) {   // (another screen: held where it is)
+            liveNext = SDL_GetTicksNS();
+            if (liveCapture) slideShow(); else publish();
+            liveCpuMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            return;
+        }
+        game::Runtime& r = liveHost->runtime();
+        // a frame the backdrop may show: the 3D's modes (game mode 1, the warning screen, is 2D only), not a part's first
+        // frames (a part may start on another part's world), the story (mode 9) from its desk / telephone shot (its
+        // first frames: black, and one frame of Chapter 1's world)
+        constexpr uint64_t kStoryFirst = 206, kPartFirst = 12;
+        auto showable = [&]() {
+            const int16_t m = r.mem.at<int16_t>(game::A::G::game_mode);
+            if (m == 0 || m == 1)
+                return false;
+            const uint64_t local = r.frameCount - liveModeStart;
+            return local >= (m == 9 ? kStoryFirst : kPartFirst);
+        };
+        auto tick = [&]() {
+            for (auto& g : r.gun) g = {};
+            r.frame();
+            r.chapterChanged = -1;
+            const int16_t m = r.mem.at<int16_t>(game::A::G::game_mode);
+            if (m != liveLastMode) {
+                if (liveLastMode >= 0)
+                    ++livePart;   // (menufb: the attract's next part)
+                liveLastMode = m, liveModeStart = r.frameCount;
+            }
+            return !(r.gameOverDone || r.chapterDone);
+        };
+        // the game's rate (Game speed) in real time, at most 4 ticks a frame (a stall drops the time); the automated
+        // runs (the input test, the menu's pictures): one tick a frame. A part not shown yet (the story's black start):
+        // up to 8 ticks a frame (so the picture comes sooner)
+        const TickPeriod tp = gameTickPeriod(menu.cfg.gameSpeed);
+        const Uint64 period = tp.num / tp.den, now = SDL_GetTicksNS();
+        // (HOTD_LIVE_TICKS=N, developer: N ticks a frame in those runs)
+        static const bool oneTick = (!inputTestFile.empty() || std::getenv("HOTD_MENU_SHOT") || std::getenv("HOTD_LIVE_DUMP")) &&
+                                    !std::getenv("HOTD_MENU_PERF");   // (the frame times: real time)
+        static const int fixedTicks = std::getenv("HOTD_LIVE_TICKS") ? std::max(1, std::atoi(std::getenv("HOTD_LIVE_TICKS"))) : 1;
+        int runs = 0;
+        const bool hidden = !showable();
+        while (hidden || liveCapture ? runs < 8 : oneTick ? runs < fixedTicks : (now + period / 4 >= liveNext && runs < 4)) {
+            if (!tick()) {   // (never in the attract; started again if it did)
+                SDL_Log("live attract: the attract ended (%s): again", r.gameOverDone ? "game over" : "chapter end");
+                liveStop(true);
+                return;
+            }
+            liveNext += period;
+            ++runs;
+            if (hidden && showable())
+                break;   // (the first frame to show: drawn now)
+        }
+        if (hidden || now > liveNext + 4 * period)
+            liveNext = now;
+        const int16_t mode = r.mem.at<int16_t>(game::A::G::game_mode);
+        // menuperf: liveHalf: every other tick's picture (30 a second); weak graphics: at most 1080 lines (scaled up)
+        if (runs > 0 && mode != 1 && mode != 0 && !(!liveCapture && liveHalf && liveDrawn && (liveSkip = !liveSkip))) {   // (drawn also while not shown: the view loads the worlds ahead)
+            const float k = liveWeak == 1 && wh > 1080 ? 1080.0f / float(wh) : 1.0f;
+            const int pw2 = std::max(1, int(std::lround(float(ww) * k))), ph2 = std::max(1, int(std::lround(float(wh) * k)));
+            if (liveW != pw2 || liveH != ph2 || !liveFbo) {   // the window's size: the picture's
+                if (!liveFbo) {
+                    gl::GenFramebuffers(1, &liveFbo);
+                    gl::GenTextures(3, liveTex);
+                    gl::GenRenderbuffers(1, &liveDepth);
+                }
+                for (gl::GLuint t : liveTex) {
+                    gl::BindTexture(gl::TEXTURE_2D, t);
+                    gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, pw2, ph2, 0, gl::RGBA, gl::UNSIGNED_BYTE, nullptr);
+                    gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR);
+                    gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR);
+                    gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE);
+                    gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE);
+                }
+                gl::BindFramebuffer(gl::FRAMEBUFFER, liveFbo);
+                gl::BindRenderbuffer(gl::RENDERBUFFER, liveDepth);
+                gl::RenderbufferStorage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT24, pw2, ph2);
+                gl::FramebufferRenderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, liveDepth);
+                liveW = pw2, liveH = ph2;
+                liveDrawn = false;
+                liveFading = false;
+                liveOld = -1;
+            }
+            int spare = 0;   // (not the one shown, not the one faded from)
+            while (spare == liveCur || spare == liveOld) ++spare;
+            gl::BindFramebuffer(gl::FRAMEBUFFER, liveFbo);
+            gl::FramebufferTexture2D(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, liveTex[spare], 0);
+            if (gl::CheckFramebufferStatus(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE) {
+                liveView->opt.clearColor = true;   // (no 2D under it)
+                const uint64_t calls = liveView->renderer.drawCalls;
+                liveView->draw(r, pw2, ph2);
+                // galfix4 (user 2026-10-30: "sometimes the scene despawns the actor for a half second or unloads the
+                // whole scene entirely"): the story's flash cuts. At each the game clears its people two frames, then
+                // the white cover (Hud::coverShown) hides the screen while the next shot's world loads (a few frames of
+                // another world, no people), then the shot fades in from white (the HUD's; never drawn here). Those
+                // frames are held (the last picture stays) and the next shot cross-fades in from it, as a cut does
+                static const bool noHold = std::getenv("HOTD_LIVE_NO_HOLD") != nullptr;   // (developer: before / after)
+                const bool flashCut = !noHold && (r.drawList.empty() || game::Hud::coverShown(r) != 0);
+                // HOTD_LIVE_TRACE=1 (developer, galfix4): each drawn live frame: its mode, draw calls, body parts, shown
+                if (static const bool tr = std::getenv("HOTD_LIVE_TRACE") != nullptr; tr) {
+                    size_t bodies = 0;
+                    for (const game::DrawModel& dm : r.drawList)
+                        bodies += dm.body != 0 && !dm.shadow ? 1 : 0;
+                    SDL_Log("live trace: frame %llu mode %d calls %llu bodies %zu draws %zu showable %d cover %X white %d held %d",
+                            (unsigned long long)r.frameCount, int(mode), (unsigned long long)(liveView->renderer.drawCalls - calls),
+                            bodies, r.drawList.size(), int(showable()), unsigned(game::Hud::coverShown(r)), r.whiteFade, int(flashCut));
+                }
+                if (liveView->renderer.drawCalls != calls && showable() && !flashCut) {   // (the world drew something: shown)
+                    // a cut (another part, a gap, the camera jumped) or the first picture: cross-faded from the one before
+                    const bool first = liveFirst || !liveDrawn;
+                    const bool cut = first || mode != liveShownMode || r.frameCount > liveShownFrame + 8 ||
+                                     game::GameView::cameraCut(liveCam, r.camera);
+                    if (cut) {
+                        if (liveDrawn) {
+                            liveOld = liveCur;
+                            liveFadeTex = liveTex[liveCur], liveFadeW = liveW, liveFadeH = liveH;
+                        } else {
+                            liveOld = -1;
+                            liveFadeTex = stillOk ? stillTex : 0;
+                            liveFadeW = stillOk ? stillW : 0, liveFadeH = stillOk ? stillH : 0;
+                        }
+                        liveFading = true;
+                        liveFadeFrom = SDL_GetTicksNS();
+                    }
+                    // the still: the story's first picture after a start, saved once (a new size: again)
+                    if (liveFirst && mode == 9 && !game::LaunchConfig::readOnly && !stillWrite.valid() &&
+                        !(stillOk && stillW == pw2 && stillH == ph2)) {
+                        std::vector<uint8_t> rgb = liveView->renderer.readBack(pw2, ph2);
+                        const std::string f = stillFile(pcDir, blood);
+                        stillWrite = std::async(std::launch::async, [f, pw2, ph2, rgb = std::move(rgb)] {
+                            if (writePng(f, pw2, ph2, rgb))
+                                SDL_Log("live attract: the start's still saved (%s)", f.c_str());
+                        });
+                    }
+                    liveFirst = false;
+                    // menufb: the attract's scenes as stills (the slides: part p, kLiveSlideAt[j] frames in), saved once
+                    const uint64_t partLocal = r.frameCount - liveModeStart;
+                    for (int j = 0; j < 2 && !game::LaunchConfig::readOnly && !slideWrite.valid() && slideKey == key; ++j) {
+                        const int k = livePart * 2 + j;
+                        if (k < 1 || k >= kSlides || slideHave[k] || partLocal < kLiveSlideAt[j] || (j == 0 && partLocal >= kLiveSlideAt[1]))
+                            continue;
+                        slideHave[k] = true;
+                        std::vector<uint8_t> rgb = liveView->renderer.readBack(pw2, ph2);
+                        const std::string sf = slideFile(pcDir, blood, k);
+                        slideWrite = std::async(std::launch::async, [sf, pw2, ph2, rgb = std::move(rgb)] {
+                            const bool ok = writePng(sf, pw2, ph2, rgb);
+                            if (ok) SDL_Log("live background: a still saved (%s)", sf.c_str());
+                            return ok;
+                        });
+                    }
+                    liveCur = spare;
+                    liveDrawn = true;
+                    std::copy(r.camera, r.camera + 12, liveCam);
+                    liveShownMode = mode;
+                    liveShownFrame = r.frameCount;
+                }
+                ++liveRenders;
+                // HOTD_LIVE_DUMP=<dir>[,<every N>] (developer): the live picture every N drawn frames, its mode in the name
+                if (static const char* dump = std::getenv("HOTD_LIVE_DUMP")) {
+                    std::string dir = dump;
+                    int every = 60;
+                    if (const size_t c = dir.rfind(','); c != std::string::npos && c > 2) {
+                        every = std::max(1, std::atoi(dir.c_str() + c + 1));
+                        dir.resize(c);
+                    }
+                    if (liveRenders % uint64_t(every) == 0) {
+                        std::filesystem::create_directories(dir);
+                        char name[96];
+                        std::snprintf(name, sizeof name, "/live_%06llu_m%d_s%u.png", (unsigned long long)r.frameCount, int(mode),
+                                      unsigned(r.mem.u32(game::A::G::game_submode)));
+                        writePng(dir + name, pw2, ph2, liveView->renderer.readBack(pw2, ph2));
+                    }
+                }
+            }
+            gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
+        }
+        if (stillWrite.valid() && stillWrite.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+            stillWrite.get();
+        if (liveCapture) {   // menufb: Off: the slides shown meanwhile; the attract's parts went by: done
+            if (livePart >= 6 || r.frameCount - liveRunStart > 14000) {
+                if (std::FILE* mk = std::fopen(slidesDoneFile(pcDir, blood).c_str(), "w")) {
+                    std::fputs("the menu's background stills were taken\n", mk);
+                    std::fclose(mk);
+                }
+                SDL_Log("live background: the attract's stills taken (parts %d)", livePart);
+                captureNeed = false;
+                liveCapture = false;
+                liveStop(false);
+            }
+            slideShow();
+        } else
+            publish();
+        liveCpuMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    };
+    // menus3 (user 2026-10-28: the Models / Blood Color pictures: "the two axe zombie and the researcher running away
+    // from it from the attract demo"; "loading another instance of the game is not smart"): the pictures' attract frame
+    // (game/preview_art.h) rendered by this game in-process from the player's own files, never a second program: a
+    // runtime and a view of their own (as the live attract's), loaded on a worker, the attract's story run up to
+    // kPreviewFrame a few milliseconds of each menu frame (no stall), that frame drawn at 960 x 540, cut and kept as
+    // previews6\base_<arcade|pc>.png in the settings folder (Blood Color's). prevbridge (user 2026-10-28: "the Chapter 1
+    // bridge where the strong zombie carries the researcher"): then a fresh runtime (loaded on a worker; the same view)
+    // plays Chapter 1 as the checks' --chapter 1 does, with no input, up to kPreviewBridgeFrame (run at full speed,
+    // drawn only there), kept as previews6\bridge_<arcade|pc>.png (Video > Models'); then the runtime and the view are
+    // let go. Made at the menu's start when missing (the arcade's first, the PC's when the PC files are there), again
+    // when the files' folders change (previews6\source.txt). Every picture shown is drawn from these on the CPU
+    // (menu_pages.h previewRender: the crosshair, the blood burst in the colour; the custom colour live). Nothing of it
+    // is shipped. (Testing: HOTD_PREVIEW_DUMP=<folder> the whole Chapter 1 render every 10 frames in the 400 before the
+    // frame; HOTD_PREVIEW_BRIDGE=<frame> another frame)
+    const std::string prvDir = cache + "previews6";
+    struct PrvPrep {
+        std::unique_ptr<game::Host> host;
+        std::unique_ptr<game::GameView::Prepared> view;
+        std::string err;
+    };
+    std::future<PrvPrep> prvJob;
+    std::unique_ptr<game::Host> prvHost;
+    std::unique_ptr<game::GameView> prvView;
+    int prvModels = -1;                      // the models of the run going on (0 arcade, 1 PC)
+    bool prvFailed[2] = {}, prvChecked = false;
+    int prvGen = 0;                          // a base made (the pages draw their pictures again)
+    uint64_t prvStart = 0, prvDone = 0;      // (prvDone: the run's last frame handled)
+    int prvPhase = 0;                        // prevbridge: 0 the attract (Blood Color's frame), 1 Chapter 1 (the Models')
+    std::chrono::steady_clock::time_point prvT0{};   // (a models' run: its start and the menu frames' work, logged)
+    double prvWorkMs = 0;
+    gl::GLuint prvFbo = 0, prvTex = 0, prvDepth = 0;
+    int prvFw = 0, prvFh = 0;
+    auto prvStop = [&]() {
+        if (prvJob.valid())
+            prvJob.get();
+        if (prvView)
+            prvView->shutdown();
+        prvView.reset();
+        prvHost.reset();
+        prvModels = -1;
+        if (prvFbo) gl::DeleteFramebuffers(1, &prvFbo);
+        if (prvTex) gl::DeleteTextures(1, &prvTex);
+        if (prvDepth) gl::DeleteRenderbuffers(1, &prvDepth);
+        prvFbo = prvTex = prvDepth = 0;
+        prvFw = prvFh = 0;
+    };
+    auto prvHave = [&](int m, int kind = -1) {   // (kind -1: both)
+        std::error_code ec;
+        return (kind == game::kPreviewModels || std::filesystem::exists(game::previewBaseFile(prvDir, m, game::kPreviewBlood), ec)) &&
+               (kind == game::kPreviewBlood || std::filesystem::exists(game::previewBaseFile(prvDir, m, game::kPreviewModels), ec));
+    };
+    auto prvTarget = [&](int fw, int fh) {   // the offscreen picture (fw x fh), made / resized
+        if (!prvFbo) {
+            gl::GenFramebuffers(1, &prvFbo);
+            gl::GenTextures(1, &prvTex);
+            gl::GenRenderbuffers(1, &prvDepth);
+        }
+        gl::BindFramebuffer(gl::FRAMEBUFFER, prvFbo);
+        if (fw != prvFw || fh != prvFh) {
+            gl::BindTexture(gl::TEXTURE_2D, prvTex);
+            gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, fw, fh, 0, gl::RGBA, gl::UNSIGNED_BYTE, nullptr);
+            gl::BindRenderbuffer(gl::RENDERBUFFER, prvDepth);
+            gl::RenderbufferStorage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT24, fw, fh);
+            gl::FramebufferTexture2D(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, prvTex, 0);
+            gl::FramebufferRenderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, prvDepth);
+            prvFw = fw, prvFh = fh;
+        }
+        return gl::CheckFramebufferStatus(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE;
+    };
+    // a runtime for prvModels' run loaded on a worker (withView: its view prepared too; else the one kept)
+    auto prvLoad = [&](bool withView) {
+        const std::string rg = regions, dm = dumps, ts = texsets, pcDir = prvModels == 1 ? menu.cfg.pc : std::string();
+        prvJob = std::async(std::launch::async, [rg, dm, ts, pcDir, withView] {
+            PrvPrep p;
+            p.host = std::make_unique<game::Host>();
+            if (!p.host->load(rg, std::string(), std::string(), p.err)) {
+                p.host.reset();
+                return p;
+            }
+            if (withView)
+                p.view = game::GameView::prepare(rg, dm, ts, 0, pcDir, 0, true);
+            return p;
+        });
+    };
+    // one menu frame's share; want[m]: those models' base is wanted. true while a base is being made
+    auto prvFrame = [&](bool wantPc) -> bool {
+        if (!feLoaded || game::LaunchConfig::readOnly && !std::getenv("HOTD_PREVIEW_TEST"))
+            return false;
+        if (!prvChecked) {   // the files' folders the bases came from: others now -> made again
+            prvChecked = true;
+            std::error_code ec;
+            std::filesystem::create_directories(prvDir, ec);
+            const std::string stamp = prvDir + "/source.txt", now = "arcade=" + menu.cfg.arcade + "\npc=" + menu.cfg.pc + "\n";
+            std::string was;
+            if (std::FILE* f = std::fopen(stamp.c_str(), "rb")) {
+                char b[2048];
+                was.assign(b, std::fread(b, 1, sizeof b, f));
+                std::fclose(f);
+            }
+            if (was != now) {
+                for (int m = 0; m < 2; ++m)
+                    for (int kind : {game::kPreviewBlood, game::kPreviewModels})
+                        std::filesystem::remove(game::previewBaseFile(prvDir, m, kind), ec);
+                if (std::FILE* f = std::fopen(stamp.c_str(), "wb")) {
+                    std::fwrite(now.data(), 1, now.size(), f);
+                    std::fclose(f);
+                }
+            }
+        }
+        if (!prvHost && !prvJob.valid()) {
+            int m = -1;
+            for (int k = 0; k < 2 && m < 0; ++k)
+                if (!prvFailed[k] && !prvHave(k) && (k == 0 || (wantPc && menu.pcOk && !menu.cfg.pc.empty())))
+                    m = k;
+            if (m < 0)
+                return false;
+            std::string e2;
+            if (regions.empty() && !arcadeRegions(e2)) {
+                SDL_Log("settings pictures: no arcade files (%s)", e2.c_str());
+                prvFailed[0] = prvFailed[1] = true;
+                return false;
+            }
+            prvModels = m;
+            prvPhase = prvHave(m, game::kPreviewBlood) ? 1 : 0;   // (Blood Color's there: Chapter 1 straight away)
+            prvT0 = std::chrono::steady_clock::now();
+            prvWorkMs = 0;
+            prvLoad(true);
+            SDL_Log("settings pictures: rendering the %s models' frames (in this game, in the background)", m ? "PC" : "arcade");
+            return true;
+        }
+        if (prvJob.valid()) {
+            if (prvJob.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+                return true;
+            PrvPrep p = prvJob.get();
+            std::string e2 = p.err;
+            if (e2.empty() && p.view && !p.view->ok)
+                e2 = p.view->err;
+            bool ok = p.host != nullptr;
+            if (ok && !prvView) {
+                auto fresh = std::make_unique<game::GameView>();
+                ok = p.view && p.view->ok && fresh->finish(std::move(p.view), e2);
+                if (ok)
+                    prvView = std::move(fresh);
+            }
+            if (!ok) {
+                SDL_Log("settings pictures: cannot render (%s)", e2.c_str());
+                prvFailed[std::max(0, prvModels)] = true;
+                prvStop();
+                return false;
+            }
+            prvHost = std::move(p.host);
+            game::Runtime& r = prvHost->runtime();
+            r.audio = nullptr;
+            r.log = nullptr;
+            r.settings.bloodColor = 0;
+            r.pcModels = prvModels == 1;
+            r.fbiScreen = false;
+            r.apply_settings();
+            if (prvPhase == 0)
+                r.attract_begin();
+            else {   // prevbridge: Chapter 1 as the checks' --chapter 1 --lives-kept 1 runs it (one player), no input at all
+                r.livesKept = true;
+                r.chapter_start(0, 0, 1);
+            }
+            prvStart = r.frameCount;
+            prvDone = 0;
+        }
+        game::Runtime& r = prvHost->runtime();
+        const auto t0 = std::chrono::steady_clock::now();
+        bool ticked = false;
+        // the frame to stop at: the attract's Blood Color frame, Chapter 1's bridge frame (prevbridge), HOTD_PREVIEW_DUMP's
+        const char* dumpDir = std::getenv("HOTD_PREVIEW_DUMP");
+        const char* bridgeOpt = std::getenv("HOTD_PREVIEW_BRIDGE");
+        const uint64_t bridge = uint64_t(bridgeOpt ? std::max(1, std::atoi(bridgeOpt)) : game::kPreviewBridgeFrame);
+        const uint64_t last = prvPhase == 0 ? uint64_t(game::kPreviewFrame) : bridge, done = prvDone;
+        uint64_t stop = last;
+        const char* dumpFromOpt = std::getenv("HOTD_PREVIEW_DUMP_FROM");
+        const uint64_t dumpFrom = dumpFromOpt ? uint64_t(std::max(10, std::atoi(dumpFromOpt))) : bridge > 400 ? bridge - 400 : 10;
+        if (dumpDir && prvPhase == 1 && done + 1 < last)
+            stop = std::min(stop, std::max<uint64_t>(dumpFrom, (done / 10 + 1) * 10));
+        // Chapter 1: the checks' --autofire player up to kPreviewBridgeFireUntil (the first zombies must fall for the
+        // way on), then no input, so the big zombie carries the researcher off (HOTD_PREVIEW_FIRE_UNTIL: testing)
+        const char* fireOpt = std::getenv("HOTD_PREVIEW_FIRE_UNTIL");
+        const uint64_t fireUntil = prvPhase == 0 ? 0 : uint64_t(fireOpt ? std::atoi(fireOpt) : game::kPreviewBridgeFireUntil);
+        while (r.frameCount - prvStart < stop &&
+               std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() < 3.0) {
+            for (auto& g : r.gun) g = {};
+            if (r.frameCount - prvStart < fireUntil) {
+                const bool quiet = gAutofireQuiet;
+                gAutofireQuiet = true;
+                autofire(r, int(r.frameCount - prvStart));
+                gAutofireQuiet = quiet;
+            }
+            r.frame();
+            r.chapterChanged = -1;
+            ticked = true;
+        }
+        const bool at = r.frameCount - prvStart >= stop;
+        // (the attract drawn small on the way: the view loads the story's worlds as they come, as the live attract's
+        // does; Chapter 1 stays in the view's own world: drawn only at the frame)
+        const int fw = at ? game::kPreviewRenderW : 128, fh = at ? game::kPreviewRenderH : 72;
+        if ((at || (ticked && prvPhase == 0)) && prvTarget(fw, fh)) {
+            prvView->opt.clearColor = true;
+            prvView->draw(r, fw, fh);
+            if (at) {
+                prvDone = stop;
+                const std::vector<uint8_t> px = prvView->renderer.readBack(fw, fh);
+                if (dumpDir && prvPhase == 1) {
+                    std::vector<uint8_t> rgba(size_t(fw) * size_t(fh) * 4, 255);
+                    for (size_t i = 0; i < size_t(fw) * size_t(fh); ++i)
+                        for (int c = 0; c < 3; ++c) rgba[i * 4 + c] = px[i * 3 + c];
+                    writePngRgba(std::string(dumpDir) + "/ch1_" + (prvModels ? "pc_" : "arcade_") + std::to_string(stop) + ".png",
+                                 fw, fh, rgba);
+                }
+                if (stop == last) {
+                    const int kind = prvPhase == 0 ? game::kPreviewBlood : game::kPreviewModels;
+                    game::PreviewImg img = game::previewCrop(px, fw, fh, kind);
+                    const std::string f = game::previewBaseFile(prvDir, prvModels, kind);
+                    if (img.w > 0 && writePngRgba(f, img.w, img.h, img.rgba)) {
+                        SDL_Log("settings pictures: %s saved (%s frame %d; %.0f ms after the run's start, %.0f ms of it "
+                                "the menu frames' work)", f.c_str(), prvPhase == 0 ? "attract" : "Chapter 1", int(stop),
+                                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - prvT0).count(),
+                                prvWorkMs + std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+                        ++prvGen;
+                    } else
+                        prvFailed[prvModels] = true;
+                }
+            }
+        }
+        gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
+        prvWorkMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        if (at && stop == last && prvPhase == 0 && !prvFailed[std::max(0, prvModels)] && !prvHave(prvModels, game::kPreviewModels)) {
+            // prevbridge: on to Chapter 1: a fresh runtime (loaded on a worker), the same view
+            prvHost.reset();
+            prvPhase = 1;
+            prvLoad(false);
+        } else if (at && (stop == last || prvFailed[std::max(0, prvModels)]))
+            prvStop();
+        return true;
+    };
+    // into the game: the files' regions, sound from the PC files, the view with the chosen models, the chapter start
+    auto enterGame = [&]() -> bool {
+        prvStop();         // menus3: the settings pictures' render ends (one game view at a time)
+        menuBoardStop();   // prerel: an arcade menu song ends (the board as the game sets it)
+        liveStop(false);   // liveattract: the menu's live attract ends (one game view at a time)
+        if (launcher) {
+            cfg = menu.cfg;
+            if (netGameSettings)   // an online game from the menu: both PCs play the host's settings
+                netApply(*netGameSettings, cfg);
+            setPcFileMap(menu.pcOk ? menu.pcFiles : std::map<std::string, std::string>{});
+        }
+        if (sceneStarting)   // the cut-scene viewer's game (sceneStart): its players, models, route
+            sceneConfig(cfg, routeForce);
+        if (!inputTestFile.empty()) {   // the input test: the mice / keyboard first (its pad cases set their own)
+            cfg.p1Input = 0;
+            if (cfg.p2Input >= 2) cfg.p2Input = 0;
+        }
+        runChapter = -1;   // a new game: the chosen chapter
+        const uint64_t s0 = SDL_GetTicksNS();
+        if (!arcadeRegions(err)) {
+            menu.status.push_back(err);
+            return false;
+        }
+        const uint64_t s1 = SDL_GetTicksNS();
+        const bool pcOk = !launcher || menu.pcOk;
+        pcFilesOk = pcOk;
+        if (launcher && pcOk) setWindowIconFromPc(window, cfg.pc);
+        audioStart(pcOk ? cfg.pc : std::string());
+        const uint64_t s2 = SDL_GetTicksNS();
+        if (!startGame()) {
+            menu.status.push_back("Cannot start: " + err);
+            return false;
+        }
+        const uint64_t s3 = SDL_GetTicksNS();
+        view = std::make_unique<game::GameView>();
+        viewChapter = int(host.mem().at<uint8_t>(game::A::G::chapter));
+        if (viewChapter >= 4)   // the slots past Chapter 4 use a chapter's world (0xC0BB0: 4 / 5 Chapter 1's, 6 the ending Chapter 4's)
+            viewChapter = viewChapter == 6 ? 3 : 0;
+        // perf: the view the menu prepared ahead (ViewPrefetch: Chapter 1 with the menu's settings), else loaded here
+        const std::string viewPc = cfg.models == 1 && pcOk ? cfg.pc : std::string();
+        std::unique_ptr<game::GameView::Prepared> ready = gViewPrefetch.take(viewChapter, viewPc, viewBlood());
+        if (ready)
+            SDL_Log("start: the view was prepared ahead");
+        if (!(ready ? view->finish(std::move(ready), err) : view->init(regions, dumps, texsets, viewChapter, err, viewPc, viewBlood()))) {
+            SDL_Log("%s", err.c_str());
+            menu.status.push_back("Cannot start: " + err);
+            view.reset();
+            return false;
+        }
+        // PC Mode: the characters' own car models (0x1D38..) where the view has them (docs/pcmode.md row 15)
+        host.runtime().modelAvailable = [&view](uint32_t m) { return view && view->hasModel(m); };
+        host.runtime().ragdollWorld = [&view]() -> const game::RagdollWalls* { return view ? view->ragdollWalls() : nullptr; };   // (leftovers)
+        // the PC sprites: the PC HUD with PC models; in both modes the sight's shape (the arcade style recolours it)
+        hud.setPcDir(pcOk ? cfg.pc : std::string(), viewBlood());
+        // perf: Start -> the game's set-up, by part
+        SDL_Log("start: %.0f ms (regions %.0f, sound %.0f, game %.0f, view and HUD %.0f)", double(SDL_GetTicksNS() - s0) / 1e6,
+                double(s1 - s0) / 1e6, double(s2 - s1) / 1e6, double(s3 - s2) / 1e6, double(SDL_GetTicksNS() - s3) / 1e6);
+        SDL_GetMouseState(&guns[0].x, &guns[0].y);
+        int lw, lh;
+        SDL_GetWindowSize(window, &lw, &lh);
+        guns[1].x = lw * 0.5f;
+        guns[1].y = lh * 0.5f;
+        for (int p = 2; p < game::kInputPlayers; ++p)   // the 4P mode: players 3 / 4 start in the middle too
+            guns[p] = guns[1];
+        gunW = lw;
+        gunH = lh;
+        for (Gun& g : guns)
+            g.trigger = g.reload = false;
+        std::fill(&keyAim[0][0], &keyAim[0][0] + 16, false);
+        // the desktop cursor first; relative mode (each mouse its own ID) only once a second mouse has really been
+        // used, with P2 input "a second mouse" (the game loop: gMiceUsed)
+        int mice = 0;
+        if (SDL_MouseID* ids = SDL_GetMice(&mice)) {
+            for (int i = 0; i < mice; ++i) {
+                const char* name = SDL_GetMouseNameForID(ids[i]);
+                SDL_Log("mouse %u: %s", unsigned(ids[i]), name && *name ? name : "(no name)");
+            }
+            SDL_free(ids);
+        }
+        // pads: the players' gamepads (assigned now) and light guns (raw input: assigned in the order used)
+        pads.configure(cfg);
+        pads.reset(guns, lw, lh);
+        lightGuns.configure(cfg);
+        lightGuns.reset();
+        gunFlash.reset();
+        if (cfg.calibrateNext && lightGuns.active()) {   // padpass: Controls > Calibrate Light Guns: At Next Start
+            lightGuns.startCalibration();
+            cfg.calibrateNext = menu.cfg.calibrateNext = false;
+        }
+        relMice = false;
+        gMiceUsed.clear();
+        rawWatch = cfg.p2Input == 0 || lightGuns.active() || !inputTestFile.empty();   // the input test: registered (hidden: no input), fed by hand
+        if (rawWatch)
+            rawMiceWatch(window, true);
+        static const char* const kInputNames[4] = {"mouse", "keyboard", "gamepad", "light gun"};
+        SDL_Log("input: %d mice listed; player 1: %s, player 2: %s%s", mice, kInputNames[std::clamp(cfg.p1Input, 0, 3)],
+                kInputNames[std::clamp(cfg.p2Input, 0, 3)],
+                lightGuns.active() ? " (light guns: every mouse through raw input)"
+                : cfg.p2Input == 0 ? " (the desktop cursor until a second mouse is used)" : "");
+        for (int p = 0; p < 2; ++p)
+            if (pads.want[p])
+                SDL_Log("input: player %d's gamepad: %s (style %s)", p + 1,
+                        pads.padOf(p) ? pads.padName(p).c_str() : "none connected yet", game::kPadStyleNames[pads.styleOf(p)]);
+        if (cross) SDL_SetCursor(cross);
+        pause.reset();
+        paused = false;
+        // rate: the game speed (an online game: the host's), the presentation, no frame to blend from yet
+        tick = gameTickPeriod(cfg.gameSpeed);
+        frameNs = tick.num / tick.den;
+        lastTickNs = frameNs;
+        audio.setTickRate(gameTickHz(cfg.gameSpeed));
+        applyPresentation();
+        prevFrame.valid = false;
+        SDL_Log("game speed: %s (%.4f ticks/s); frame rate: %s (limit %d, vsync %d); smooth motion %s",
+                gameSpeedNow(cfg.gameSpeed) == 1 ? "60 Hz" : "arcade", gameTickHz(cfg.gameSpeed),
+                renderFps >= 0 ? "--render-fps" : game::frameRateName(cfg.frameRate).c_str(),
+                renderLimit, vsyncNow, cfg.smooth ? "on" : "off");
+        next = SDL_GetTicksNS();
+        return true;
+    };
+    auto leaveGame = [&]() {
+        audio.silence();   // Esc to the main menu: the game's music and sounds end there (user, 2026-10-16)
+        if (view)
+            view->shutdown();
+        view.reset();
+        if (relMice && inputTestFile.empty())
+            SDL_SetWindowRelativeMouseMode(window, false);   // the launcher's own cursor back
+        relMice = false;
+        if (rawWatch)
+            rawMiceWatch(window, false);
+        rawWatch = false;
+        lightGuns.cancelCalibration();
+        if (arrow) SDL_SetCursor(arrow);
+        SDL_ShowCursor();   // hidden while a sight was drawn
+        if (gNet && launcher) {   // an online game from the menu ends: the other PC is told (it left), the settings back
+            gNet->leave(300);
+            gNet.reset();
+            netRestore();
+        }
+    };
+    // the cut-scene viewer's Play (the Cut-scenes page, --scene-view): the scene's chapter from its start (no title),
+    // its route, lives kept; then the seek (or the kept save-state). false: the page's status says why
+    auto sceneStart = [&]() -> bool {
+        gPcMode = 0;
+        bossModeOpt = 0;
+        const auto routeWas = routeForce;
+        const bool keptWas = livesKept;
+        livesKept = true;
+        menuChapter = gScene.scene().chapter, menuEvent = -1;
+        sceneStarting = true;
+        titleNow = 0;
+        const bool ok = enterGame();
+        titleNow = -1;
+        sceneStarting = false;
+        routeForce = routeWas;
+        livesKept = keptWas;
+        if (!ok) {
+            gScene.error = "The game could not start: " + err;
+            gScene.stop();
+            return false;
+        }
+        gScene.begin(host.runtime());
+        // padglyphs: HOTD_SCENE_PROMPTS=<style> (pad_prompts.h padStyleKey; testing: the hint's picture per family)
+        if (const char* sp = std::getenv("HOTD_SCENE_PROMPTS")) gScene.padType = game::padStyleByKey(sp);
+        prevFrame.valid = false;
+        SDL_Log("cut-scene viewer: Chapter %d scene %02d, %d players, %s models%s", gScene.scene().chapter + 1,
+                gScene.scene().scene, gScene.players, gScene.models ? "PC" : "arcade",
+                gScene.phase == game::SceneView::Phase::Watching ? " (the kept save-state)" : "");
+        return true;
+    };
+    // online co-op ready to play (the menu's Online Co-op page or the text launcher's rows): the session taken, the
+    // host's settings over the launcher's, a joiner's catch-up, both PCs' states compared; false: back where it was
+    auto startOnline = [&]() -> bool {
+        net::Settings ns;
+        gNet = online.take(ns);
+        if (gNet) gNet->askOnDrop = true;   // (a player leaving: the game waits for the host's choice)
+        gNetTimeout = netArgs.timeout;
+        netGameSettings = ns;
+        SDL_ShowCursor();
+        titleNow = 0;
+        const bool ok = enterGame();
+        titleNow = -1;
+        std::string ne;
+        if (ok && netCatchUp(ne) && gNet->ready(host.runtime(), ne, gNetTimeout))
+            return true;
+        SDL_Log("[net] the online game could not start: %s", ne.c_str());
+        if (ok) leaveGame();
+        gNet.reset();
+        netRestore();
+        online.startFailed(fe, ne.empty() ? "The game could not start on this PC (see hotd's log)." : ne);   // shown on the page
+        return false;
+    };
+    // the setup dialog without the menu (no PC menu art): the Online Co-op pages as its last rows (setup: only then;
+    // with the menu, its Co-op > Online Co-op has them. HOTD_ONLINE_TEST: always, its launcher test clicks them)
+    menu.extraTitle = "Online Co-op (two PCs)";
+    std::vector<int> setupRows;   // the setup's online rows -> online.textRows()' (a row left out)
+    menu.extraWhen = [&]() { return feFailed || (menu.checked && !menu.pcOk) || std::getenv("HOTD_ONLINE_TEST") != nullptr; };
+    menu.extraLines = [&]() {
+        if (!online.textMode())
+            online.openText([]() {});
+        std::vector<game::Launcher::ExtraLine> v;
+        setupRows.clear();
+        const auto rows = online.textRows();
+        for (size_t i = 0; i < rows.size(); ++i) {
+            if (rows[i].label == "In-game Info")   // (setup, user 2026-10-31: no debug rows on the setup page; the menu has it)
+                continue;
+            v.push_back({rows[i].label, rows[i].value, rows[i].clickable});
+            setupRows.push_back(int(i));
+        }
+        return v;
+    };
+    menu.extraClick = [&](int i) { if (i >= 0 && i < int(setupRows.size())) online.clickText(setupRows[size_t(i)]); };
+    // --input-test <file> (input, docs/teaser_status/input.md): the real input path end to end without a person.
+    // SDL_PushEvent injects mouse motion / buttons (distinct mouse IDs) and keys into this loop's event queue, one
+    // game frame per loop; the checks read what reached the game (Runtime::gun, the player records, the input task's
+    // counts). Phase 0: before the events are polled, 1: after the frame, 2: back in the launcher (the end).
+    std::function<void(int, game::Runtime&, int, int)> inputTest;
+    if (!inputTestFile.empty()) {
+        struct T {
+            int it = -1, checks = 0, fails = 0, stage = 0, wait = 0;   // stage: 0 first game, 1 Start again, 2 second game, 3 end screen left
+            uint32_t frames0 = 0, shots0[2] = {}, reloads0[2] = {}, starts0[2] = {};
+            uint32_t seatShots0[2] = {}, seatReloads0[2] = {};   // the 4P keyboard (622-623): players 3 / 4 before
+            float seatMark[2] = {};
+            uint32_t shotEnable = 0;      // pause: shot_enable before the test held it at 1
+            uint64_t reloadSounds0 = 0;   // hud3: the reload sound (0xA01200 = the PC's cue 0x1C) before this frame
+            // edgereload: the edge cases' reloads and reload sounds at a size's start (the sounds checked per size: the
+            // game takes a reload on its gun-flash phase, a few frames late at times)
+            uint64_t edgeReloads0 = 0, edgeSounds0 = 0;
+            bool edgeSoundLater = false;   // (counts() leaves the reload sound to that check)
+            int hold = 0;                 // hud3: frames waited in the second game for the shooting to start
+            int skipStep = 0, skipFrom = 0, skipBad = 0;   // bossbug: the pause / hold-to-skip in the second game's opening scene
+            bool skipCfg = true;                           // (skipfix: Hold to Skip Cut-scenes before its Off check)
+            int bossSkip = 0, bossFrom = 0;                // (skipfix: the hold-to-skip in the Hermit's Boss Mode start)
+            bool bossExit = false;
+            // liveattract: the attracts the walks start (the Gallery's Attract Demo, the Remake boot): its frames, the
+            // game modes it went through, whether it came back; the boot's splash stages seen
+            int attractFrames = 0;
+            std::string attractModes;
+            bool attractSeen = false, splashArt = false;
+            unsigned cuesBefore = 0;   // remakefix: the Remake sounds before a step
+            int galleryBefore = -1, categoryBefore = -1;   // regallery: the Gallery's entry / category before a step
+            bool holding = false;
+            float cur[2] = {};     // SDL's one cursor in relative mode (motion.x / y): every mouse moves it
+            float mark[2][2] = {}; // positions remembered between steps
+            int wantW = 0, wantH = 0;
+            std::FILE* out = nullptr;
+            std::unique_ptr<game::PadTest> pads = std::make_unique<game::PadTest>();   // pads: the gamepad / light-gun cases
+            int padChecks = 0;            // the pad cases' checks so far (PadTest::kChecks at the end)
+            int flashCfg[4] = {};         // padpass: the light-gun settings put back after the flash / border checks
+            std::unique_ptr<game::BindTest> binds = std::make_unique<game::BindTest>();   // keybind: the binding cases
+            int bindChecks = 0;           // their checks so far (BindTest::kChecks at the end)
+        };
+        auto t = std::make_shared<T>();
+        t->out = std::fopen(inputTestFile.c_str(), "w");
+        if (!t->out) { SDL_Log("--input-test: cannot write %s", inputTestFile.c_str()); return 1; }
+        inputTest = [&, t](int phase, game::Runtime& rt, int lw, int lh) {
+            T& s = *t;
+            auto log = [&](const char* fmt, auto... a) {
+                std::fprintf(s.out, fmt, a...);
+                std::fputc('\n', s.out);
+                std::fflush(s.out);
+            };
+            auto expect = [&](bool ok, const std::string& what) {
+                ++s.checks;
+                if (!ok) ++s.fails;
+                log("%s frame %d: %s", ok ? "ok  " : "FAIL", s.it, what.c_str());
+            };
+            const SDL_WindowID win = SDL_GetWindowID(window);
+            auto motion = [&](SDL_MouseID id, float x, float y, float dx, float dy) {
+                SDL_Event ev{};
+                ev.type = SDL_EVENT_MOUSE_MOTION;
+                ev.motion.windowID = win;
+                ev.motion.which = id;
+                ev.motion.x = x;
+                ev.motion.y = y;
+                ev.motion.xrel = dx;
+                ev.motion.yrel = dy;
+                SDL_PushEvent(&ev);
+            };
+            // a mouse in relative mode: its motion, and SDL's one cursor (x / y) moved by it, as SDL reports them
+            auto relMotion = [&](SDL_MouseID id, float dx, float dy) {
+                s.cur[0] = std::clamp(s.cur[0] + dx, 0.0f, float(lw));
+                s.cur[1] = std::clamp(s.cur[1] + dy, 0.0f, float(lh));
+                motion(id, s.cur[0], s.cur[1], dx, dy);
+            };
+            auto button = [&](SDL_MouseID id, Uint8 b, bool down) {
+                SDL_Event ev{};
+                ev.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+                ev.button.windowID = win;
+                ev.button.which = id;
+                ev.button.button = b;
+                ev.button.down = down;
+                ev.button.clicks = 1;
+                SDL_PushEvent(&ev);
+            };
+            auto click = [&](SDL_MouseID id, Uint8 b) { button(id, b, true); button(id, b, false); };
+            auto key = [&](SDL_Keycode k, SDL_Scancode sc, bool down, bool repeat = false, SDL_Keymod mod = 0) {
+                SDL_Event ev{};
+                ev.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+                ev.key.windowID = win;
+                ev.key.key = k;
+                ev.key.scancode = sc;
+                ev.key.down = down;
+                ev.key.repeat = repeat;
+                ev.key.mod = mod;
+                SDL_PushEvent(&ev);
+            };
+            auto press = [&](SDL_Keycode k, SDL_Scancode sc) { key(k, sc, true); key(k, sc, false); };
+            auto skipWhy = [&]() {   // (skipfix: the hold-to-skip's state, for a failed check)
+                std::string w = " [holdSkip " + std::to_string(cfg.holdSkip) + ", scene " + std::to_string(cutSceneNow(rt)) +
+                                ", eligible " + std::to_string(holdSkipScene(rt)) + ", stale " + std::to_string(skipStale) + ", mouse " +
+                                std::to_string(skipMouse) + ", keys";
+                for (size_t k = 0; k < skipKeys.size(); ++k)
+                    if (skipKeys[k]) w += " " + std::to_string(k);
+                w += ", letterbox " + std::to_string(rt.letterbox) + ", cells";
+                for (int l = 0; l < 4; ++l) {
+                    int n = 0;
+                    for (int r = 43; r < 48; ++r)
+                        for (int c = 29; c <= 33; ++c)
+                            n += rt.mem.at<uint16_t>(0x1000000u + uint32_t(l) * 0x2000 + uint32_t(r) * 0x80 + uint32_t(c) * 2) != 0;
+                    w += " " + std::to_string(n);
+                }
+                return w + "]";
+            };
+            auto pix = [&](float ax, float ay, float& px, float& py) { view->fromArcade(ax, ay, lw, lh, px, py); };
+            auto approx = [](float a, float b, float tol = 0.05f) { return std::abs(a - b) <= tol; };
+            auto gunIs = [&](int p, float ax, float ay, bool on, float tol = 0.05f) {
+                const game::Runtime::GunInput& g = rt.gun[p];
+                const port::a::Player& pl = rt.mem.at<port::a::Player>(game::A::G::players, uint32_t(p));
+                char b[200];
+                std::snprintf(b, sizeof b, "P%d gun (%.2f, %.2f) %s, wanted (%.2f, %.2f) %s; player aim (%d, %d) on_screen %d", p + 1,
+                              g.x, g.y, g.onScreen ? "on" : "off", ax, ay, on ? "on" : "off", pl.aim[0], pl.aim[1], pl.on_screen);
+                bool ok = approx(g.x, ax, tol) && approx(g.y, ay, tol) && g.onScreen == on && pl.on_screen == (on ? 1 : 0);
+                if (on)
+                    ok = ok && pl.aim[0] == int16_t(g.x) && pl.aim[1] == int16_t(g.y);
+                expect(ok, b);
+                if (on) {
+                    // feet2: the cross (the simple cross, 25 x 25 of the PC's 640 x 480; the other sights the same way)
+                    // is centred on the aim's window pixel, and arcade (0, 0) is the window's middle, at this window
+                    // size and at 16:9 / 4:3 sizes
+                    const int sizes[4][2] = {{lw, lh}, {1920, 1080}, {1024, 768}, {600, 900}};
+                    bool centred = true;
+                    float worst = 0;
+                    for (const auto& sz : sizes) {
+                        float px, py, cx, cy, r[4];
+                        view->fromArcade(g.x, g.y, sz[0], sz[1], px, py);
+                        game::Hud::sightRect(25, 25, sz[1], px, py, r);
+                        worst = std::max({worst, std::abs(r[0] + r[2] / 2 - px), std::abs(r[1] + r[3] / 2 - py)});
+                        view->fromArcade(0, 0, sz[0], sz[1], cx, cy);
+                        worst = std::max({worst, std::abs(cx - sz[0] / 2.0f), std::abs(cy - sz[1] / 2.0f)});
+                        centred = centred && worst <= 0.01f;
+                    }
+                    std::snprintf(b, sizeof b, "P%d cross centre on the aim pixel, arcade (0, 0) at the window middle (worst %.3f px)", p + 1, worst);
+                    expect(centred, b);
+                }
+            };
+            // what the input task handed the game this frame: shots, reloads, start presses per player
+            auto counts = [&](int shots1, int shots2, int reloads1, int reloads2, int starts1, int starts2, const char* what) {
+                const int got[6] = {int(rt.shotsIn[0] - s.shots0[0]), int(rt.shotsIn[1] - s.shots0[1]), int(rt.reloadsIn[0] - s.reloads0[0]),
+                                    int(rt.reloadsIn[1] - s.reloads0[1]), int(rt.startsIn[0] - s.starts0[0]), int(rt.startsIn[1] - s.starts0[1])};
+                const int want[6] = {shots1, shots2, reloads1, reloads2, starts1, starts2};
+                char b[240];
+                std::snprintf(b, sizeof b, "%s: shots %d/%d reloads %d/%d starts %d/%d (wanted %d/%d %d/%d %d/%d)", what, got[0], got[1],
+                              got[2], got[3], got[4], got[5], want[0], want[1], want[2], want[3], want[4], want[5]);
+                expect(std::equal(got, got + 6, want), b);
+                // hud3: every reload of a player in play (state 5, shots enabled) plays the original's reload sound
+                // once (player_shoot: 0xA01200 unless the attract; the PC's cue 0x1C)
+                int sounded = 0;
+                const bool shotsOn = rt.mem.u32(game::A::G::shot_enable) != 0 && rt.mem.at<int16_t>(game::A::G::game_mode) == 4;
+                for (int p = 0; p < 2; ++p)
+                    if (shotsOn && rt.mem.at<port::a::Player>(game::A::G::players, uint32_t(p)).state == 5)
+                        sounded += got[2 + p];
+                const auto it = audio.codeCount.find(0xA01200);
+                const int heard = int((it == audio.codeCount.end() ? 0 : it->second) - s.reloadSounds0);
+                if ((got[2] + got[3] > 0 || heard != 0) && !s.edgeSoundLater) {
+                    std::snprintf(b, sizeof b, "%s: the reload sound %d time(s), wanted %d", what, heard, sounded);
+                    expect(heard == sounded, b);
+                }
+            };
+            auto none = [&](const char* what) { counts(0, 0, 0, 0, 0, 0, what); };
+            // pads (game/pads_test.h): what its cases see of this loop
+            auto padTestCtx = [&](game::Runtime& r, int w, int h, const std::function<void(game::PadTest::Ctx&)>& f) {
+                // (each pad case's check counted: the end checks they all ran, whatever pads the PC has plugged in)
+                game::PadTest::Ctx c{r, guns, pads, lightGuns, cfg, pause, w, h,
+                                     [&](bool ok, const std::string& m) { ++s.padChecks; expect(ok, m); },
+                                     [&](int a, int b2, int c2, int d, int e2, int f2, const char* what) { ++s.padChecks; counts(a, b2, c2, d, e2, f2, what); },
+                                     [&](float x, float y) { motion(0, x, y, 0, 0); }};
+                f(c);
+            };
+            // keybind (game/keybinds_test.h): what its cases see of this loop
+            auto bindTestCtx = [&](game::Runtime& r, int w, int h, const std::function<void(game::BindTest::Ctx&)>& f) {
+                game::BindTest::Ctx c{r, guns, pads, cfg, pause, w, h,
+                                      [&](bool ok, const std::string& m) { ++s.bindChecks; expect(ok, m); },
+                                      [&](int a, int b2, int c2, int d, int e2, int f2, const char* what) { ++s.bindChecks; counts(a, b2, c2, d, e2, f2, what); },
+                                      [&](SDL_Scancode sc, bool down) { key(SDL_GetKeyFromScancode(sc, SDL_KMOD_NONE, false), sc, down); }};
+                f(c);
+            };
+            const int sizes[5][2] = {{1280, 720}, {992, 768}, {496, 384}, {600, 900}, {1600, 900}};
+            // edgereload: the edge cases' window sizes (the Surface Pro 7: 2736 x 1824 at 200 % = 1368 x 912), after the
+            // keybind cases
+            const int edgeSizes[4][2] = {{2736, 1824}, {1368, 912}, {1600, 900}, {1024, 768}};
+            // per size: the resize, a reload, then a case every sixth frame (the game's sound cues queue: with a case
+            // every frame the reload sound checked with each case came a frame or two late behind the shot sounds)
+            constexpr int kEdge0 = game::BindTest::kLast + 2, kEdgeStep = 60, kEdgeN = kEdgeStep * 4;
+            // padpass: the shot flash's cycle and the light guns' screen aids after the edge cases (kFlash0 .. +9), then the end
+            constexpr int kFlash0 = kEdge0 + kEdgeN + 2;
+            // padfix: the user's DualSense notes' cases (PadTest::fixBefore / fixAfter) after the flash's, then the end
+            constexpr int kFix0 = kFlash0 + 9;
+            auto edgeCase = [&](int i, int& k) {   // the edge case (0-8) frame i tests, -1 none; k: the size
+                const int j = (i - kEdge0) % kEdgeStep;
+                k = std::clamp((i - kEdge0) / kEdgeStep, 0, 3);
+                return i >= kEdge0 && i < kEdge0 + kEdgeN && j >= 6 && (j - 6) % 6 == 0 && (j - 6) / 6 < 9 ? (j - 6) / 6 : -1;
+            };
+            // a touch-screen finger down / up (SDL's own touch mouse events are sent apart: motion / click with T)
+            auto finger = [&](SDL_FingerID f, bool down) {
+                SDL_Event ev{};
+                ev.type = down ? SDL_EVENT_FINGER_DOWN : SDL_EVENT_FINGER_UP;
+                ev.tfinger.touchID = 7;
+                ev.tfinger.fingerID = f;
+                ev.tfinger.x = ev.tfinger.y = 0.5f;
+                ev.tfinger.windowID = win;
+                SDL_PushEvent(&ev);
+            };
+            if (phase == 4) {   // the end screen (CHAPTER 1 CLEAR, forced at frame 305): Esc
+                if (s.stage == 2) {
+                    expect(true, "the end screen");
+                    press(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE);
+                    s.stage = 3;
+                }
+                return;
+            }
+            // liveattract: an attract the menu walks started (stage 5 / 7): the Gallery's Attract Demo runs as it is and
+            // goes back on a click (Classic walk) / Escape (Remake walk); the Remake boot's attract goes round by itself
+            // autostart (the Remake walk's act 38, below): its pad, and the let-gos done in the attract
+            static SDL_JoystickID autoPadId = 0;
+            static SDL_Joystick* autoPad = nullptr;
+            static bool autoOn = false, autoBail = false, autoLetGo[2] = {};
+            if ((phase == 0 || phase == 1) && feAttract && (s.stage == 5 || s.stage == 7)) {
+                const int mode = rt.mem.at<int16_t>(game::A::G::game_mode);
+                if (attractKind == 1 && autoOn && phase == 0) {   // autostart: the launch's click / Enter, then the pad, let go
+                    if (mode == 4 && !autoBail) {   // (a game started: the bug; out to the menu, failed)
+                        autoBail = true;
+                        press(SDLK_SPACE, SDL_SCANCODE_SPACE);
+                    }
+                    if (s.attractFrames >= 20 && !autoLetGo[0]) {
+                        autoLetGo[0] = true;
+                        button(0, SDL_BUTTON_LEFT, false);
+                        key(SDLK_RETURN, SDL_SCANCODE_RETURN, false);
+                    }
+                    if (s.attractFrames >= 200 && !autoLetGo[1] && autoPad) {
+                        autoLetGo[1] = true;
+                        SDL_SetJoystickVirtualButton(autoPad, SDL_GAMEPAD_BUTTON_SOUTH, false);
+                        SDL_SetJoystickVirtualButton(autoPad, SDL_GAMEPAD_BUTTON_START, false);
+                        SDL_SetJoystickVirtualAxis(autoPad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, -32768);
+                        SDL_UpdateJoysticks();
+                    }
+                }
+                if (attractKind == 1) {   // (the boot: the modes after each frame, in order)
+                    const std::string m = std::to_string(mode);
+                    if (phase == 1 && mode != 1 && (s.attractModes.size() < m.size() ||
+                                       s.attractModes.compare(s.attractModes.size() - m.size(), m.size(), m) != 0))
+                        s.attractModes += (s.attractModes.empty() ? "" : " ") + m;
+                    s.attractFrames += phase == 1 ? 1 : 0;
+                    return;
+                }
+                if (phase == 1)
+                    return;
+                if (++s.attractFrames == 90) {
+                    expect(attractKind == 2 && mode != 4 && mode != 5,
+                           "Attract Demo: the attract runs full screen (game mode " + std::to_string(mode) + ")");
+                    s.attractSeen = true;
+                    if (s.stage == 5) click(0, SDL_BUTTON_LEFT);
+                    else press(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE);
+                }
+                return;
+            }
+            if (phase == 2 || phase == 5) {   // back in the launcher (5: the window loop ended elsewhere)
+                if (s.it < 0)
+                    return;
+                if (phase == 5) {
+                    expect(false, "the game quit instead of going back to the launcher (stage " + std::to_string(s.stage) + ")");
+                    s.stage = -1;
+                }
+                if (s.stage == 0) {   // Esc in the game came here: Arcade again, for the end screen's Esc
+                    expect(s.it >= 172 && s.it < 175, "Esc, Down, a click on Exit in the game: back in the main menu");
+                    expect(!relMice && !SDL_GetWindowRelativeMouseMode(window), "the main menu: relative mouse mode off");
+                    expect(gPcMode == 0, "the pause's Exit: no PC Mode left for the next game (soak)");
+                    s.stage = 5;   // the menu's walk first (below), then Arcade
+                    s.wait = 0;
+                    return;
+                }
+                // the menu's overhaul (game/menu_pages.h): a walk through its pages with clicks (the mouse moved onto a
+                // 640 x 480 point, the picture fitted to the height) and Escape; each step checks the screen it reached
+                if (s.stage == 5) {
+                    // (key: pressed instead of the click / Escape; check: keybind's extra check after the step)
+                    struct Step { int x, y; int screen; const char* title; const char* what; SDL_Scancode key = SDL_SCANCODE_UNKNOWN; int check = 0; };
+                    static const Step kWalk[] = {
+                        {320, 380, 2, nullptr, "main menu > Options: the Options screen"},   // (menu2: the grouped menu, 28 apart from 0xC8)
+                        {48, 396, 100, "Video", "Options > the Video tab: the Video page"},
+                        {140, 70, 100, "Audio", "Video > the Audio tab: the Audio page"},
+                        // keybind: Controls > Keys & Buttons, Key: Fire clicked, G pressed, Reset Keys, Escape
+                        {249, 70, 100, "Controls", "Audio > the Controls tab: the Controls page"},
+                        {500, 204, 100, "Keys & Buttons", "Controls > Keys & Buttons: its page"},   // (uxpolish: the 5th row)
+                        {500, 256, 100, "Keys & Buttons", "Key: Fire clicked: waiting for a key", SDL_SCANCODE_UNKNOWN, 1},
+                        {-1, -1, 100, "Keys & Buttons", "G pressed", SDL_SCANCODE_G, 2},
+                        {500, 360, 100, "Keys & Buttons", "Reset Keys clicked", SDL_SCANCODE_UNKNOWN, 3},
+                        {-1, -1, 100, "Controls", "Escape on Keys & Buttons: the Controls page"},
+                        {-1, -1, 2, nullptr, "Escape on a category page: Options"},
+                        {-1, -1, 1, nullptr, "Escape on Options: the main menu"},
+                        {320, 296, 1, nullptr, "main menu > More Modes: its list"},
+                        {320, 240, 9, nullptr, "More Modes > Chapter Select: its page"},
+                        {-1, -1, 1, nullptr, "Escape on Chapter Select: More Modes"},
+                        {320, 268, 100, "Co-op", "More Modes > Co-op: the Co-op page"},
+                        {-1, -1, 1, nullptr, "Escape on Co-op: More Modes"},
+                        {-1, -1, 1, nullptr, "Escape on More Modes (Back): the main menu"},
+                        {320, 324, 1, nullptr, "main menu > Extras: its list"},
+                        {320, 240, 17, nullptr, "Extras > Gallery: its page"},
+                        // liveattract: the Gallery's Cut-scenes page (C), its Attract Demo clicked: the attract, a click
+                        // back to the page; Escape there: Extras
+                        {-1, -1, 19, nullptr, "C on the Gallery: its Cut-scenes page", SDL_SCANCODE_C},
+                        {-1, -1, 19, nullptr, "Cut-scenes > Attract Demo, a click: back on the Cut-scenes page", SDL_SCANCODE_UNKNOWN, 6},
+                        {-1, -1, 1, nullptr, "Escape on the Cut-scenes page: Extras"},
+                        {320, 268, 20, nullptr, "Extras > Jukebox: its page", SDL_SCANCODE_UNKNOWN, 4},
+                        {-1, -1, 1, nullptr, "Escape on the Jukebox: Extras", SDL_SCANCODE_UNKNOWN, 5},
+                        {320, 296, 1, nullptr, "Extras > Back: the main menu"},
+                        {320, 352, 8, nullptr, "main menu > High Scores: the tables"},
+                        {-1, -1, 1, nullptr, "Escape on High Scores: the main menu"},
+                        // uxpolish: Quit / Escape on the main menu ask first (Are you sure?); Escape there is No
+                        {-1, -1, 21, nullptr, "Escape on the main menu: Quit's question"},
+                        {-1, -1, 1, nullptr, "Escape on Quit's question (No): the main menu"},
+                        {320, 408, 21, nullptr, "main menu > Quit: the question"},
+                        {320, 0x148, 1, nullptr, "Quit's question > No: the main menu"},
+                    };
+                    constexpr int kSteps = int(sizeof kWalk / sizeof kWalk[0]);
+                    const int step = s.wait / 30, at = s.wait % 30;
+                    ++s.wait;
+                    float sc, x0, y0;
+                    game::Hud::pictureRect(640, 480, float(lw), float(lh), sc, x0, y0);
+                    if (step < kSteps) {
+                        const Step& st = kWalk[step];
+                        if (at == 0 && st.x >= 0)
+                            motion(0, x0 + float(st.x) * sc, y0 + float(st.y) * sc, 0, 0);
+                        if (at == 0 && st.check == 6) {   // (liveattract: onto Attract Demo)
+                            int cx = 0, cy = 0;
+                            s.attractFrames = 0, s.attractSeen = false;
+                            if (fe.widgetCentre("Attract Demo", cx, cy))
+                                motion(0, x0 + float(cx) * sc, y0 + float(cy) * sc, 0, 0);
+                        }
+                        if (at == 4) {
+                            if (st.check == 6) click(0, SDL_BUTTON_LEFT);
+                            else if (st.key) press(SDL_GetKeyFromScancode(st.key, SDL_KMOD_NONE, false), st.key);
+                            else if (st.x >= 0) click(0, SDL_BUTTON_LEFT);
+                            else press(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE);
+                        }
+                        if (at == 29) {
+                            expect(fe.screen() == st.screen && (!st.title || fe.extrasTitle == st.title),
+                                   std::string(st.what) + " (screen " + std::to_string(fe.screen()) + ")");
+                            // keybind: the capture through the real menu (synthetic events in the game's queue)
+                            if (st.check == 1)
+                                expect(gBind.active() && !gBind.pad() && gBind.player() == 0 && gBind.action() == game::kActFire,
+                                       "Keys & Buttons: Key: Fire waits for a key (" + gBind.message + ")");
+                            if (st.check == 2)
+                                expect(!gBind.active() && menu.cfg.keys[0].has(game::kActFire, SDL_SCANCODE_G) &&
+                                           cfg.keys[0].has(game::kActFire, SDL_SCANCODE_G),
+                                       "Keys & Buttons: G = player 1's Fire, in the game's settings too (" + gBind.message + ")");
+                            if (st.check == 3)
+                                expect(menu.cfg.keys[0] == game::defaultKeys(0) && cfg.keys[0] == game::defaultKeys(0),
+                                       "Keys & Buttons: Reset Keys = player 1's defaults (" + gBind.message + ")");
+                            // the Jukebox: the menu music stops on its page and comes back on Exit
+                            if (st.check == 4)
+                                expect(!audio.musicPlaying(), "Jukebox: the menu music stopped");
+                            if (st.check == 5)
+                                expect(audio.musicPlaying() || !audio.hasMusicTrack(audio.cueValue(fe.menuCue)),
+                                       "Jukebox: Exit, the menu music plays again");
+                            if (st.check == 6)
+                                expect(s.attractSeen && !feAttract && screen == Screen::Menu,
+                                       "Attract Demo (Classic): the attract ran and a click came back (" + std::to_string(s.attractFrames) + " frames)");
+                        }
+                        return;
+                    }
+                    s.stage = 7;   // the Remake style's walk next, then the PC Mode screen's seats
+                    s.wait = 0;
+                }
+                if (s.stage == 7) {
+                    // remakemenu: the Remake style (Options > Video > Menu Style) by keys (the focus: Up / Down held,
+                    // Enter, Escape, Q / E the tabs, Left / Right a value) and one click; then the Classic style again
+                    struct RStep {
+                        SDL_Keycode k;        // pressed (held 4 frames: the arrows), SDLK_UNKNOWN: none
+                        const char* click;    // or: the mouse moved onto that widget's centre and clicked
+                        int act;              // 1 the Remake style on (the mouse to a corner), 2 the Classic style again,
+                                              // 3 the live attract checked, 4 the Remake boot (splash, attract), 5 Attract Demo
+                        int screen;           // the screen after it
+                        const char* focus;    // the focus after it ("": not checked)
+                        const char* title;    // a settings page's title (nullptr: not checked)
+                        int models;           // menu.cfg.models after it (-1: not checked)
+                        const char* what;
+                    };
+                    static const RStep kRemake[] = {
+                        {SDLK_UNKNOWN, nullptr, 1, 1, "", nullptr, -1, "Menu Style Remake: the Remake main menu, as wide as the window"},
+                        {SDLK_DOWN, nullptr, 0, 1, "Arcade", nullptr, -1, "Down: the focus on Arcade"},
+                        {SDLK_DOWN, nullptr, 0, 1, "PC Mode", nullptr, -1, "Down: PC Mode"},
+                        {SDLK_DOWN, nullptr, 0, 1, "Boss Mode", nullptr, -1, "Down: Boss Mode"},
+                        {SDLK_DOWN, nullptr, 0, 1, "More Modes", nullptr, -1, "Down: More Modes"},
+                        {SDLK_DOWN, nullptr, 0, 1, "Extras", nullptr, -1, "Down: Extras"},
+                        {SDLK_DOWN, nullptr, 0, 1, "High Scores", nullptr, -1, "Down: High Scores"},
+                        {SDLK_DOWN, nullptr, 0, 1, "Options", nullptr, -1, "Down: Options"},
+                        {SDLK_UNKNOWN, nullptr, 3, 1, "Options", nullptr, -1, "the live attract behind the menu: running, drawn, none of the menu's keys reached it"},
+                        // rescrash (a player's crash: resolution changes while the live attract loaded again): Models
+                        // flipped (the live attract loads again, Chapter 1's view prepared ahead on a worker) while the
+                        // window's size and Display Mode change every frame (hidden: no display mode really changes)
+                        {SDLK_UNKNOWN, nullptr, 41, 1, "Options", nullptr, -1, "rescrash: window sizes / Windowed / Borderless / Fullscreen / F11 every frame while the live attract loads again: a window of its size again"},
+                        {SDLK_UNKNOWN, nullptr, 42, 1, "Options", nullptr, -1, "rescrash: the live attract runs again after the changes"},
+                        {SDLK_UNKNOWN, nullptr, 41, 1, "Options", nullptr, -1, "rescrash: the same again"},
+                        {SDLK_UNKNOWN, nullptr, 42, 1, "Options", nullptr, -1, "rescrash: the live attract runs again"},
+                        {SDLK_RETURN, nullptr, 0, 2, "Difficulty", nullptr, -1, "Enter on Options: its Game tab, the focus on Difficulty"},
+                        {SDLK_E, nullptr, 0, 100, "Models", "Video", -1, "E: the Video tab"},
+                        {SDLK_E, nullptr, 0, 100, "", "Audio", -1, "E: the Audio tab"},
+                        {SDLK_Q, nullptr, 0, 100, "Models", "Video", -1, "Q: the Video tab again"},
+                        {SDLK_RIGHT, nullptr, 0, 100, "Models", "Video", 1, "Right on Models: PC"},
+                        {SDLK_LEFT, nullptr, 0, 100, "Models", "Video", 0, "Left on Models: Arcade"},
+                        // remakefix: a short choice's dropdown by keys and by the mouse, the tabs' sound, the hand after clicks
+                        {SDLK_RETURN, nullptr, 6, 100, "Arcade", "Video", 0, "Enter on Models: its dropdown, the focus on Arcade (the current one)"},
+                        {SDLK_DOWN, nullptr, 6, 100, "PC", "Video", 0, "Down in the dropdown: PC"},
+                        {SDLK_RETURN, nullptr, 7, 100, "Models", "Video", 1, "Enter on PC: Models = PC, the dropdown closed"},
+                        {SDLK_RETURN, nullptr, 6, 100, "PC", "Video", 1, "Enter on Models again: the dropdown, on PC"},
+                        {SDLK_ESCAPE, nullptr, 7, 100, "Models", "Video", 1, "Escape: the dropdown closed, still Video, Models unchanged"},
+                        {SDLK_LEFT, nullptr, 0, 100, "Models", "Video", 0, "Left on Models: Arcade (Left / Right still step)"},
+                        {SDLK_UNKNOWN, "Models", 6, 100, "", "Video", 0, "a click on Models: its dropdown, the hand still shown"},
+                        {SDLK_UNKNOWN, "PC", 7, 100, "", "Video", 1, "a click on PC: Models = PC, closed, the hand still shown"},
+                        {SDLK_UNKNOWN, "Models", 6, 100, "", "Video", 1, "a click on Models: its dropdown again"},
+                        {SDLK_UNKNOWN, "Audio", 7, 100, "", "Video", 1, "a click outside it (on the Audio tab): closed, still Video"},
+                        {SDLK_E, nullptr, 8, 100, "", "Audio", -1, "E: the Audio tab, with the menu's sound"},
+                        {SDLK_Q, nullptr, 8, 100, "Models", "Video", -1, "Q: the Video tab, with the menu's sound"},
+                        {SDLK_LEFT, nullptr, 0, 100, "Models", "Video", 0, "Left on Models: Arcade"},
+                        {SDLK_ESCAPE, nullptr, 0, 2, "", nullptr, -1, "Escape on Video: Options (the Game tab)"},
+                        {SDLK_ESCAPE, nullptr, 0, 1, "", nullptr, -1, "Escape on Options: the main menu"},
+                        {SDLK_ESCAPE, nullptr, 9, 21, "No", nullptr, -1, "Escape on the main menu: Quit's question, the focus on No, the main menu's tint"},
+                        {SDLK_RETURN, nullptr, 0, 1, "", nullptr, -1, "Enter on No: the main menu"},
+                        {SDLK_UNKNOWN, "More Modes", 0, 1, "", nullptr, -1, "a click on More Modes: its list"},
+                        {SDLK_ESCAPE, nullptr, 0, 1, "", nullptr, -1, "Escape on More Modes (Back): the main menu"},
+                        // liveattract: the Gallery's Attract Demo in the Remake style (Escape back), then the Remake boot
+                        {SDLK_UNKNOWN, "Extras", 0, 1, "", nullptr, -1, "a click on Extras: its list"},
+                        {SDLK_UNKNOWN, "Gallery", 0, 17, "", nullptr, -1, "a click on Gallery: its page"},
+                        {SDLK_C, nullptr, 0, 19, "", nullptr, -1, "C on the Gallery: its Cut-scenes page"},
+                        {SDLK_UNKNOWN, "Attract Demo", 5, 19, "", nullptr, -1, "Cut-scenes > Attract Demo, Escape: back on the Cut-scenes page"},
+                        {SDLK_ESCAPE, nullptr, 0, 1, "", nullptr, -1, "Escape on the Cut-scenes page: Extras"},
+                        {SDLK_ESCAPE, nullptr, 0, 1, "", nullptr, -1, "Escape on Extras (Back): the main menu"},
+                        // remakepages: the other pages in the Remake style: wide, the live attract behind them, the focus
+                        // by the arrows (16: a wide Remake page, 17: the hand away first, 18: High Scores' next table,
+                        // 19: the Jukebox's next list, 20: the Gallery over the Remake backdrop)
+                        {SDLK_UNKNOWN, "More Modes", 0, 1, "", nullptr, -1, "a click on More Modes: its list"},
+                        {SDLK_UNKNOWN, "Chapter Select", 16, 9, "", nullptr, -1, "a click on Chapter Select: its Remake page, as wide as the window"},
+                        {SDLK_RIGHT, nullptr, 17, 9, "Chapter 1", nullptr, -1, "Chapter Select, the hand away, Right: the focus on Chapter 1"},
+                        {SDLK_RIGHT, nullptr, 0, 9, "Chapter 2", nullptr, -1, "Right: Chapter 2"},
+                        // playerpick: a chapter / a boss asks the players first; Escape there: back to that page
+                        {SDLK_RETURN, nullptr, 0, 22, "Start", nullptr, -1, "Enter on Chapter 2: the players' choice, the focus on Start"},
+                        {SDLK_ESCAPE, nullptr, 0, 9, "Chapter 2", nullptr, -1, "Escape on the players' choice: Chapter Select again, on Chapter 2"},
+                        {SDLK_DOWN, nullptr, 0, 9, "Exit", nullptr, -1, "Down: Exit"},
+                        {SDLK_RETURN, nullptr, 0, 1, "", nullptr, -1, "Enter on Exit: More Modes"},
+                        {SDLK_ESCAPE, nullptr, 0, 1, "", nullptr, -1, "Escape on More Modes (Back): the main menu"},
+                        {SDLK_UNKNOWN, "Boss Mode", 16, 7, "", nullptr, -1, "a click on Boss Mode: its Remake page"},
+                        {SDLK_RIGHT, nullptr, 17, 7, "Chariot Boss", nullptr, -1, "Boss Mode, the hand away, Right: the Chariot"},
+                        {SDLK_RIGHT, nullptr, 0, 7, "Hangedman Boss", nullptr, -1, "Right: the Hanged Man"},
+                        {SDLK_RETURN, nullptr, 0, 22, "Start", nullptr, -1, "Enter on the Hanged Man: the players' choice"},
+                        {SDLK_ESCAPE, nullptr, 0, 7, "Hangedman Boss", nullptr, -1, "Escape on the players' choice: Boss Mode again, on the Hanged Man"},
+                        {SDLK_ESCAPE, nullptr, 0, 1, "", nullptr, -1, "Escape on Boss Mode: the main menu"},
+                        {SDLK_UNKNOWN, "High Scores", 16, 8, "", nullptr, -1, "a click on High Scores: its Remake page"},
+                        {SDLK_E, nullptr, 18, 8, "", nullptr, -1, "E on High Scores: the next table"},
+                        {SDLK_ESCAPE, nullptr, 0, 1, "", nullptr, -1, "Escape on High Scores: the main menu"},
+                        // playerpick: PC Mode asks the players first: the last choice (2, player 2 a person) with the
+                        // focus / hand on Start; the arrows, Enter on a seat / a number, the 3 key, Q, Escape (nothing
+                        // kept); again: Enter at once starts with the choice
+                        {SDLK_UNKNOWN, "PC Mode", 31, 22, "Start", nullptr, -1, "a click on PC Mode: the players' choice (2, player 2 a person), on Start"},
+                        {SDLK_UP, nullptr, 0, 22, "Player 2: Human", nullptr, -1, "Up: player 2's Human / CPU"},
+                        {SDLK_RETURN, nullptr, 33, 22, "Player 2: CPU Normal", nullptr, -1, "Enter: player 2 the computer (Normal)"},
+                        {SDLK_UP, nullptr, 0, 22, "1", nullptr, -1, "Up: the numbers"},
+                        {SDLK_RETURN, nullptr, 34, 22, "1", nullptr, -1, "Enter on 1: 1 player"},
+                        {SDLK_3, nullptr, 37, 22, "Start", nullptr, -1, "the 3 key: 3 players, the focus on Start"},
+                        {SDLK_Q, nullptr, 32, 22, "Start", nullptr, -1, "Q: one less, 2 players"},
+                        {SDLK_ESCAPE, nullptr, 36, 1, "", nullptr, -1, "Escape: the main menu, nothing kept"},
+                        {SDLK_UNKNOWN, "PC Mode", 32, 22, "Start", nullptr, -1, "a click on PC Mode again: 2 players, on Start"},
+                        {SDLK_RETURN, nullptr, 35, 16, "", nullptr, -1, "Enter (one press): PC Mode's Remake page, the 2 players kept"},
+                        {SDLK_DOWN, nullptr, 17, 16, "Start", nullptr, -1, "PC Mode, the hand away, Down: the focus on Start"},
+                        {SDLK_DOWN, nullptr, 0, 16, "Exit", nullptr, -1, "Down: Exit"},
+                        {SDLK_UP, nullptr, 0, 16, "Start", nullptr, -1, "Up: Start"},
+                        {SDLK_ESCAPE, nullptr, 0, 1, "", nullptr, -1, "Escape on PC Mode: the main menu"},
+                        {SDLK_UNKNOWN, "Extras", 0, 1, "", nullptr, -1, "a click on Extras: its list"},
+                        {SDLK_UNKNOWN, "Jukebox", 16, 20, "", nullptr, -1, "a click on Jukebox: its Remake page"},
+                        {SDLK_E, nullptr, 19, 20, "", nullptr, -1, "E on the Jukebox: the next list"},
+                        {SDLK_UNKNOWN, nullptr, 39, 20, "", nullptr, -1, "the mouse moved on the Jukebox: the hand follows it"},
+                        {SDLK_ESCAPE, nullptr, 0, 1, "", nullptr, -1, "Escape on the Jukebox: Extras"},
+                        // regallery: the Remake style's own Gallery (21: its page, as wide as the window, the stage on;
+                        // 22: another entry, with the menu's sound; 23: another category; 24: the full view; 25: its
+                        // Cut-scenes page; 26 / 20 / 21: K: the portraits, the Classic page over the backdrop, its own)
+                        {SDLK_UNKNOWN, "Gallery", 21, 17, "", nullptr, -1, "a click on Gallery: the Remake Gallery, as wide as the window"},
+                        {SDLK_UNKNOWN, nullptr, 39, 17, "", nullptr, -1, "the mouse moved on the Remake Gallery: the hand follows it"},
+                        {SDLK_2, nullptr, 40, 17, "", nullptr, -1, "2: Humans; its list's scroll bar dragged down: the list scrolls, the hand follows"},
+                        {SDLK_E, nullptr, 22, 17, "", nullptr, -1, "E on the Remake Gallery: the next entry, the menu's sound"},
+                        {SDLK_Q, nullptr, 22, 17, "", nullptr, -1, "Q: the entry before"},
+                        {SDLK_TAB, nullptr, 23, 17, "", nullptr, -1, "Tab: the next category"},
+                        {SDLK_UNKNOWN, "Bosses", 23, 17, "", nullptr, -1, "a click on Bosses: that category"},
+                        {SDLK_T, nullptr, 24, 17, "", nullptr, -1, "T: the full view (the page hidden)"},
+                        {SDLK_ESCAPE, nullptr, 21, 17, "", nullptr, -1, "Escape in the full view: the page again"},
+                        {SDLK_UNKNOWN, "Cut-scenes", 25, 19, "", nullptr, -1, "a click on Cut-scenes: the Remake Cut-scenes page"},
+                        {SDLK_UNKNOWN, nullptr, 39, 19, "", nullptr, -1, "the mouse moved on the Cut-scenes page: the hand follows it"},
+                        {SDLK_UNKNOWN, "Items", 21, 17, "", nullptr, -1, "a click on Items there: the Remake Gallery again"},
+                        {SDLK_K, nullptr, 26, 17, "", nullptr, -1, "K: the portraits' layout"},
+                        {SDLK_UNKNOWN, nullptr, 39, 17, "", nullptr, -1, "the mouse moved on the portraits' layout: the hand follows it"},
+                        {SDLK_K, nullptr, 20, 17, "", nullptr, -1, "K: the Classic page over the Remake backdrop, the live attract"},
+                        {SDLK_UNKNOWN, nullptr, 39, 17, "", nullptr, -1, "the mouse moved on the Classic Gallery page: the hand follows it"},
+                        {SDLK_K, nullptr, 21, 17, "", nullptr, -1, "K: the Remake Gallery again"},
+                        {SDLK_ESCAPE, nullptr, 0, 1, "", nullptr, -1, "Escape on the Gallery: Extras"},
+                        {SDLK_ESCAPE, nullptr, 0, 1, "", nullptr, -1, "Escape on Extras (Back): the main menu"},
+                        {SDLK_UNKNOWN, nullptr, 4, 1, "", nullptr, -1, "the Remake boot: the SEGA logo only, the story, the attract once, the main menu"},
+                        // autostart (user 2026-10-28): Play with 4 players, every other seat a CPU, a pad plugged in with
+                        // A / Start / R2 held, the launch's click and Enter let go in the attract: no game starts
+                        {SDLK_UNKNOWN, nullptr, 38, 1, "", nullptr, -1, "the boot with 4 players (CPU seats), a pad held as it came, the launch click's release: the attract only, no start"},
+                        {SDLK_UNKNOWN, nullptr, 2, 1, "", nullptr, -1, "Menu Style Classic PC: the PC's main menu again"},
+                    };
+                    constexpr int kSteps = int(sizeof kRemake / sizeof kRemake[0]);
+                    const int step = s.wait / 30, at = s.wait % 30;
+                    ++s.wait;
+                    if (step < kSteps) {
+                        const RStep& st = kRemake[step];
+                        float sc, x0, y0;
+                        game::Hud::pictureRect(fe.canvasWidth(), 480, float(lw), float(lh), sc, x0, y0);
+                        if (at == 0 && st.act == 1) {
+                            menu.cfg.menuStyle = 1;
+                            motion(0, x0 + 2 * sc, y0 + 2 * sc, 0, 0);   // (the hand out of the list)
+                        }
+                        if (at == 0 && st.act == 2)
+                            menu.cfg.menuStyle = 0;
+                        // galfix3 (user 2026-10-28: "the mouse is stuck in place" in the Gallery): two moves on the page
+                        // (inside the portraits layout's left part too); the menu's pointer must follow each
+                        if (st.act == 39 && (at == 6 || at == 16))
+                            motion(0, x0 + (at == 6 ? 60.0f : 140.0f) * sc, y0 + (at == 6 ? 300.0f : 200.0f) * sc, 0, 0);
+                        // galfix3: the Remake Gallery list's bar (the settings lists' own): pressed on its thumb, dragged down
+                        // by the mouse, let go; the hand stays on the mouse throughout
+                        if (st.act == 40) {
+                            int b[5] = {};
+                            if (at == 8 && fe.scrollBarInfo(0, b)) {
+                                s.mark[1][0] = float(b[4]);
+                                motion(0, x0 + (float(b[0]) + float(b[2]) / 2) * sc, y0 + (float(b[1]) + 3) * sc, 0, 0);
+                            }
+                            if (at == 10) {
+                                s.mark[0][0] = float(fe.pointerX()), s.mark[0][1] = float(fe.pointerY());
+                                button(0, SDL_BUTTON_LEFT, true);
+                            }
+                            if (at >= 12 && at <= 20 && fe.scrollBarInfo(0, b))
+                                motion(0, x0 + (float(b[0]) + float(b[2]) / 2) * sc, y0 + (float(b[1]) + 3 + float(b[3]) * float(at - 11) / 9.0f) * sc, 0, 0);
+                            if (at == 22)
+                                button(0, SDL_BUTTON_LEFT, false);
+                        }
+                        if (st.act == 39 && at == 12)
+                            s.mark[0][0] = float(fe.pointerX()), s.mark[0][1] = float(fe.pointerY());
+                        if (at == 0 && st.act == 17)   // (remakepages: the hand away from the page's items)
+                            motion(0, x0 + 2 * sc, y0 + 2 * sc, 0, 0);
+                        if (at == 0 && st.act == 5)
+                            s.attractFrames = 0, s.attractSeen = false;
+                        // rescrash: act 41: the models flipped at 0 and back at 14 (the live attract loads again each
+                        // time; Chapter 1's view prepared ahead on a worker as the menu does), and every frame 1-26 a
+                        // window size / Display Mode / F11 (the menu's own setter; a hidden window never changes the
+                        // display's mode) at an uncapped menu rate; 27: Windowed at the size it had. Act 42: held until
+                        // the live attract runs again (at most 900 frames)
+                        static int rcKeep[4] = {-1}, rcHold = 0;
+                        if (st.act == 41) {
+                            if (at == 0) {
+                                SDL_GetWindowSize(window, &rcKeep[1], &rcKeep[2]);
+                                rcKeep[0] = menu.cfg.models;
+                                rcKeep[3] = menu.cfg.menuFps;
+                                menu.cfg.menuFps = 120;
+                            }
+                            if ((at == 0 || at == 14) && menu.pcOk && !menu.cfg.pc.empty()) {
+                                menu.cfg.models ^= 1;
+                                std::string e2;
+                                if (!regions.empty() || arcadeRegions(e2))
+                                    gViewPrefetch.start(regions, dumps, texsets, 0, menu.cfg.models == 1 ? menu.cfg.pc : std::string(),
+                                                        bloodOf(menu.cfg));
+                            }
+                            static const int kSizes[][2] = {{640, 480}, {1366, 768}, {801, 601}, {1024, 768}, {1280, 720}, {700, 500}};
+                            if (at >= 1 && at <= 26 && gDisplayModeSet) {
+                                const int k = at % 6;
+                                const int* sz = kSizes[(at / 6 + k) % 6];
+                                if (k == 0 || k == 1) {   // a window of another size (the Resolution page's way)
+                                    gDisplayModeSet(util::kWindowed);
+                                    menu.cfg.resWinW = sz[0], menu.cfg.resWinH = sz[1];
+                                    util::resolutionLive().window = {sz[0], sz[1]};
+                                    util::applyResolution(window);
+                                } else if (k == 2)
+                                    gDisplayModeSet(util::kBorderless);
+                                else if (k == 3)
+                                    gDisplayModeSet(util::kExclusive);
+                                else if (k == 4)
+                                    press(SDLK_F11, SDL_SCANCODE_F11);   // (out of fullscreen / into it)
+                                else
+                                    gDisplayModeSet(at % 2 ? util::kBorderless : util::kWindowed);
+                            }
+                            if (at == 27 && gDisplayModeSet) {
+                                gDisplayModeSet(util::kWindowed);
+                                menu.cfg.resWinW = menu.cfg.resWinH = 0;
+                                util::resolutionLive().window = {};
+                                SDL_SetWindowSize(window, rcKeep[1], rcKeep[2]);
+                                SDL_SyncWindow(window);
+                                menu.cfg.menuFps = rcKeep[3];
+                            }
+                        }
+                        if (st.act == 42 && at == 6) {   // (held here until the live attract runs again)
+                            const bool running = liveHost && liveView && fe.liveTex != 0 && !liveJob.valid() && !liveKey.empty();
+                            if (!running && ++rcHold < 900) {
+                                --s.wait;
+                                return;
+                            }
+                        }
+                        // playerpick: the players' choice starts from 2 players, nobody a CPU (the settings put back at 35)
+                        static int pickKeep[5] = {-1};
+                        if (at == 0 && st.act == 31) {
+                            if (pickKeep[0] < 0) {
+                                pickKeep[0] = menu.cfg.players;
+                                for (int p = 1; p < 4; ++p) pickKeep[p] = menu.cfg.seatBot[p];
+                            }
+                            menu.cfg.players = 2;
+                            for (int p = 1; p < 4; ++p) menu.cfg.seatBot[p] = 0;
+                        }
+                        if (at == 0) {
+                            s.cuesBefore = fe.remakeCues;   // (remakefix: the step's sounds)
+                            s.galleryBefore = gallery.isOpen() ? gallery.index() : -1;
+                            s.categoryBefore = gallery.isOpen() ? gallery.category() : -1;
+                        }
+                        // autostart: act 38's set-up: the user's 4 players with CPU seats, a pad with A / Start / R2 held as
+                        // it comes (plugged in before the game sees it); in the attract the launch's mouse click and
+                        // Enter let go (their presses were before the window), later the pad's buttons too
+                        static int autoKeep[5] = {-1};
+                        if (st.act == 38 && at == 0) {
+                            autoKeep[0] = menu.cfg.players;
+                            for (int p = 1; p < 4; ++p) autoKeep[p] = menu.cfg.seatBot[p], menu.cfg.seatBot[p] = 2;
+                            autoKeep[4] = menu.cfg.p3Input;
+                            menu.cfg.players = 4;
+                            menu.cfg.p3Input = 2;
+                            pads.configure(menu.cfg);
+                            SDL_VirtualJoystickDesc d;
+                            SDL_INIT_INTERFACE(&d);
+                            d.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+                            d.naxes = SDL_GAMEPAD_AXIS_COUNT;
+                            d.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+                            d.vendor_id = 0x054C, d.product_id = 0x0CE6, d.name = "Test DualSense (held at launch)";
+                            autoPadId = SDL_AttachVirtualJoystick(&d);
+                            autoPad = autoPadId ? SDL_OpenJoystick(autoPadId) : nullptr;
+                            if (autoPad) {
+                                SDL_SetJoystickVirtualButton(autoPad, SDL_GAMEPAD_BUTTON_SOUTH, true);
+                                SDL_SetJoystickVirtualButton(autoPad, SDL_GAMEPAD_BUTTON_START, true);
+                                SDL_SetJoystickVirtualAxis(autoPad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, 32767);
+                                SDL_UpdateJoysticks();
+                            }
+                            autoLetGo[0] = autoLetGo[1] = false;
+                            autoOn = true, autoBail = false;   // (the let-gos: in the attract, above)
+                        }
+                        if (st.act == 4 || st.act == 38) {   // the boot: the splash (the logo, no title art), then the attract once
+                            if (at == 0) {
+                                s.attractFrames = 0, s.attractModes.clear(), s.splashArt = false;
+                                bootTest = true;
+                                fe.splashStart(uint32_t(SDL_GetTicks()), false, menu.cfg.menuStyle == 1);
+                            }
+                            if (at == 5) {
+                                expect(fe.splashActive() && fe.splashStage() == 0, "Remake boot: the SEGA logo first");
+                                // feat29: the Remake style's logo is drawn (was black): its light backdrop at the left edge
+                                std::vector<uint8_t> pic;
+                                fe.render(pic);
+                                const size_t px = (size_t(fe.canvasPixelsH() / 2) * size_t(fe.canvasPixelsW()) + 2) * 4;
+                                expect(fe.splashStage() == 0 && pic.size() > px + 2 && pic[px] > 150 && pic[px + 2] > 150,
+                                       "Remake boot: the SEGA logo drawn wide (its backdrop at the screen's left edge)");
+                            }
+                            if (at >= 5 && fe.splashStage() == 1)
+                                s.splashArt = true;
+                            if (at == 6 && (fe.splashActive() || s.attractFrames == 0)) {
+                                --s.wait;   // (held here until the splash and the attract are over)
+                                return;
+                            }
+                        }
+                        int cx = 0, cy = 0;
+                        if (at == 0 && st.click && fe.widgetCentre(st.click, cx, cy))
+                            motion(0, x0 + float(cx) * sc, y0 + float(cy) * sc, 0, 0);
+                        if (at == 4 && st.click)
+                            click(0, SDL_BUTTON_LEFT);
+                        const SDL_Scancode ksc = SDL_GetScancodeFromKey(st.k, nullptr);
+                        if (st.k == SDLK_UP || st.k == SDLK_DOWN || st.k == SDLK_LEFT || st.k == SDLK_RIGHT) {
+                            if (at == 4) key(st.k, ksc, true);   // (held over frames: the menu reads the arrows held)
+                            if (at == 8) key(st.k, ksc, false);
+                        } else if (at == 4 && st.k != SDLK_UNKNOWN)
+                            press(st.k, ksc);
+                        if (at == 29) {
+                            bool ok = fe.screen() == st.screen && (!st.title || fe.extrasTitle == st.title || (st.screen == 2));
+                            ok = ok && (!*st.focus || fe.focusText() == st.focus);
+                            ok = ok && (st.models < 0 || menu.cfg.models == st.models);
+                            if (st.act == 1) {
+                                const int want = std::clamp(int(std::lround(480.0f * std::clamp(float(lw) / float(lh), 4.0f / 3.0f, 2.5f))) & ~1, 640, 1200);
+                                ok = ok && fe.remakeScreen() && fe.canvasWidth() == want;
+                            }
+                            if (st.act == 2)
+                                ok = ok && !fe.remakeScreen() && fe.canvasWidth() == 640;
+                            if (st.act == 16 || st.act == 18 || st.act == 19) {   // remakepages: a Remake page as wide as the window
+                                const int want = std::clamp(int(std::lround(480.0f * std::clamp(float(lw) / float(lh), 4.0f / 3.0f, 2.5f))) & ~1, 640, 1200);
+                                ok = ok && fe.remakeScreen() && fe.canvasWidth() == want;
+                            }
+                            if (st.act == 18)
+                                ok = ok && fe.rankingTable == (fe.rankingTables.size() > 1 ? 1 : 0);
+                            if (st.act == 19)
+                                ok = ok && fe.jukeboxText && fe.jukeboxText().tab == 1;
+                            if (st.act == 20)
+                                ok = ok && fe.classicBackdrop() && liveHost && fe.liveTex != 0;
+                            if (st.act >= 21 && st.act <= 25) {   // regallery: the Remake Gallery's pages
+                                const int want = std::clamp(int(std::lround(480.0f * std::clamp(float(lw) / float(lh), 4.0f / 3.0f, 2.5f))) & ~1, 640, 1200);
+                                ok = ok && fe.galleryRE() && fe.remakeScreen() && fe.canvasWidth() == want && fe.gpuLayers &&
+                                     fe.remakeLayers().splat == nullptr;
+                                if (st.act != 25)
+                                    ok = ok && gallery.isOpen() && gallery.reStage && fe.remakeLayers().noBackdrop;
+                            }
+                            if (st.act == 21)
+                                ok = ok && !fe.galleryFull();
+                            if (st.act == 22)
+                                ok = ok && gallery.index() != s.galleryBefore && gallery.category() == s.categoryBefore &&
+                                     fe.remakeCues > s.cuesBefore;
+                            if (st.act == 23)
+                                ok = ok && gallery.category() != s.categoryBefore;
+                            if (st.act == 24)
+                                ok = ok && fe.galleryFull();
+                            if (st.act == 40) {   // galfix3: the list scrolled to its end, the hand went down with the mouse
+                                int b[5] = {};
+                                const bool bar = fe.scrollBarInfo(0, b);
+                                const float my = float(fe.pointerY()) - s.mark[0][1];
+                                ok = ok && bar && float(b[4]) > s.mark[1][0] && my > 40 && fe.handVisible();
+                                if (!ok)
+                                    log("      bar %d, first %.0f -> %d, the pointer %.0f, %.0f -> %d, %d", int(bar), s.mark[1][0], b[4],
+                                        s.mark[0][0], s.mark[0][1], fe.pointerX(), fe.pointerY());
+                            }
+                            if (st.act == 39) {   // galfix3: the hand moved with the mouse (up and right), shown
+                                const float mx = float(fe.pointerX()) - s.mark[0][0], my = float(fe.pointerY()) - s.mark[0][1];
+                                ok = ok && mx > 20 && my < -20 && fe.handVisible();
+                                if (!(mx > 20 && my < -20))
+                                    log("      the pointer: %.0f, %.0f -> %d, %d", s.mark[0][0], s.mark[0][1], fe.pointerX(), fe.pointerY());
+                            }
+                            if (st.act == 26)
+                                ok = ok && fe.galleryRemake() && !fe.galleryRE();
+                            if (st.click && std::string(st.click) == "More Modes")
+                                ok = ok && fe.widgetCentre("Chapter Select", cx, cy);
+                            if (st.act == 3) {   // liveattract: the live attract runs, draws, gets no input
+                                bool live = liveHost && liveView && fe.liveTex != 0;
+                                if (live) {
+                                    const game::Runtime& lr = liveHost->runtime();
+                                    live = lr.frameCount > 30 && lr.shotsIn[0] == 0 && lr.shotsIn[1] == 0 && lr.startsIn[0] == 0 &&
+                                           lr.startsIn[1] == 0 && lr.audio == nullptr;
+                                    expect(live, "live attract: running " + std::to_string(lr.frameCount) + " frames, game mode " +
+                                                     std::to_string(lr.mem.at<int16_t>(game::A::G::game_mode)) + ", no shots / starts, muted");
+                                } else
+                                    expect(false, "live attract: not running");
+                            }
+                            if (st.act == 41) {   // rescrash: a window of the size it had, the models as before
+                                int w2 = 0, h2 = 0;
+                                SDL_GetWindowSize(window, &w2, &h2);
+                                ok = ok && util::displayMode(window) == util::kWindowed && w2 == rcKeep[1] && h2 == rcKeep[2] &&
+                                     menu.cfg.models == rcKeep[0];
+                                if (!ok)
+                                    log("      mode %d, %d x %d (want %d x %d), models %d", util::displayMode(window), w2, h2, rcKeep[1], rcKeep[2],
+                                        menu.cfg.models);
+                            }
+                            if (st.act == 42) {
+                                const bool running = liveHost && liveView && fe.liveTex != 0 && !liveJob.valid() && !liveKey.empty();
+                                ok = ok && running;
+                                if (!running)
+                                    log("      the live attract: host %d, view %d, picture %u, loading %d after %d frames", int(liveHost != nullptr),
+                                        int(liveView != nullptr), unsigned(fe.liveTex), int(liveJob.valid()), rcHold);
+                                rcHold = 0;
+                            }
+                            if (st.act == 5)
+                                ok = ok && s.attractSeen && !feAttract;
+                            // remakefix: the dropdown open / closed (after a click: the hand still shown), a Remake sound
+                            // in the step, Quit's backdrop tint the main menu's (the red's multiplier 1.15, the pages' 1.5)
+                            if (st.act == 6)
+                                ok = ok && fe.dropdownOpen() && (!st.click || fe.handVisible());
+                            if (st.act == 7)
+                                ok = ok && !fe.dropdownOpen() && (!st.click || fe.handVisible());
+                            if (st.act == 8)
+                                ok = ok && fe.remakeCues > s.cuesBefore;
+                            if (st.act == 9)
+                                ok = ok && fe.remakeLayers().mul[0] < 1.2f;
+                            // playerpick: the choice on the screen (31 / 32: 2 players; 31: player 2 a person; 33: player 2
+                            // the computer, Normal; 34: 1 player; 37: 3), what Escape (36) / Start (35) left in the settings
+                            if (st.act == 31 || st.act == 32)
+                                ok = ok && fe.pickedPlayers() == 2 && (st.act == 32 || fe.pickedBot(1) == 0);
+                            if (st.act == 33)
+                                ok = ok && fe.pickedPlayers() == 2 && fe.pickedBot(1) == 2;
+                            if (st.act == 34 || st.act == 37)
+                                ok = ok && fe.pickedPlayers() == (st.act == 34 ? 1 : 3);
+                            if (st.act == 35 || st.act == 36)
+                                ok = ok && menu.cfg.players == 2 && menu.cfg.seatBot[1] == 0 && (st.act == 36 || fe.pcSeats == 2);
+                            if (st.act == 35 && pickKeep[0] >= 0) {
+                                menu.cfg.players = pickKeep[0];
+                                for (int p = 1; p < 4; ++p) menu.cfg.seatBot[p] = pickKeep[p];
+                                pickKeep[0] = -1;
+                            }
+                            if (st.act == 4) {
+                                bootTest = false;
+                                expect(!s.splashArt && s.attractModes == "9 2 8 3 6" && !feAttract,
+                                       "Remake boot: logo only " + std::string(s.splashArt ? "no" : "yes") + ", the attract's modes \"" +
+                                           s.attractModes + "\" (want \"9 2 8 3 6\") in " + std::to_string(s.attractFrames) + " frames, then the menu");
+                            }
+                            if (st.act == 38) {   // autostart: no game (mode 4) in the attract, the menu after one round
+                                bootTest = false;
+                                expect(s.attractModes == "9 2 8 3 6" && !feAttract && autoLetGo[0] && autoLetGo[1] && autoPad,
+                                       "autostart: 4 players + CPU seats, a pad held as it came (let go at attract frame 200), the "
+                                       "launch click / Enter let go: the attract's modes \"" + s.attractModes + "\" (want \"9 2 8 3 6\", "
+                                       "no 4 = no game started) in " + std::to_string(s.attractFrames) + " frames, then the menu");
+                                if (autoPad) SDL_CloseJoystick(autoPad);
+                                if (autoPadId) SDL_DetachVirtualJoystick(autoPadId);
+                                autoPad = nullptr, autoPadId = 0, autoOn = false;
+                                menu.cfg.players = autoKeep[0];
+                                for (int p = 1; p < 4; ++p) menu.cfg.seatBot[p] = autoKeep[p];
+                                menu.cfg.p3Input = autoKeep[4];
+                                pads.configure(menu.cfg);
+                            }
+                            expect(ok, std::string("Remake menu: ") + st.what + " (screen " + std::to_string(fe.screen()) + ", focus \"" +
+                                           fe.focusText() + "\", width " + std::to_string(fe.canvasWidth()) + ")");
+                        }
+                        return;
+                    }
+                    s.stage = 6;   // the PC Mode screen's seats next
+                    s.wait = 0;
+                }
+                if (s.stage == 6) {   // pcsel4: PC Mode's four panels, a pick and Ready per seat by its own input
+                    // (P1 the mouse / its 1 key, P2 its arrows / Space, P3 A / D / F / R, P4 a virtual pad's d-pad / South);
+                    // then a computer seat (a random pick, ready, its keys ignored) and 2 players (the PC's two panels)
+                    struct PcSel {
+                        int players = 1, p3Input = 2, bot[4] = {}, chars[4] = {};
+                        std::function<void()> onStart;
+                        bool started = false;
+                        int startChars[4] = {};
+                        SDL_JoystickID id = 0;
+                        SDL_Joystick* j = nullptr;
+                    };
+                    static PcSel ps;
+                    const int w = s.wait++;
+                    float sc, x0, y0;
+                    game::Hud::pictureRect(640, 480, float(lw), float(lh), sc, x0, y0);
+                    auto padButton = [&](SDL_GamepadButton b) {
+                        if (!ps.j) return;
+                        SDL_SetJoystickVirtualButton(ps.j, b, true);
+                        SDL_UpdateJoysticks();
+                        SDL_SetJoystickVirtualButton(ps.j, b, false);
+                        SDL_UpdateJoysticks();
+                    };
+                    auto charsAre = [&](int a, int b, int c, int d) {
+                        return fe.pcChars[0] == a && fe.pcChars[1] == b && fe.pcChars[2] == c && fe.pcChars[3] == d;
+                    };
+                    auto state = [&]() {
+                        char b[160];
+                        std::snprintf(b, sizeof b, " (screen %d, panels %d, characters %d %d %d %d, ready %d%d%d%d, cpu %d%d%d%d)",
+                                      fe.screen(), fe.pcSeats, fe.pcChars[0], fe.pcChars[1], fe.pcChars[2], fe.pcChars[3],
+                                      fe.pcReady[0], fe.pcReady[1], fe.pcReady[2], fe.pcReady[3], fe.pcCpu[0], fe.pcCpu[1],
+                                      fe.pcCpu[2], fe.pcCpu[3]);
+                        return std::string(b);
+                    };
+                    if (w == 0) {   // 4 players, player 4 on a pad (player 3 on the keyboard), nobody a computer
+                        ps.players = menu.cfg.players;
+                        ps.p3Input = menu.cfg.p3Input;
+                        for (int p = 0; p < 4; ++p) ps.bot[p] = menu.cfg.seatBot[p], ps.chars[p] = fe.pcChars[p];
+                        ps.onStart = fe.onPcModeStart;
+                        fe.onPcModeStart = [&]() {
+                            ps.started = true;
+                            for (int p = 0; p < 4; ++p) ps.startChars[p] = fe.pcChars[p];
+                        };
+                        menu.cfg.players = 4;
+                        menu.cfg.p3Input = 1;
+                        for (int p = 0; p < 4; ++p) menu.cfg.seatBot[p] = 0;
+                        pads.configure(menu.cfg);
+                        SDL_VirtualJoystickDesc d;
+                        SDL_INIT_INTERFACE(&d);
+                        d.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+                        d.naxes = SDL_GAMEPAD_AXIS_COUNT;
+                        d.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+                        d.vendor_id = 0x045E;
+                        d.product_id = 0x0B12;
+                        d.name = "Test Xbox pad (PC Mode seats)";
+                        ps.id = SDL_AttachVirtualJoystick(&d);
+                        ps.j = ps.id ? SDL_OpenJoystick(ps.id) : nullptr;
+                        fe.pcChars[0] = 1, fe.pcChars[1] = fe.pcChars[2] = fe.pcChars[3] = 0;
+                        fe.startPcMode();
+                    } else if (w == 4) {
+                        pads.refresh();
+                        expect(fe.screen() == 16 && fe.pcSeats == 4 && charsAre(1, 2, 3, 4) && pads.playerOf(ps.id) == 3,
+                               "PC Mode, 4 players: four panels, Rogan / G / Rogan 2 / G 2, the pad is player 4's" + state());
+                        press(SDLK_D, SDL_SCANCODE_D);           // player 3: next
+                        press(SDLK_RIGHT, SDL_SCANCODE_RIGHT);   // player 2: next
+                    } else if (w == 10) {
+                        expect(charsAre(1, 3, 4, 4), "PC Mode: D = player 3's next (G 2), Right = player 2's (Rogan 2)" + state());
+                        padButton(SDL_GAMEPAD_BUTTON_DPAD_LEFT);   // player 4: previous
+                    } else if (w == 16) {
+                        expect(charsAre(1, 3, 4, 3), "PC Mode: player 4's pad, d-pad left: the previous (Rogan 2)" + state());
+                        press(SDLK_F, SDL_SCANCODE_F);           // player 3: Ready
+                        press(SDLK_SPACE, SDL_SCANCODE_SPACE);   // player 2: Ready
+                        padButton(SDL_GAMEPAD_BUTTON_SOUTH);     // player 4: Ready
+                    } else if (w == 22) {
+                        expect(!fe.pcReady[0] && fe.pcReady[1] && fe.pcReady[2] && fe.pcReady[3] && !ps.started && fe.screen() == 16,
+                               "PC Mode: F / Space / the pad's South: players 3, 2, 4 ready, the game waits for player 1" + state());
+                        press(SDLK_A, SDL_SCANCODE_A);           // player 3 ready: the pick stays
+                    } else if (w == 26) {
+                        expect(charsAre(1, 3, 4, 3), "PC Mode: A while player 3 is ready: the pick stays" + state());
+                        press(SDLK_R, SDL_SCANCODE_R);           // player 3: Ready taken back
+                    } else if (w == 30) {
+                        expect(!fe.pcReady[2] && fe.pcReady[1], "PC Mode: R takes player 3's Ready back" + state());
+                        press(SDLK_A, SDL_SCANCODE_A);           // player 3: previous (Rogan 2), then Ready
+                        press(SDLK_F, SDL_SCANCODE_F);
+                        motion(0, x0 + 202.0f * sc, y0 + 111.0f * sc, 0, 0);   // the mouse onto player 1's Ready
+                    } else if (w == 34) {
+                        click(0, SDL_BUTTON_LEFT);
+                    } else if (w == 70) {
+                        expect(ps.started && ps.startChars[0] == 1 && ps.startChars[1] == 3 && ps.startChars[2] == 3 &&
+                                   ps.startChars[3] == 3,
+                               "PC Mode: player 1's Ready clicked, everyone ready: the game starts with Rogan / Rogan 2 / Rogan 2 / Rogan 2" + state());
+                        // 3 players, player 3 a computer teammate
+                        ps.started = false;
+                        menu.cfg.players = 3;
+                        menu.cfg.seatBot[2] = 2;
+                        fe.pcChars[2] = 0;
+                        fe.startPcMode();
+                        const int c2 = fe.pcChars[2];
+                        press(SDLK_D, SDL_SCANCODE_D);   // (a computer seat: its keys do nothing)
+                        press(SDLK_1, SDL_SCANCODE_1);   // player 1: Ready by its 1 key
+                        ps.startChars[2] = c2;
+                    } else if (w == 76) {
+                        expect(fe.pcSeats == 4 && fe.pcCpu[2] && fe.pcReady[2] && fe.pcChars[2] == ps.startChars[2] &&
+                                   fe.pcChars[2] >= 1 && fe.pcChars[2] <= 6 && fe.pcReady[0] && !fe.pcReady[1] && !ps.started,
+                               "PC Mode, 3 players, player 3 a computer: a random pick, ready, D ignored; 1 = player 1 ready" + state());
+                        press(SDLK_SPACE, SDL_SCANCODE_SPACE);   // player 2
+                        padButton(SDL_GAMEPAD_BUTTON_START);     // player 4 (G 2... its pick from before): Ready
+                    } else if (w == 82) {
+                        expect(ps.started && ps.startChars[3] == 3,
+                               "PC Mode: players 2 and 4 ready too: the game starts (player 4's pick passed)" + state());
+                        // 2 players: the PC's two panels, the seats' keys do nothing there
+                        menu.cfg.players = 2;
+                        fe.startPcMode();
+                        press(SDLK_D, SDL_SCANCODE_D);
+                    } else if (w == 86) {
+                        expect(fe.pcSeats == 2 && fe.screen() == 16 && fe.pcChars[2] == ps.startChars[2],
+                               "PC Mode, 2 players: the original's two panels (seat keys unused)" + state());
+                        {   // the picks decide who plays: No Player / a person never a CPU (p2bot set), the CPU toggle
+                            int keep[4], keepCpu = gPcCpuSeats;
+                            std::memcpy(keep, gPcChars, sizeof keep);
+                            menu.cfg.seatBot[1] = 2;
+                            fe.pcChars[1] = 0;
+                            pcModeTakePicks(fe);
+                            expect(gPcCpuSeats == 0 && gPcChars[1] == 0, "PC Mode solo, player 2 No Player (p2bot set): no CPU seat" + state());
+                            fe.pcChars[1] = 2;
+                            pcModeTakePicks(fe);
+                            expect(gPcCpuSeats == 0 && gPcChars[1] == 2, "PC Mode, 2 panels, player 2 G: a person, no CPU" + state());
+                            menu.cfg.players = 4;
+                            for (int p = 2; p < 4; ++p) menu.cfg.seatBot[p] = 0;
+                            fe.startPcMode();
+                            const bool pre = fe.pcCpu[1] && fe.pcReady[1];
+                            fe.pcModeSeat(1, game::Frontend::kPcCpu);
+                            const bool off = !fe.pcCpu[1] && !fe.pcReady[1];
+                            fe.pcModeSeat(1, game::Frontend::kPcCpu);
+                            fe.pcChars[2] = 6, fe.pcChars[3] = 0;
+                            pcModeTakePicks(fe);
+                            expect(pre && off && fe.pcCpu[1] && gPcCpuSeats == 2 && gPcChars[0] == fe.pcChars[0] &&
+                                       gPcChars[1] == fe.pcChars[1] && gPcChars[2] == 6 && gPcChars[3] == 0,
+                                   "PC Mode, 4 panels: CPU toggles; P2 CPU, P3 Researcher (a person), P4 No Player reach the game" + state());
+                            // pmextra: the arrows go on from Researcher to the Extra Characters (7..19) and wrap after
+                            // the last; their pick reaches the game; their lines on the pick screen
+                            fe.pcReady[0] = fe.pcReady[2] = false, fe.pcCpu[2] = false;
+                            fe.pcChars[2] = 6;
+                            fe.pcModeSeat(2, game::Frontend::kPcNext);
+                            const int x1 = fe.pcChars[2];
+                            fe.pcChars[2] = 19;
+                            fe.pcModeSeat(2, game::Frontend::kPcNext);
+                            const int x2 = fe.pcChars[2];
+                            fe.pcChars[0] = 1;
+                            fe.pcModeSeat(0, game::Frontend::kPcPrev);
+                            const int x3 = fe.pcChars[0];
+                            fe.pcChars[2] = 17;
+                            pcModeTakePicks(fe);
+                            expect(x1 == 7 && x2 == 0 && x3 == 19 && gPcChars[2] == 17 && game::Frontend::pcExtraNotes(17).size() == 2 &&
+                                       game::Frontend::pcExtraNotes(19).size() == 3 && game::Frontend::pcExtraNotes(6).empty() &&
+                                       port::Game<port::A>::pm_rules_char(17) == 6 && port::Game<port::A>::pm_rules_char(19) == 5,
+                                   "PC Mode, Extra Characters: Researcher > Researcher (1), Sophie (zombie) > No Player, Rogan < Sophie (zombie); Dr. Curien reaches the game" + state());
+                            std::memcpy(gPcChars, keep, sizeof keep);
+                            gPcCpuSeats = keepCpu;
+                        }
+                        menu.cfg.players = ps.players;
+                        menu.cfg.p3Input = ps.p3Input;
+                        for (int p = 0; p < 4; ++p) menu.cfg.seatBot[p] = ps.bot[p], fe.pcChars[p] = ps.chars[p];
+                        fe.onPcModeStart = ps.onStart;
+                        pads.configure(menu.cfg);
+                        press(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE);
+                    } else if (w == 92) {
+                        expect(fe.screen() == 1, "Escape on PC Mode: the main menu (screen " + std::to_string(fe.screen()) + ")");
+                        // playerpick: the players' choice by a pad (Classic style): RB one more, B back, A starts
+                        ps.started = false;
+                        ps.players = menu.cfg.players;
+                        menu.cfg.players = 1;
+                        fe.askPlayers("Pad test", [&]() { ps.started = true; }, [&]() { fe.screenMainMenu(); });
+                        padButton(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER);
+                    } else if (w == 98) {
+                        expect(fe.screen() == 22 && fe.pickedPlayers() == 2, "Players' choice by a pad: RB, 2 players (screen " +
+                                                                             std::to_string(fe.screen()) + ", players " + std::to_string(fe.pickedPlayers()) + ")");
+                        padButton(SDL_GAMEPAD_BUTTON_EAST);
+                    } else if (w == 104) {
+                        expect(fe.screen() == 1 && !ps.started && menu.cfg.players == 1,
+                               "Players' choice by a pad: B, the main menu, nothing kept (screen " + std::to_string(fe.screen()) + ")");
+                        fe.askPlayers("Pad test", [&]() { ps.started = true; }, [&]() { fe.screenMainMenu(); });
+                        padButton(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);   // (1 already: stays 1)
+                        padButton(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER);
+                    } else if (w == 110) {
+                        padButton(SDL_GAMEPAD_BUTTON_SOUTH);   // (A: Start, the focus moved there by RB)
+                    } else if (w == 140) {
+                        expect(ps.started && menu.cfg.players == 2, "Players' choice by a pad: LB, RB, A: the game starts with 2 players (players " +
+                                                                        std::to_string(menu.cfg.players) + ")");
+                        menu.cfg.players = ps.players;
+                        if (ps.j) SDL_CloseJoystick(ps.j);
+                        if (ps.id) SDL_DetachVirtualJoystick(ps.id);
+                        ps.j = nullptr, ps.id = 0;
+                        fe.screenMainMenu();
+                    }
+                    if (w < 140)
+                        return;
+                    s.stage = 9;   // padpass: the menus by pads only next, then the boss game (stage 8), then Arcade
+                    s.wait = 0;
+                    return;
+                }
+                if (s.stage == 8) {   // bossbug: back in the main menu from the boss game: Arcade next
+                    expect(fe.screen() == 1, "Boss Mode, the pause's Exit: the main menu (screen " + std::to_string(fe.screen()) + ")");
+                    expect(bossModeOpt == 0, "Boss Mode left: no boss kept for the next game (boss mode " + std::to_string(bossModeOpt) + ")");
+                    float sc, x0, y0;
+                    game::Hud::pictureRect(640, 480, float(lw), float(lh), sc, x0, y0);
+                    // menuart: the mouse onto "Arcade" (640 x 480 (320, 215), the picture fitted to the height) and a
+                    // click: the bony hand's click frames, then the activation (THOTD.EXE 0x420A60 / 0x42095C)
+                    motion(0, float(lw) / 2.0f, y0 + 215.0f * sc, 0, 0);
+                    s.stage = 1;
+                    s.wait = 0;
+                    return;
+                }
+                if (s.stage == 9) {
+                    // padpass: the Remake menu's newer pages by a pad alone (a virtual DualSense, player 2's): the
+                    // prompts in its names, the tabs by R1 / L1, the volume / blood colour bars by Left / Right (no
+                    // wrap), Controls' light-gun rows, Reset to Defaults' question, Language, the Firing Range (the
+                    // pad's shot; Tab: the keyboard players' aim and shot; Esc), then a Switch Pro plugged in (its
+                    // names), the DualSense pulled out, the menu still worked by the Switch Pro
+                    struct PadWalk {
+                        SDL_JoystickID id = 0, id2 = 0;
+                        SDL_Joystick *j = nullptr, *j2 = nullptr;
+                        int step = 0, at = 0, tries = 0;
+                        game::LaunchConfig keep;
+                        float mark = 0;
+                        std::string focus;
+                    };
+                    static PadWalk pw;
+                    enum { kBtn, kSeek, kDo, kKey };   // (relmenu: kKey: the key `arg` pressed)
+                    struct PStep {
+                        int kind;                  // kBtn: the button pressed; kSeek: Down until the focus is `focus`; kDo: `act`
+                        int arg;                   // the button (kBtn), the action (kDo)
+                        int screen;                // the screen after it (-1: not checked)
+                        const char* title;         // the page's title after it (nullptr: not checked)
+                        const char* focus;         // the focus after it (nullptr: not checked)
+                        int check;                 // an extra check (below), 0 none
+                        const char* what;
+                        bool second = false;       // kBtn: on the Switch Pro
+                    };
+                    using B = SDL_GamepadButton;
+                    const B U = SDL_GAMEPAD_BUTTON_DPAD_UP, D = SDL_GAMEPAD_BUTTON_DPAD_DOWN, L = SDL_GAMEPAD_BUTTON_DPAD_LEFT,
+                            R = SDL_GAMEPAD_BUTTON_DPAD_RIGHT, A = SDL_GAMEPAD_BUTTON_SOUTH, E = SDL_GAMEPAD_BUTTON_EAST,
+                            L1 = SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, R1 = SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER;
+                    (void)U;
+                    const char* const range = game::Frontend::kRangeTitle;
+                    const std::vector<PStep> walk = {
+                        {kDo, 1, 1, nullptr, nullptr, 1, "the Remake main menu, a DualSense plugged in: player 2's pad"},
+                        {kBtn, D, 1, nullptr, nullptr, 2, "DualSense d-pad: the prompts in its names (Cross / Circle / L1 / R1)"},
+                        {kSeek, 0, 1, nullptr, "Options", 0, "d-pad Down to Options"},
+                        {kBtn, A, 2, nullptr, "Difficulty", 0, "Cross on Options: its Game tab"},
+                        // relmenu: Free Play on the Game tab too (under Continues; Gameplay's and the Cheat screen's)
+                        {kSeek, 0, 2, nullptr, "Free Play", 0, "d-pad Down to the Game tab's Free Play"},
+                        {kBtn, A, 2, nullptr, "Free Play", 20, "Cross on the Game tab's Free Play: On"},
+                        {kBtn, A, 2, nullptr, "Free Play", 21, "Cross again: Off"},
+                        {kBtn, R1, 100, "Video", nullptr, 0, "R1: the Video tab"},
+                        {kBtn, R1, 100, "Audio", nullptr, 0, "R1: the Audio tab"},
+                        {kSeek, 0, 100, "Audio", "Sound Effects Volume", 0, "d-pad Down to Sound Effects Volume"},
+                        {kBtn, L, 100, "Audio", "Sound Effects Volume", 3, "d-pad Left on the volume bar: 100% -> 95% (5 % steps)"},
+                        {kBtn, R, 100, "Audio", "Sound Effects Volume", 4, "d-pad Right: 100%"},
+                        {kBtn, R, 100, "Audio", "Sound Effects Volume", 4, "d-pad Right at 100%: stays 100% (no wrap to 0%)"},
+                        {kBtn, R1, 100, "Controls", nullptr, 0, "R1: the Controls tab"},
+                        {kSeek, 0, 100, "Controls", "Shot Flash", 0, "d-pad Down to Shot Flash"},
+                        {kBtn, R, 100, "Controls", "Shot Flash", 5, "d-pad Right on Shot Flash: Off"},
+                        {kBtn, L, 100, "Controls", "Shot Flash", 6, "d-pad Left: Auto"},
+                        {kSeek, 0, 100, "Controls", "Calibrate Light Guns", 0, "d-pad Down to Calibrate Light Guns"},
+                        {kBtn, A, 100, "Controls", "Calibrate Light Guns", 18, "Cross on Calibrate Light Guns (player 1 a light gun): At Next Start"},
+                        {kSeek, 0, 100, "Controls", "Reset to Defaults", 0, "d-pad Down to Reset to Defaults"},
+                        {kBtn, A, 100, "Reset to Defaults?", nullptr, 0, "Cross: the question"},
+                        {kSeek, 0, 100, "Reset to Defaults?", "Cancel", 0, "d-pad Down to Cancel"},
+                        {kBtn, A, 100, "Controls", nullptr, 7, "Cross on Cancel: Controls, nothing reset"},
+                        // relmenu: a long page goes round: Down on its last row -> its first row (scrolled to the top),
+                        // Up there -> the last row again
+                        {kSeek, 0, 100, "Controls", "Reset to Defaults", 0, "d-pad Down to Reset to Defaults (the last row)"},
+                        {kBtn, D, 100, "Controls", "Player 1 Input", 0, "d-pad Down on the last row: the first row, the page at its top"},
+                        {kBtn, U, 100, "Controls", "Reset to Defaults", 0, "d-pad Up on the first row: the last row"},
+                        // relmenu: Button Style with Switch 2 / GameCube icons (no Xelu ones): the row shows Kenney, its
+                        // steps and list skip Xelu, a grey pick does nothing; pad and keys; the focus always moves on
+                        {kDo, 11, 100, "Controls", nullptr, 0, "Button Icons: Switch 2, Button Style Xelu"},
+                        {kSeek, 0, 100, "Controls", "Button Style", 30, "d-pad Down to Button Style: it shows Kenney (no Xelu Switch 2 icons), Xelu grey"},
+                        {kBtn, R, 100, "Controls", "Button Style", 31, "d-pad Right: Simple"},
+                        {kBtn, R, 100, "Controls", "Button Style", 30, "d-pad Right: Kenney (Xelu skipped)"},
+                        {kBtn, L, 100, "Controls", "Button Style", 31, "d-pad Left: Simple (Xelu skipped)"},
+                        {kBtn, L, 100, "Controls", "Button Style", 30, "d-pad Left: Kenney"},
+                        {kBtn, A, 100, "Controls", "Kenney", 0, "Cross: its list, the focus on Kenney"},
+                        {kBtn, U, 100, "Controls", "Xelu", 0, "d-pad Up in the list: Xelu (grey)"},
+                        {kBtn, A, 100, "Controls", "Button Style", 30, "Cross on the grey Xelu: not picked, the list closed, still Kenney"},
+                        {kBtn, A, 100, "Controls", "Kenney", 0, "Cross: the list again"},
+                        {kBtn, D, 100, "Controls", "Simple", 0, "d-pad Down in the list: Simple"},
+                        {kBtn, A, 100, "Controls", "Button Style", 31, "Cross on Simple: Simple, the list closed"},
+                        {kKey, SDLK_RIGHT, 100, "Controls", "Button Style", 30, "key Right: Kenney (Xelu skipped)"},
+                        {kKey, SDLK_LEFT, 100, "Controls", "Button Style", 31, "key Left: Simple"},
+                        {kKey, SDLK_LEFT, 100, "Controls", "Button Style", 30, "key Left: Kenney (Xelu skipped)"},
+                        {kKey, SDLK_RETURN, 100, "Controls", "Kenney", 0, "Enter: the list, on Kenney"},
+                        {kKey, SDLK_UP, 100, "Controls", "Xelu", 0, "key Up in the list: Xelu (grey)"},
+                        {kKey, SDLK_RETURN, 100, "Controls", "Button Style", 30, "Enter on the grey Xelu: not picked, still Kenney"},
+                        {kKey, SDLK_RETURN, 100, "Controls", "Kenney", 0, "Enter: the list again"},
+                        {kKey, SDLK_ESCAPE, 100, "Controls", "Button Style", 30, "Esc: the list closed, still Controls"},
+                        {kKey, SDLK_DOWN, 100, "Controls", "Touchpad Cursor", 0, "key Down: Touchpad Cursor (Icon Outline grey: Xelu's only)"},
+                        {kKey, SDLK_UP, 100, "Controls", "Button Style", 30, "key Up: Button Style again"},
+                        {kDo, 12, 100, "Controls", "Button Style", 30, "Button Icons: GameCube, Button Style Xelu: it shows Kenney"},
+                        {kBtn, R, 100, "Controls", "Button Style", 31, "d-pad Right: Simple"},
+                        {kBtn, R, 100, "Controls", "Button Style", 30, "d-pad Right: Kenney (Xelu skipped)"},
+                        {kDo, 13, 100, "Controls", "Button Style", 0, "Button Icons: Auto, Button Style Xelu (the prompts keep the last pad until a button)"},
+                        {kBtn, R, 100, "Controls", "Button Style", 30, "d-pad Right (the DualSense: Xelu has its icons): Kenney"},
+                        {kBtn, L, 100, "Controls", "Button Style", 32, "d-pad Left: Xelu"},
+                        {kBtn, R1, 100, "Gameplay", nullptr, 0, "R1: the Gameplay tab"},
+                        {kSeek, 0, 100, "Gameplay", "Custom Red", 0, "d-pad Down to Custom Red"},
+                        {kBtn, L, 100, "Gameplay", "Custom Red", 8, "d-pad Left on the red bar: 255 -> 240"},
+                        {kBtn, R, 100, "Gameplay", "Custom Red", 9, "d-pad Right: 255"},
+                        {kBtn, R, 100, "Gameplay", "Custom Red", 9, "d-pad Right at 255: stays 255 (no wrap to 0)"},
+                        // feat29: Gameplay > Free Play (the Cheat screen's Free-Play too), PC Start-up Screens
+                        {kSeek, 0, 100, "Gameplay", "Free Play", 0, "d-pad Down to Free Play"},
+                        {kBtn, A, 100, "Gameplay", "Free Play", 20, "Cross on Free Play: On (launcher.ini freeplay, the Cheat screen's Free-Play)"},
+                        {kBtn, A, 100, "Gameplay", "Free Play", 21, "Cross on Free Play again: Off"},
+                        {kSeek, 0, 100, "Gameplay", "PC Start-up Screens", 0, "d-pad Down to PC Start-up Screens"},
+                        {kBtn, A, 100, "Gameplay", "PC Start-up Screens", 22, "Cross on PC Start-up Screens: Off"},
+                        {kBtn, A, 100, "Gameplay", "PC Start-up Screens", 23, "Cross on PC Start-up Screens again: On (the default, pmpick)"},
+                        {kBtn, R1, 100, "Mods", nullptr, 0, "R1: the Mods tab"},
+                        {kBtn, R1, 100, "System", nullptr, 0, "R1: the System tab"},
+                        {kSeek, 0, 100, "System", "Language", 0, "d-pad Down to Language"},
+                        {kBtn, A, 100, "Language", nullptr, 0, "Cross on Language: its page"},
+                        {kBtn, E, 100, "System", nullptr, 0, "Circle: System again"},
+                        {kBtn, L1, 100, "Mods", nullptr, 0, "L1: Mods"},
+                        {kBtn, L1, 100, "Gameplay", nullptr, 0, "L1: Gameplay"},
+                        {kBtn, L1, 100, "Controls", nullptr, 0, "L1: Controls"},
+                        {kBtn, L1, 100, "Audio", nullptr, 0, "L1: Audio"},
+                        {kBtn, L1, 100, "Video", nullptr, 0, "L1: Video"},
+                        {kSeek, 0, 100, "Video", "Crosshairs", 0, "d-pad Down to Crosshairs"},
+                        {kBtn, A, 100, range, nullptr, 10, "Cross on Crosshairs: the Firing Range, player 2's pad aims there"},
+                        {kDo, 2, 100, range, nullptr, 11, "the Firing Range: R2 on a target: player 2's hit"},
+                        {kDo, 3, 100, range, nullptr, 12, "the Firing Range: Tab: the keys aim there"},
+                        {kDo, 4, 100, range, nullptr, 13, "the Firing Range: D held: player 3's crosshair right"},
+                        {kDo, 5, 100, range, nullptr, 14, "the Firing Range: F on a target: player 3's hit"},
+                        {kDo, 6, 100, range, nullptr, 15, "the Firing Range: Esc: the menu's keys again, still the range"},
+                        {kDo, 9, 100, range, nullptr, 19, "R2 held: player 2's fire held (the hold-to-skip's test), player 1's not"},
+                        {kDo, 10, 100, range, nullptr, 24, "the Firing Range's Crosshair row: its help names the Crosshairs folder, no path (made)"},
+                        {kBtn, E, 100, "Video", nullptr, 0, "Circle: the Video page"},
+                        {kDo, 7, 100, "Video", nullptr, 16, "a Switch Pro plugged in, its d-pad: the prompts in its names (B / A / L)"},
+                        {kDo, 8, 100, "Video", nullptr, 17, "the DualSense pulled out: the Switch Pro's d-pad still moves the focus"},
+                        {kBtn, E, 2, nullptr, nullptr, 0, "the Switch Pro's East: Options", true},
+                        {kBtn, E, 1, nullptr, nullptr, 0, "the Switch Pro's East: the main menu", true},
+                    };
+                    auto padPress = [&](SDL_Joystick* jj, SDL_GamepadButton b, bool down) {
+                        if (!jj) return;
+                        SDL_SetJoystickVirtualButton(jj, b, down);
+                        SDL_UpdateJoysticks();
+                    };
+                    auto attach = [&](Uint16 vendor, Uint16 product, const char* name, SDL_JoystickID& id) -> SDL_Joystick* {
+                        SDL_VirtualJoystickDesc d;
+                        SDL_INIT_INTERFACE(&d);
+                        d.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+                        d.naxes = SDL_GAMEPAD_AXIS_COUNT;
+                        d.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+                        d.vendor_id = vendor;
+                        d.product_id = product;
+                        d.name = name;
+                        id = SDL_AttachVirtualJoystick(&d);
+                        return id ? SDL_OpenJoystick(id) : nullptr;
+                    };
+                    float psc, px0, py0;
+                    game::Hud::pictureRect(fe.canvasWidth(), game::Frontend::kHeight, float(lw), float(lh), psc, px0, py0);
+                    auto aimAtTarget = [&](int seat, int k) {   // a range target's centre (window pixels)
+                        float tx, ty;
+                        fe.rangeTargetAt(k, tx, ty);
+                        gRangeGuns[seat].x = px0 + tx * psc, gRangeGuns[seat].y = py0 + ty * psc;
+                    };
+                    if (pw.step == int(walk.size())) {   // the end: the settings back, the pads out, the Classic menu
+                        menu.cfg = pw.keep;
+                        if (pw.j) SDL_CloseJoystick(pw.j);
+                        if (pw.id) SDL_DetachVirtualJoystick(pw.id);
+                        if (pw.j2) SDL_CloseJoystick(pw.j2);
+                        if (pw.id2) SDL_DetachVirtualJoystick(pw.id2);
+                        pw.j = pw.j2 = nullptr, pw.id = pw.id2 = 0;
+                        pads.configure(menu.cfg);
+                        fe.screenMainMenu();
+                        ++pw.step;
+                        return;
+                    }
+                    if (pw.step > int(walk.size())) {   // (a frame later, the Classic menu back) the boss game next
+                        // bossbug (user 2026-10-26): a Boss Mode game (the Hermit), left by the pause's Exit; the Arcade
+                        // game next (stage 1) must be Chapter 1, not that boss again (stage 8: the boss game)
+                        s.stage = 8;
+                        s.wait = 0;
+                        fe.onBossMode(4);
+                        return;
+                    }
+                    const PStep& st = walk[size_t(pw.step)];
+                    const int at = pw.at++;
+                    SDL_Joystick* jj = st.second ? pw.j2 : pw.j;
+                    if (st.kind == kBtn) {
+                        if (at == 0) padPress(jj, SDL_GamepadButton(st.arg), true);
+                        if (at == 4) padPress(jj, SDL_GamepadButton(st.arg), false);
+                    } else if (st.kind == kKey) {
+                        const SDL_Keycode kc = SDL_Keycode(st.arg);
+                        if (at == 0) key(kc, SDL_GetScancodeFromKey(kc, nullptr), true);
+                        if (at == 4) key(kc, SDL_GetScancodeFromKey(kc, nullptr), false);
+                    } else if (st.kind == kDo && (st.arg == 11 || st.arg == 12 || st.arg == 13) && at == 0) {
+                        // relmenu: Button Icons Switch 2 (8) / GameCube (11) / Auto (0), Button Style Xelu
+                        menu.cfg.padPrompts = st.arg == 11 ? 8 : st.arg == 12 ? 11 : 0;
+                        menu.cfg.buttonStyle = 0;
+                    } else if (st.kind == kSeek) {   // Down every 8 frames until the focus is there (40 tries)
+                        if (fe.focusText() != st.focus && pw.tries < 40) {
+                            if (at % 8 == 0) {
+                                padPress(pw.j, D, true);
+                                ++pw.tries;
+                            }
+                            if (at % 8 == 4) padPress(pw.j, D, false);
+                            return;
+                        }
+                        if (at % 8 < 5) {   // (the last press's button up first)
+                            padPress(pw.j, D, false);
+                            return;
+                        }
+                        pw.at = 20;   // (checked now)
+                    } else if (st.arg == 1 && at == 0) {   // the start: Remake, player 2 on a pad, values to step from
+                        pw.keep = menu.cfg;
+                        menu.cfg.menuStyle = 1;
+                        menu.cfg.p2Input = 2;
+                        menu.cfg.sfxVolume = 100;
+                        menu.cfg.blood = 5;
+                        menu.cfg.bloodRgb = 0xFFFFFF;
+                        menu.cfg.gunFlash = 0;
+                        menu.cfg.p1Input = 3;   // (a light gun: the calibration row on)
+                        motion(0, 2, 2, 0, 0);   // (the hand away)
+                        pw.j = attach(0x054C, 0x0CE6, "Test DualSense (menus)", pw.id);
+                        pads.configure(menu.cfg);
+                        fe.screenMainMenu();
+                    } else if (st.arg == 2) {   // R2 on target 0 (player 2's pad)
+                        if (at == 0) aimAtTarget(1, 0);
+                        if (at == 2) SDL_SetJoystickVirtualAxis(pw.j, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, 32767), SDL_UpdateJoysticks();
+                        if (at == 6) SDL_SetJoystickVirtualAxis(pw.j, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, -32768), SDL_UpdateJoysticks();
+                    } else if (st.arg == 3 && at == 0) {
+                        key(SDLK_TAB, SDL_SCANCODE_TAB, true);
+                        key(SDLK_TAB, SDL_SCANCODE_TAB, false);
+                    } else if (st.arg == 4) {   // player 3's Aim Right (D) held 10 frames
+                        if (at == 0) aimAtTarget(2, 1);
+                        if (at == 2) pw.mark = gRangeGuns[2].x, key(SDLK_D, SDL_SCANCODE_D, true);
+                        if (at == 12) key(SDLK_D, SDL_SCANCODE_D, false);
+                    } else if (st.arg == 5) {   // player 3's Fire (F) on target 2
+                        if (at == 0) aimAtTarget(2, 2);
+                        if (at == 2) key(SDLK_F, SDL_SCANCODE_F, true), key(SDLK_F, SDL_SCANCODE_F, false);
+                    } else if (st.arg == 6 && at == 0) {
+                        key(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE, true);
+                        key(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE, false);
+                    } else if (st.arg == 9 && at == 0) {   // R2 held (let go after the check)
+                        SDL_SetJoystickVirtualAxis(pw.j, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, 32767);
+                        SDL_UpdateJoysticks();
+                    } else if (st.arg == 7) {   // a Switch Pro plugged in during the menu, its d-pad Down
+                        if (at == 0) pw.j2 = attach(0x057E, 0x2009, "Test Switch Pro (menus)", pw.id2);
+                        if (at == 4) padPress(pw.j2, D, true);
+                        if (at == 8) padPress(pw.j2, D, false);
+                    } else if (st.arg == 8) {   // the DualSense pulled out; the Switch Pro's d-pad Down
+                        if (at == 0) {
+                            if (pw.j) SDL_CloseJoystick(pw.j);
+                            if (pw.id) SDL_DetachVirtualJoystick(pw.id);
+                            pw.j = nullptr, pw.id = 0;
+                            pw.focus = fe.focusText();
+                        }
+                        if (at == 4) padPress(pw.j2, D, true);
+                        if (at == 8) padPress(pw.j2, D, false);
+                    }
+                    if (at < 20 && pw.at != 20)
+                        return;
+                    bool ok = (st.screen < 0 || fe.screen() == st.screen) && (!st.title || fe.extrasTitle == st.title) &&
+                              (!st.focus || fe.focusText() == st.focus);
+                    std::string more;
+                    switch (st.check) {
+                    case 1: ok = ok && pw.j && pads.playerOf(pw.id) == 1 && fe.remakeScreen(); break;
+                    case 2:
+                        ok = ok && fe.padPromptsShown() && fe.padType() == SDL_GAMEPAD_TYPE_PS5 && fe.padKey("A") == "Cross" &&
+                             fe.padKey("B") == "Circle" && fe.padKey("LB/RB") == "L1/R1";
+                        more = fe.padKey("A") + " " + fe.padKey("B") + " " + fe.padKey("LB/RB");
+                        break;
+                    case 3: ok = ok && menu.cfg.sfxVolume == 95, more = std::to_string(menu.cfg.sfxVolume) + "%"; break;
+                    case 4: ok = ok && menu.cfg.sfxVolume == 100, more = std::to_string(menu.cfg.sfxVolume) + "%"; break;
+                    case 5: ok = ok && menu.cfg.gunFlash == 1, more = "gunflash " + std::to_string(menu.cfg.gunFlash); break;
+                    case 6: ok = ok && menu.cfg.gunFlash == 0, more = "gunflash " + std::to_string(menu.cfg.gunFlash); break;
+                    case 7: ok = ok && menu.cfg.p2Input == 2, more = "p2input " + std::to_string(menu.cfg.p2Input); break;
+                    case 8: ok = ok && ((menu.cfg.bloodRgb >> 16) & 255) == 240, more = std::to_string((menu.cfg.bloodRgb >> 16) & 255); break;
+                    case 9: ok = ok && ((menu.cfg.bloodRgb >> 16) & 255) == 255, more = std::to_string((menu.cfg.bloodRgb >> 16) & 255); break;
+                    case 10: ok = ok && fe.rangeShown() && fe.rangeAim[1].on; break;
+                    case 11: ok = ok && fe.rangeShots(1) == 1 && fe.rangeHits(1) == 1,
+                             more = "shots " + std::to_string(fe.rangeShots(1)) + " hits " + std::to_string(fe.rangeHits(1)); break;
+                    case 12: ok = ok && fe.rangeKeys && fe.rangeAim[2].on; break;
+                    case 13: {
+                        const float v = float(lw) / 90.0f;   // (a 60 Hz frame's step; the loop's real time: 5-20 of them)
+                        ok = ok && gRangeGuns[2].x - pw.mark > v * 3;
+                        char b[80];
+                        std::snprintf(b, sizeof b, "x %.1f -> %.1f", pw.mark, gRangeGuns[2].x);
+                        more = b;
+                        break;
+                    }
+                    case 14: ok = ok && fe.rangeShots(2) == 1 && fe.rangeHits(2) == 1 && fe.rangeShots(1) == 1,
+                             more = "shots " + std::to_string(fe.rangeShots(2)) + " hits " + std::to_string(fe.rangeHits(2)); break;
+                    case 15: ok = ok && !fe.rangeKeys && fe.rangeShown(); break;
+                    case 16:
+                        ok = ok && pw.j2 && fe.padType() == SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO && fe.padKey("A") == "B" &&
+                             fe.padKey("B") == "A" && fe.padKey("LB") == "L";
+                        more = fe.padKey("A") + " " + fe.padKey("B") + " " + fe.padKey("LB");
+                        break;
+                    case 19:
+                        ok = ok && pads.fireHeld(1) && !pads.fireHeld(0);
+                        SDL_SetJoystickVirtualAxis(pw.j, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, -32768);
+                        SDL_UpdateJoysticks();
+                        break;
+                    case 18: ok = ok && menu.cfg.calibrateNext, more = menu.cfg.calibrateNext ? "at next start" : "off"; break;
+                    case 17: ok = ok && !pw.j && fe.focusText() != pw.focus, more = pw.focus + " -> " + fe.focusText(); break;
+                    case 20: case 21: {   // feat29: Free Play On / Off, the Cheat screen's copy the same
+                        const bool want = st.check == 20;
+                        ok = ok && menu.cfg.freePlay == want && fe.freePlay == want;
+                        more = std::string("freeplay ") + (menu.cfg.freePlay ? "1" : "0") + " cheat " + (fe.freePlay ? "1" : "0");
+                        break;
+                    }
+                    case 22: case 23:
+                        ok = ok && menu.cfg.pcSplash == (st.check == 23), more = std::string("pcsplash ") + (menu.cfg.pcSplash ? "1" : "0");
+                        break;
+                    case 30: case 31: case 32: {   // relmenu: Button Style shows Kenney / Simple / Xelu (the style drawn)
+                        const char* want = st.check == 30 ? "Kenney" : st.check == 31 ? "Simple" : "Xelu";
+                        std::string v = "(no row)";
+                        bool grey = false;
+                        for (const auto& x : fe.extras)
+                            if (x.name == "Button Style" && x.value) v = x.value(), grey = x.choiceOff && x.choiceOff(0);
+                        // (after a step on the row the style shown is the one kept; the kDo / kSeek steps keep Xelu)
+                        const int kept = st.kind == kDo || st.kind == kSeek ? 0 : st.check == 30 ? 1 : st.check == 31 ? 2 : 0;
+                        ok = ok && v == want && menu.cfg.buttonStyle == kept && grey == (menu.cfg.padPrompts != 0);
+                        more = "shows " + v + ", buttonstyle " + std::to_string(menu.cfg.buttonStyle) + ", Xelu grey " + (grey ? "1" : "0");
+                        break;
+                    }
+                    case 24: {
+                        std::string help;
+                        for (const auto& x : fe.extras)
+                            if (x.name == "Crosshair") help = x.help;
+                        std::error_code ec;
+                        const std::filesystem::path dir = std::filesystem::path(cache + "crosshairs");
+                        // (relmenu: the folder's name only, no path: players' folders differ)
+                        ok = ok && help.find("Crosshairs folder") != std::string::npos && help.find(cache) == std::string::npos &&
+                             help.find(dir.parent_path().filename().string()) == std::string::npos && std::filesystem::is_directory(dir, ec);
+                        more = help;
+                        break;
+                    }
+                    default: break;
+                    }
+                    expect(ok, std::string("pads in the menus: ") + st.what + " (screen " + std::to_string(fe.screen()) + ", \"" +
+                                   fe.extrasTitle + "\", focus \"" + fe.focusText() + "\"" + (more.empty() ? "" : ", " + more) + ")");
+                    ++pw.step, pw.at = 0, pw.tries = 0;
+                    return;
+                }
+                if (s.stage == 1 && ++s.wait < 600) {
+                    if (s.wait == 5 || s.wait == 70)   // the click a few frames after the motion (0x420A60 moves the pointer only while no click runs)
+                        click(0, SDL_BUTTON_LEFT);
+                    // playerpick: Arcade asks the players first (the hand on Start); Escape: the main menu; Arcade again,
+                    // then one click (the mouse not moved) starts with the last choice
+                    if (s.wait == 40) {
+                        expect(fe.screen() == 22 && fe.pickedPlayers() == std::max(1, menu.cfg.players),
+                               "Classic: Arcade: the players' choice (screen " + std::to_string(fe.screen()) + ", players " +
+                                   std::to_string(fe.pickedPlayers()) + ")");
+                        press(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE);
+                    }
+                    if (s.wait == 60) {
+                        expect(fe.screen() == 1, "Classic: Escape on the players' choice: the main menu (screen " + std::to_string(fe.screen()) + ")");
+                        float sc, x0, y0;
+                        game::Hud::pictureRect(640, 480, float(lw), float(lh), sc, x0, y0);
+                        motion(0, float(lw) / 2.0f, y0 + 215.0f * sc, 0, 0);
+                    }
+                    if (s.wait == 100) {
+                        expect(fe.screen() == 22, "Classic: Arcade again: the players' choice (screen " + std::to_string(fe.screen()) + ")");
+                        click(0, SDL_BUTTON_LEFT);   // (on Start: the hand went there)
+                    }
+                    return;
+                }
+                expect(s.skipStep == 10 && s.bossSkip == 7, "the cut-scenes: pause, hold-to-skip all done (opening step " + std::to_string(s.skipStep) + ", Hermit step " + std::to_string(s.bossSkip) + ")");
+                expect(s.stage == 3, "Esc on the end screen: back in the main menu (stage " + std::to_string(s.stage) + ")");
+                log("%d checks, %d failed", s.checks, s.fails);
+                std::fclose(s.out);
+                SDL_Log("input test: %d checks, %d failed (%s)", s.checks, s.fails, inputTestFile.c_str());
+                running = false;
+                s.it = -1;
+                return;
+            }
+            if (s.stage == 8) {   // bossbug: the Hermit's Boss Mode game: its start checked, then the pause's Exit
+                if (phase != 0)
+                    return;
+                ++s.wait;
+                if (s.wait == 120) {
+                    const int ch = rt.mem.at<int8_t>(game::A::G::chapter);
+                    expect(rt.boss.active() && rt.boss.index == 2 && ch == 2 && !rt.pcmode,
+                           "Boss Mode (the Hermit): chapter " + std::to_string(ch + 1) + ", boss " + std::to_string(rt.boss.index));
+                }
+                // skipfix (user 2026-10-27): the Hermit's start (Curien's talk, bars up, no SKIP section; this test's
+                // game: frames ~158..461): Hold to Skip Cut-scenes Off: held 0.7 s, no ring; On: a new press held:
+                // at 1 s the ring (in the bottom bar's middle), at 2 s the rest of the scene at once (fix28: was 3 s, then 1.5 s)
+                const std::string at = " (wait " + std::to_string(s.wait) + ", frame " + std::to_string(rt.frameCount) + ")";
+                const int since = s.wait - s.bossFrom;
+                int& st = s.bossSkip;
+                if (st == 0 && holdSkipScene(rt)) {
+                    s.skipCfg = cfg.holdSkip;
+                    cfg.holdSkip = false;
+                    key(SDLK_1, SDL_SCANCODE_1, true);
+                    st = 1, s.bossFrom = s.wait;
+                } else if (st == 1 && since == 40) {
+                    expect(skipHeldS == 0 && !skipFast && cutSceneNow(rt), "Hold to Skip Cut-scenes Off: held 0.7 s, no ring" + at);
+                    cfg.holdSkip = s.skipCfg;
+                    key(SDLK_1, SDL_SCANCODE_1, false);
+                } else if (st == 1 && since == 44) {
+                    key(SDLK_1, SDL_SCANCODE_1, true);
+                    st = 3, s.bossFrom = s.wait;
+                } else if (st == 3 && since == 60) {
+                    if (std::getenv("HOTD_SKIP_SHOT"))   // (developer: a screenshot of the ring, F12's)
+                        shot = true;
+                    expect(!skipFast && skipHeldS > 0.8 && skipHeldS < 1.2 && holdSkipScene(rt),
+                           "On: start key pressed and held 1 s: the ring at " + std::to_string(int(skipHeldS * 100 / kSkipHold)) + " %, no skip yet" + at + skipWhy());
+                    float rx = 0, ry = 0, rs = 0;   // the ring's place (a 1280 x 720 window): the bottom bar's middle, small
+                    const bool spot = skipRingSpot(rt, 1280, 720, 160.0f, 960.0f, rx, ry, rs);
+                    expect(spot && std::abs(rx - 640.0f) < 1.0f && ry > 720.0f - float(rt.letterbox) * 720.0f / 384.0f && rs < 60.0f,
+                           "the ring in the bottom bar's middle (" + std::to_string(int(rx)) + ", " + std::to_string(int(ry)) +
+                               ", size " + std::to_string(int(rs)) + ")" + at + skipWhy());
+                } else if (st == 3 && skipFast) {
+                    expect(since >= 112 && since <= 126, "held 2 s: the skip starts (" + std::to_string(since) + " frames)" + at);
+                    st = 4, s.bossFrom = s.wait;
+                } else if (st == 4 && !cutSceneNow(rt)) {
+                    expect(since <= 60, "the skip: the cut-scene over within a second" + at);
+                    key(SDLK_1, SDL_SCANCODE_1, false);
+                    st = 7;
+                } else if (st < 7 && s.wait > 1500) {
+                    key(SDLK_1, SDL_SCANCODE_1, false);
+                    st = 99;
+                }
+                if (s.wait >= 120 && (st >= 7 || st == 0) && !s.bossExit) {   // (99: given up)
+                    s.bossExit = true;
+                    pause.exit();
+                }
+                return;
+            }
+            if (phase == 0) {
+                if (s.stage == 1) {   // the second game
+                    s.stage = 2;
+                    s.it = 299;
+                }
+                ++s.it;
+                // hud3: the second game waits (frame 301 held) until the shooting starts (the intro's cut-scene has
+                // shots off): P1 in play, mode 4, shot_enable; then 302- test the reload sound (and the auto reload)
+                s.holding = false;
+                if (s.it == 302) {
+                    const bool ready = rt.mem.at<int16_t>(game::A::G::game_mode) == 4 && rt.mem.u32(game::A::G::shot_enable) != 0 &&
+                                       rt.mem.at<port::a::Player>(game::A::G::players, 0u).state == 5;
+                    if (!ready && ++s.hold < 6000) {
+                        s.it = 301;
+                        s.holding = true;
+                    }
+                    // bossbug: in the opening's cut-scene Escape pauses and Escape again goes on. skipfix (user
+                    // 2026-10-27): hold-to-skip only where the arcade cannot skip (the opening: frames 181..242 and
+                    // 684..809; 243..683 is a SKIP section, the trigger's own skip) and never on the chapter card
+                    // (1..180): the start key held from the card on: no ring on the card, none after it until let go
+                    // and pressed again; held 3.3 s in the SKIP section: no ring, no skip (the 2 s skip itself: the
+                    // Hermit's Boss Mode start below, 7 s without a SKIP section)
+                    const std::string at = " (wait " + std::to_string(s.hold) + ", frame " + std::to_string(rt.frameCount) + ")";
+                    const bool cardUp = (rt.mem.u32(game::A::G::evt_clrgfst_flags) & 0x20u) != 0;
+                    const bool arcadeSkip = rt.mem.u32(game::A::G::evt_skip_on) != 0;
+                    const int since = s.hold - s.skipFrom;
+                    if (s.skipStep == 0 && !ready && !paused && (cardUp || cutSceneNow(rt))) {
+                        expect(cardUp, "the opening: the key held from the chapter card on" + at);
+                        key(SDLK_1, SDL_SCANCODE_1, true);
+                        s.skipStep = 1, s.skipFrom = s.hold, s.skipBad = 0;
+                    } else if (s.skipStep == 1 && (cardUp || !holdSkipScene(rt))) {
+                        if (cardUp && (skipHeldS > 0 || skipFast)) ++s.skipBad;
+                        s.skipFrom = s.hold;
+                        if (since > 3000) s.skipStep = 99;
+                    } else if (s.skipStep == 1 && since == 30) {
+                        expect(s.skipBad == 0, "start key held on the chapter card: no ring there (" + std::to_string(s.skipBad) + " frames with one)" + at);
+                        expect(skipHeldS == 0 && !skipFast && holdSkipScene(rt), "start key held from the card into the cut-scene: no ring without a new press" + at);
+                        key(SDLK_1, SDL_SCANCODE_1, false);
+                        s.skipStep = 2, s.skipFrom = s.hold;
+                    } else if (s.skipStep == 2 && since == 4) {
+                        press(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE);
+                    } else if (s.skipStep == 2 && since == 8) {
+                        expect(paused, "Escape in a cut-scene: the pause" + at);
+                        press(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE);
+                    } else if (s.skipStep == 2 && since == 12) {
+                        expect(!paused, "Escape again: the cut-scene goes on" + at);
+                        s.skipStep = 3;
+                    } else if (s.skipStep == 3 && arcadeSkip && cutSceneNow(rt)) {   // (the SKIP section begins)
+                        key(SDLK_1, SDL_SCANCODE_1, true);
+                        s.skipStep = 4, s.skipFrom = s.hold;
+                    } else if (s.skipStep == 4 && since == 190) {
+                        expect(arcadeSkip && skipHeldS == 0 && !skipFast && cutSceneNow(rt),
+                               "start key pressed and held 3.2 s where the arcade has its own skip: no ring, no skip" + at);
+                        key(SDLK_1, SDL_SCANCODE_1, false);
+                        s.skipStep = 5;
+                    } else if (s.skipStep == 5 && !arcadeSkip && holdSkipScene(rt)) {   // (684..809: no SKIP section)
+                        key(SDLK_1, SDL_SCANCODE_1, true);
+                        s.skipStep = 6, s.skipFrom = s.hold;
+                    } else if (s.skipStep == 6 && since == 60) {
+                        expect(!skipFast && skipHeldS > 0.8 && skipHeldS < 1.2 && holdSkipScene(rt),
+                               "after the SKIP section: a new press held 1 s: the ring at " + std::to_string(int(skipHeldS * 100 / kSkipHold)) + " %" + at + skipWhy());
+                        key(SDLK_1, SDL_SCANCODE_1, false);
+                    } else if (s.skipStep == 6 && since == 64) {
+                        expect(!skipFast && skipHeldS == 0 && cutSceneNow(rt), "let go early: the ring gone, the cut-scene goes on" + at);
+                        s.skipStep = 7;
+                    } else if (s.skipStep == 7 && since == 66) {
+                        // fix28 (user 2026-10-27): never in a rescue's gift scene: the lock a rescue sets (skipReward:
+                        // scene_state 5, seen in a --bot Chapter 1 at frame 9110, then the bars up to 9230) set here,
+                        // the key pressed and held to the cut-scene's end: no ring, no skip; the lock gone with the play
+                        skipReward = true;
+                        key(SDLK_1, SDL_SCANCODE_1, true);
+                        s.skipStep = 8, s.skipFrom = s.hold, s.skipBad = 0;
+                    } else if (s.skipStep == 8 && cutSceneNow(rt)) {
+                        if (skipHeldS > 0 || skipFast || holdSkipScene(rt)) ++s.skipBad;
+                    } else if (s.skipStep == 8) {
+                        expect(s.skipBad == 0 && since > 30, "a rescue's gift scene: key held " + std::to_string(since) +
+                               " frames to the scene's end, no ring, no skip (" + std::to_string(s.skipBad) + " frames with one)" + at);
+                        key(SDLK_1, SDL_SCANCODE_1, false);
+                        s.skipStep = 9, s.skipBad = 0;
+                    }
+                }
+                if (s.skipStep == 9 && rt.mem.at<uint8_t>(game::A::G::scene_state) == 2 && ++s.skipBad > 2) {   // (the lock: updated after this check)
+                    expect(!skipReward, "the rescue's lock gone once the play is back (frame " + std::to_string(rt.frameCount) + ")");
+                    s.skipStep = 10;
+                }
+                s.frames0 = rt.inputFrames;
+                for (int p = 0; p < 2; ++p) {
+                    s.shots0[p] = rt.shotsIn[p];
+                    s.reloads0[p] = rt.reloadsIn[p];
+                    s.starts0[p] = rt.startsIn[p];
+                }
+                {
+                    const auto it = audio.codeCount.find(0xA01200);
+                    s.reloadSounds0 = it == audio.codeCount.end() ? 0 : it->second;
+                }
+                const int i = s.it;
+                float x, y;
+                // 10-69: the desktop cursor (ID 0) at five window sizes, P2 kept by the resize
+                if (i >= 10 && i < 70) {
+                    const int k = (i - 10) / 12, j = (i - 10) % 12;
+                    if (j == 0) {
+                        s.wantW = sizes[k][0];
+                        s.wantH = sizes[k][1];
+                        s.mark[1][0] = rt.gun[1].x;
+                        s.mark[1][1] = rt.gun[1].y;
+                        SDL_SetWindowSize(window, s.wantW, s.wantH);
+                    }
+                    if (j == 3) { pix(100, 50, x, y); motion(0, x, y, 0, 0); }
+                    if (j == 4) { pix(-200, -150, x, y); motion(0, x, y, 0, 0); }
+                    if (j == 5) { motion(0, 0, 0, 0, 0); click(0, SDL_BUTTON_LEFT); }   // the window's corner: off the screen
+                }
+                // 72-79 (display): off the game area in every case, both aspects (1600 x 900 here): the window's left /
+                // right edge, outside the window, x 300 (wide: on the game area; 4:3: the bar), P2's keyboard gun at the
+                // edge / at x 300 / in the left bar's middle
+                if (i == 72) { motion(0, 0, lh * 0.5f, 0, 0); click(0, SDL_BUTTON_LEFT); }
+                if (i == 73) { motion(0, float(lw), lh * 0.5f, 0, 0); click(0, SDL_BUTTON_LEFT); }
+                if (i == 74) { motion(0, -30, lh * 0.5f, 0, 0); click(0, SDL_BUTTON_LEFT); }
+                if (i == 75) { motion(0, lw + 30.0f, 100, 0, 0); click(0, SDL_BUTTON_LEFT); }
+                if (i == 76) { pix(300, 0, x, y); motion(0, x, y, 0, 0); click(0, SDL_BUTTON_LEFT); }
+                if (i == 77) { guns[1].x = 0; guns[1].y = lh * 0.5f; press(SDLK_SPACE, SDL_SCANCODE_SPACE); }
+                if (i == 78) { pix(300, 0, guns[1].x, guns[1].y); press(SDLK_SPACE, SDL_SCANCODE_SPACE); }
+                if (i == 79) { guns[1].x = (lw - lh * 496.0f / 384.0f) / 4.0f; guns[1].y = lh * 0.5f; press(SDLK_SPACE, SDL_SCANCODE_SPACE); }
+                if (i == 80) SDL_SetWindowSize(window, 1280, 720);
+                if (i == 81) { guns[1].x = lw * 0.5f; guns[1].y = lh * 0.5f; }   // P2 back in the middle (after 77-79)
+                if (i == 83) { pix(0, 0, x, y); motion(0, x, y, 0, 0); click(0, SDL_BUTTON_LEFT); }   // press + release, one frame
+                if (i == 85) button(0, SDL_BUTTON_LEFT, true);   // held 85-89
+                if (i == 90) button(0, SDL_BUTTON_LEFT, false);
+                if (i == 91) { click(0, SDL_BUTTON_LEFT); click(0, SDL_BUTTON_LEFT); }   // two in one frame
+                if (i == 92 || i == 93) click(0, SDL_BUTTON_LEFT);                     // frame after frame
+                if (i == 94) click(0, SDL_BUTTON_RIGHT);
+                if (i == 95) { pix(300, 0, x, y); motion(0, x, y, 0, 0); click(0, SDL_BUTTON_LEFT); }   // off the 496 x 384 screen
+                if (i == 96) { pix(247, 0, x, y); motion(0, x, y, 0, 0); click(0, SDL_BUTTON_LEFT); }   // just on it
+                if (i == 97) { pix(0, 0, x, y); motion(0, x, y, 0, 0); click(0, SDL_BUTTON_MIDDLE); }
+                if (i == 98) press(SDLK_1, SDL_SCANCODE_1);
+                if (i == 99) press(SDLK_2, SDL_SCANCODE_2);
+                if (i == 100) key(SDLK_SPACE, SDL_SCANCODE_SPACE, true, true);   // a key repeat: nothing
+                if (i == 101) press(SDLK_SPACE, SDL_SCANCODE_SPACE);
+                if (i == 102) press(SDLK_RCTRL, SDL_SCANCODE_RCTRL);
+                if (i == 103) press(SDLK_RETURN, SDL_SCANCODE_RETURN);
+                if (i == 105) { key(SDLK_RETURN, SDL_SCANCODE_RETURN, true, false, SDL_KMOD_LALT); key(SDLK_RETURN, SDL_SCANCODE_RETURN, false); }   // Alt+Enter: fullscreen (pending: the window is hidden), no reload
+                if (i == 106) press(SDLK_F11, SDL_SCANCODE_F11);
+                if (i == 104) press(SDLK_RSHIFT, SDL_SCANCODE_RSHIFT);
+                if (i == 110) {
+                    s.mark[0][0] = rt.gun[0].x;
+                    s.mark[0][1] = rt.gun[0].y;
+                    s.mark[1][0] = rt.gun[1].x;
+                    key(SDLK_RIGHT, SDL_SCANCODE_RIGHT, true);
+                }
+                if (i > 110 && i < 140) key(SDLK_RIGHT, SDL_SCANCODE_RIGHT, true, true);   // the key repeats while held
+                if (i == 140) key(SDLK_RIGHT, SDL_SCANCODE_RIGHT, false);
+                // pause (THOTD.EXE 0x41ADF0): P opens it (the click in the same frame is not a shot), Down picks
+                // Exit, P closes it; at 170 Escape opens it, Down, and mouse 101's click activates Exit: the main menu
+                // The first game is still in its opening scene here (shot_enable 0), where the PC's pause does not
+                // open: the test holds shot_enable at 1 for these steps (145-146, 170-171) and puts it back
+                if (i == 145 || i == 170) {
+                    s.shotEnable = rt.mem.u32(game::A::G::shot_enable);
+                    rt.mem.set32(game::A::G::shot_enable, 1);
+                }
+                if (i == 147 || i == 172)
+                    rt.mem.set32(game::A::G::shot_enable, s.shotEnable);
+                if (i == 145) { press(SDLK_P, SDL_SCANCODE_P); click(0, SDL_BUTTON_LEFT); }
+                if (i == 146) press(SDLK_DOWN, SDL_SCANCODE_DOWN);
+                if (i == 147) press(SDLK_P, SDL_SCANCODE_P);
+                // 150-: two mice in relative mode, IDs 101 and 202
+                // 148-149: which devices count: one mouse used + a listed keyboard-mouse (ID 303) that sends nothing
+                // = the desktop cursor; a second mouse used = relative mode (enterGame registers raw input; here fed directly)
+                if (i == 147) cfg.p2Input = 0;
+                if (i == 148) mouseUsed(101);
+                if (i == 149) mouseUsed(202);
+                if (i == 150) {
+                    // (relative mode came at 149: the second mouse used)
+                    s.cur[0] = lw * 0.5f;
+                    s.cur[1] = lh * 0.5f;
+                    for (int p = 0; p < 2; ++p) {
+                        s.mark[p][0] = guns[p].x;
+                        s.mark[p][1] = guns[p].y;
+                    }
+                    relMotion(101, 10, 0);
+                }
+                if (i == 151) relMotion(202, -20, 30);
+                if (i == 152) { relMotion(101, 5, 5); relMotion(202, 7, -3); }
+                if (i == 153) click(202, SDL_BUTTON_LEFT);
+                if (i == 154) click(101, SDL_BUTTON_LEFT);
+                if (i == 155) click(202, SDL_BUTTON_RIGHT);
+                if (i == 156) click(202, SDL_BUTTON_MIDDLE);
+                if (i == 157) click(101, SDL_BUTTON_MIDDLE);
+                if (i == 158) { motion(0, 3, 3, -500, -500); click(0, SDL_BUTTON_LEFT); }   // the desktop cursor: ignored
+                if (i == 159) { relMotion(202, 5000, 0); click(202, SDL_BUTTON_LEFT); }    // pushed out of the window
+                if (i == 160) SDL_SetWindowSize(window, 496, 384);
+                if (i == 163) { relMotion(101, 0, -5000); click(101, SDL_BUTTON_LEFT); }   // out at the top
+                if (i == 164) {
+                    pix(0, 0, x, y);
+                    relMotion(101, x - guns[0].x, y - guns[0].y);
+                    click(101, SDL_BUTTON_LEFT);
+                }
+                if (i == 170) press(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE);
+                if (i == 171) press(SDLK_DOWN, SDL_SCANCODE_DOWN);
+                if (i == 172) {
+                    click(101, SDL_BUTTON_LEFT);
+                    if (s.stage == 0)   // soak: as if this game were PC Mode; the Exit must not carry it on
+                        gPcMode = 1;
+                }
+                // hud3: the reload sound in play (counts() checks it with every reload)
+                if (i == 302) { pix(0, 0, x, y); motion(0, x, y, 0, 0); click(0, SDL_BUTTON_LEFT); }
+                if (i == 303) click(0, SDL_BUTTON_RIGHT);
+                if (i == 304) { motion(0, 0, 0, 0, 0); click(0, SDL_BUTTON_LEFT); }   // the window's corner
+                if (i == 305) press(SDLK_RETURN, SDL_SCANCODE_RETURN);              // P2 (not in play)
+                if (i == 306) { pix(0, 0, x, y); motion(0, x, y, 0, 0); press(SDLK_2, SDL_SCANCODE_2); }   // P2 joins
+                if (i == 309) press(SDLK_RETURN, SDL_SCANCODE_RETURN);              // P2's keyboard reload in play
+                // hud3: launcher "Auto reload": on, P1 fires its 6 rounds (310-315), the gun reloads itself on the next
+                // frame (316); off again (317), 6 more shots (318-323): the gun stays empty (324, 325)
+                if (i == 310) { s.mark[0][0] = cfg.autoReload ? 1.0f : 0.0f; cfg.autoReload = true; }
+                if ((i >= 310 && i <= 315) || (i >= 318 && i <= 323)) click(0, SDL_BUTTON_LEFT);
+                if (i == 317) cfg.autoReload = false;
+                if (i == 326) cfg.autoReload = s.mark[0][0] != 0.0f;
+                // audio: the music is set in the launcher only (user, 2026-10-16): key M in play changes nothing
+                static bool musicWas = true;
+                if (i == 327) { musicWas = cfg.music; press(SDLK_M, SDL_SCANCODE_M); }
+                if (i == 328) expect(cfg.music == musicWas && audio.musicOn() == cfg.music, "key M in play: the music unchanged (launcher only)");
+                padTestCtx(rt, lw, lh, [&](game::PadTest::Ctx& c) { s.pads->before(i, c); });   // pads: 331-600
+                padTestCtx(rt, lw, lh, [&](game::PadTest::Ctx& c) { s.pads->fixBefore(i - kFix0, c); });   // padfix: kFix0 ..
+                bindTestCtx(rt, lw, lh, [&](game::BindTest::Ctx& c) { s.binds->before(i, c); });   // keybind: 1172-1200
+                // 622-623 (the pads' 4-seat section, players 3 / 4 in play): their keyboard keys (kSeatKeys). 622: D held
+                // (player 3 aims right), F and keypad 0 (both triggers); 623: D up, R (player 3's reload), I held a frame
+                if (i == 622 || i == 623) {
+                    s.seatMark[0] = guns[2].x;
+                    s.seatMark[1] = guns[3].y;
+                    for (int p = 0; p < 2; ++p) {
+                        s.seatShots0[p] = rt.shotsIn[p + 2];
+                        s.seatReloads0[p] = rt.reloadsIn[p + 2];
+                    }
+                }
+                if (i == 622) { key(SDLK_D, SDL_SCANCODE_D, true); press(SDLK_F, SDL_SCANCODE_F); press(SDLK_KP_0, SDL_SCANCODE_KP_0); }
+                if (i == 623) { key(SDLK_D, SDL_SCANCODE_D, false); press(SDLK_R, SDL_SCANCODE_R); key(SDLK_I, SDL_SCANCODE_I, true); }
+                if (i == 624) key(SDLK_I, SDL_SCANCODE_I, false);
+                // edgereload (kEdge0 ..): a touch / pen / mouse at the window's edges at the Surface Pro 7's 2736 x 1824
+                // (3:2), its 200 % logical size 1368 x 912, 16:9 and 4:3 (the cases: the checks below)
+                if (int k = 0, c = edgeCase(i, k); i >= kEdge0 && i < kEdge0 + kEdgeN) {
+                    const SDL_MouseID T = SDL_TOUCH_MOUSEID, P = SDL_PEN_MOUSEID;
+                    if ((i - kEdge0) % kEdgeStep == 0) {
+                        s.wantW = edgeSizes[k][0];
+                        s.wantH = edgeSizes[k][1];
+                        SDL_SetWindowSize(window, s.wantW, s.wantH);
+                        s.edgeSoundLater = true;
+                        s.edgeReloads0 = rt.reloadsIn[0];
+                        s.edgeSounds0 = s.reloadSounds0;
+                    }
+                    if ((i - kEdge0) % kEdgeStep == 1) click(0, SDL_BUTTON_RIGHT);   // a full gun first
+                    // (as SDL reports a touch / pen: clamped to 0 .. w-1, 0 .. h-1)
+                    if (c == 0) { motion(T, 0, lh * 0.5f, 0, 0); click(T, SDL_BUTTON_LEFT); }
+                    if (c == 1) { motion(T, lw - 1.0f, lh - 1.0f, 0, 0); click(T, SDL_BUTTON_LEFT); }
+                    if (c == 2) { motion(T, lw * 0.5f, 0, 0, 0); click(T, SDL_BUTTON_LEFT); }
+                    if (c == 3) { motion(P, lw * 0.5f, lh - 1.0f, 0, 0); click(P, SDL_BUTTON_LEFT); }
+                    if (c == 4) { motion(P, lw - 1.0f, lh * 0.5f, 0, 0); click(P, SDL_BUTTON_LEFT); }
+                    if (c == 5) { motion(0, lw * 0.5f, 0, 0, 0); click(0, SDL_BUTTON_LEFT); }
+                    if (c == 6) { motion(0, lw * 0.5f, 1, 0, 0); click(0, SDL_BUTTON_LEFT); }
+                    if (c == 7) { finger(1, true); finger(2, true); finger(2, false); finger(1, false); }
+                    if (c == 8) { motion(P, lw * 0.5f, lh * 0.5f, 0, 0); click(P, SDL_BUTTON_MIDDLE); }
+                }
+                if (i == kEdge0 + kEdgeN) {
+                    SDL_SetWindowSize(window, 1280, 720);
+                    s.edgeSoundLater = false;
+                }
+                if (i == kFlash0 - 1) { s.flashCfg[0] = cfg.gunFlash; cfg.gunFlash = 2; }   // padpass: Shot Flash On
+                if (i == kFlash0 || i == kFlash0 + 1 || i == kFlash0 + 5) click(0, SDL_BUTTON_LEFT);   // (+1: during the flash)
+                if (i == kFlash0 + 7) cfg.gunFlash = s.flashCfg[0];
+                if (i == kFix0 + game::PadTest::kFixFrames) rt.chapterDone = true;   // the end screen next (padfix: after its cases)
+                if (i == 300) {   // the second game starts clean: no relative mode, P2 in the middle
+                    expect(!relMice, "second game: desktop cursor mode (one test mouse)");
+                    expect(approx(guns[1].x, lw * 0.5f, 0.01f) && approx(guns[1].y, lh * 0.5f, 0.01f), "second game: P2 in the middle");
+                    const int ch = rt.mem.at<int8_t>(game::A::G::chapter);
+                    expect(!rt.boss.active() && !rt.bossNoContinue && ch == 0,   // bossbug: after the Hermit's Boss Mode game
+                           "Arcade after a Boss Mode game: Chapter 1, no boss mode (chapter " + std::to_string(ch + 1) +
+                               ", boss mode " + std::to_string(rt.boss.mode) + ")");
+                    expect(!rt.pcmode, "second game: Arcade, not the PC Mode of the game before (soak)");
+                }
+                return;
+            }
+            // phase 1: this frame's checks
+            const int i = s.it;
+            if (s.holding)
+                return;
+            const port::a::Player& p1 = rt.mem.at<port::a::Player>(game::A::G::players, 0u);
+            padTestCtx(rt, lw, lh, [&](game::PadTest::Ctx& c) { s.pads->after(i, c); });   // pads: 331-600
+            padTestCtx(rt, lw, lh, [&](game::PadTest::Ctx& c) { s.pads->fixAfter(i - kFix0, c); });   // padfix: kFix0 ..
+            bindTestCtx(rt, lw, lh, [&](game::BindTest::Ctx& c) { s.binds->after(i, c); });   // keybind: 1172-1200
+            if (i == 622 || i == 623) {   // the 4P keyboard (above)
+                char b[160];
+                const float v = lw / 90.0f;
+                if (i == 622) {
+                    std::snprintf(b, sizeof b, "4P keyboard: D moves player 3 right (%.1f -> %.1f), F / keypad 0 fire (shots +%u +%u)",
+                                  s.seatMark[0], guns[2].x, rt.shotsIn[2] - s.seatShots0[0], rt.shotsIn[3] - s.seatShots0[1]);
+                    expect(approx(guns[2].x - s.seatMark[0], v, 0.01f) && rt.shotsIn[2] == s.seatShots0[0] + 1 &&
+                           rt.shotsIn[3] == s.seatShots0[1] + 1, b);
+                } else {
+                    std::snprintf(b, sizeof b, "4P keyboard: R reloads player 3 (+%u), I moves player 4 up (%.1f -> %.1f)",
+                                  rt.reloadsIn[2] - s.seatReloads0[0], s.seatMark[1], guns[3].y);
+                    expect(rt.reloadsIn[2] == s.seatReloads0[0] + 1 && rt.shotsIn[2] == s.seatShots0[0] &&
+                           approx(s.seatMark[1] - guns[3].y, v, 0.01f), b);
+                }
+            }
+            // padpass: the shot flash as the arcade's gun cycle (a pull: its frame and the next 3 white, a pull during
+            // them starts none), then a new pull a new cycle; the picture: white over the whole window (the bars too);
+            // a Sinden's border; Auto per gun type. Draw-only: the game's own gun_flash_phase stays the stand-in's 2
+            if (i >= kFlash0 && i <= kFlash0 + 6) {
+                static const bool kWant[7] = {true, true, true, true, false, true, true};
+                static const int kLeft[7] = {3, 2, 1, 0, 0, 3, 2};
+                char b[200];
+                std::snprintf(b, sizeof b, "shot flash: frame +%d: %s (left %d), wanted %s (left %d); gun_flash_phase %d", i - kFlash0,
+                              gunFlash.now ? "white" : "not", gunFlash.left, kWant[i - kFlash0] ? "white" : "not", kLeft[i - kFlash0],
+                              int(rt.mem.at<uint8_t>(game::A::G::gun_flash_phase)));
+                expect(gunFlash.now == kWant[i - kFlash0] && gunFlash.left == kLeft[i - kFlash0] &&
+                           rt.mem.at<uint8_t>(game::A::G::gun_flash_phase) == 2, b);
+            }
+            if (i == kFlash0 + 6) {
+                auto px = [](const std::vector<uint8_t>& v, int w, int x, int y) {
+                    const size_t o = (size_t(y) * size_t(w) + size_t(x)) * 3;   // (readBack: RGB rows, top first)
+                    return o + 2 < v.size() ? (uint32_t(v[o]) << 16) | (uint32_t(v[o + 1]) << 8) | v[o + 2] : 0xDEADu;
+                };
+                // (into a framebuffer of its own: a hidden window's pixels are undefined)
+                gl::GLuint fbo = 0, color = 0;
+                gl::GenFramebuffers(1, &fbo);
+                gl::BindFramebuffer(gl::FRAMEBUFFER, fbo);
+                gl::GenTextures(1, &color);
+                gl::BindTexture(gl::TEXTURE_2D, color);
+                gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, lw, lh, 0, gl::RGBA, gl::UNSIGNED_BYTE, nullptr);
+                gl::FramebufferTexture2D(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, color, 0);
+                gl::Viewport(0, 0, lw, lh);
+                auto black = [&]() {
+                    gl::ClearColor(0, 0, 0, 1);
+                    gl::Clear(gl::COLOR_BUFFER_BIT);
+                };
+                black();
+                drawGunAids(cfg, lw, lh, true);
+                std::vector<uint8_t> v = view->renderer.readBack(lw, lh);
+                expect(px(v, lw, 0, 0) == 0xFFFFFF && px(v, lw, lw - 1, lh - 1) == 0xFFFFFF && px(v, lw, lw / 2, lh / 2) == 0xFFFFFF &&
+                           px(v, lw, lw / 16, lh / 2) == 0xFFFFFF,
+                       "shot flash: the whole window white (corners, middle, where the 4:3 bars are)");
+                game::LaunchConfig g = cfg;
+                g.gunFlash = 0, g.gunBorder = 0, g.gunKind = 1, g.p1Input = 3;   // Auto with a Sinden
+                const int bpx = game::gunBorderPx(g, lh);
+                black();
+                drawGunAids(g, lw, lh, false);
+                v = view->renderer.readBack(lw, lh);
+                char b[220];
+                std::snprintf(b, sizeof b, "Sinden border (Auto): %d px white at the edges (left %06X top %06X), the middle untouched (%06X)", bpx,
+                              px(v, lw, bpx / 2, lh / 2), px(v, lw, lw / 2, bpx / 2), px(v, lw, lw / 2, lh / 2));
+                expect(bpx >= 2 && px(v, lw, bpx / 2, lh / 2) == 0xFFFFFF && px(v, lw, lw / 2, bpx / 2) == 0xFFFFFF &&
+                           px(v, lw, lw - 1 - bpx / 2, lh / 3) == 0xFFFFFF && px(v, lw, lw / 2, lh / 2) == 0 &&
+                           px(v, lw, bpx + 2, lh / 2) == 0, b);
+                gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
+                gl::DeleteTextures(1, &color);
+                gl::DeleteFramebuffers(1, &fbo);
+                // Auto per gun type: a CRT gun flashes, an IR / mouse-mode gun neither, a Sinden only its border; no gun
+                // in play: nothing; the manual choices win
+                game::LaunchConfig a = cfg;
+                a.gunFlash = 0, a.gunBorder = 0, a.p1Input = 3;
+                a.gunKind = 2;
+                const bool crt = game::gunFlashOn(a) && game::gunBorderPx(a, lh) == 0;
+                a.gunKind = 0;
+                const bool ir = !game::gunFlashOn(a) && game::gunBorderPx(a, lh) == 0;
+                a.gunKind = 1;
+                const bool sinden = !game::gunFlashOn(a) && game::gunBorderPx(a, lh) > 0;
+                a.gunKind = 2, a.p1Input = 0, a.p2Input = 2;
+                const bool none = !game::gunFlashOn(a) && game::gunBorderPx(a, lh) == 0;
+                a.gunFlash = 2, a.gunBorder = 4;
+                const bool manual = game::gunFlashOn(a) && game::gunBorderPx(a, lh) > bpx;
+                a.gunFlash = 1, a.gunBorder = 1, a.p1Input = 3, a.gunKind = 2;
+                const bool off = !game::gunFlashOn(a) && game::gunBorderPx(a, lh) == 0;
+                expect(crt && ir && sinden && none && manual && off,
+                       std::string("light gun aids by type: CRT flash ") + (crt ? "ok" : "WRONG") + ", IR none " + (ir ? "ok" : "WRONG") +
+                           ", Sinden border " + (sinden ? "ok" : "WRONG") + ", no gun none " + (none ? "ok" : "WRONG") + ", On / Thick " +
+                           (manual ? "ok" : "WRONG") + ", Off / Off " + (off ? "ok" : "WRONG"));
+            }
+            if (i == game::BindTest::kLast) {   // keybind: every binding case's check ran
+                char kb[96];
+                std::snprintf(kb, sizeof kb, "bindings: %d of %d binding-case checks ran", s.bindChecks, game::BindTest::kChecks);
+                expect(s.bindChecks == game::BindTest::kChecks, kb);
+            }
+            if (i == game::PadTest::kLast) {   // every pad case's check ran (physical pads are left out of the test)
+                char pb[96];
+                std::snprintf(pb, sizeof pb, "pads: %d of %d pad-case checks ran", s.padChecks, game::PadTest::kChecks);
+                expect(s.padChecks == game::PadTest::kChecks, pb);
+            }
+            if (i >= 10 && i != 145 && i != 146 && i != 170 && i != 171 && !s.pads->noGameFrame(i) && !s.binds->noGameFrame(i))   // (paused)
+                expect(rt.inputFrames - s.frames0 == 1, "the input task ran once this frame");
+            if (i >= 10 && i < 70) {
+                const int j = (i - 10) % 12;
+                char b[160];
+                if (j == 3) {
+                    int ww, wh;
+                    SDL_GetWindowSizeInPixels(window, &ww, &wh);
+                    std::snprintf(b, sizeof b, "window %dx%d (pixels %dx%d), wanted %dx%d", lw, lh, ww, wh, s.wantW, s.wantH);
+                    expect(lw == s.wantW && lh == s.wantH, b);
+                    gunIs(1, s.mark[1][0], s.mark[1][1], rt.gun[1].onScreen, 0.01f);   // P2 kept its point of the screen
+                    gunIs(0, 100, 50, true);
+                    // the crosshair drawn where the game aims: the HUD's pixel (window pixels) -> the game's point
+                    float px, py;
+                    view->fromArcade(rt.gun[0].x, rt.gun[0].y, ww, wh, px, py);
+                    const float cx = guns[0].x * ww / std::max(lw, 1), cy = guns[0].y * wh / std::max(lh, 1);
+                    std::snprintf(b, sizeof b, "P1 crosshair at pixel (%.1f, %.1f), the game's point at (%.1f, %.1f)", cx, cy, px, py);
+                    expect(approx(cx, px, 0.5f) && approx(cy, py, 0.5f), b);
+                    none("aiming only");
+                }
+                if (j == 4) gunIs(0, -200, -150, 200.0f < gameHalfW(cfg.aspect, lw, lh));   // display: a 600 x 900 window shows |x| < 128 only (the rest is outside the window: off)
+                if (j == 5) {
+                    float ax, ay;
+                    view->toArcade(0, 0, lw, lh, ax, ay);
+                    gunIs(0, ax, ay, false);
+                    counts(0, 0, 1, 0, 0, 0, "trigger at the window's corner = reload");
+                }
+            }
+            if (i == 83) { gunIs(0, 0, 0, true); counts(1, 0, 0, 0, 0, 0, "press + release in one frame"); }
+            if (i == 84) none("the frame after a click");
+            if (i == 85) counts(1, 0, 0, 0, 0, 0, "trigger pressed (held)");
+            if (i > 85 && i <= 90) none("trigger held / released");
+            if (i == 91) counts(1, 0, 0, 0, 0, 0, "two clicks in one frame (one shot: the arcade reads the trigger once a frame)");
+            if (i == 92 || i == 93) counts(1, 0, 0, 0, 0, 0, "a click on each of two frames");
+            if (i == 94) {
+                counts(0, 0, 1, 0, 0, 0, "right button = reload");
+                expect(p1.rounds == 6 && p1.empty == 0, "reload: 6 rounds (" + std::to_string(p1.rounds) + ")");
+            }
+            {
+                // display: the off-screen cases (72-79) and x 300 (95): widescreen = the whole window is the game area
+                const bool wide = cfg.aspect == 0;
+                const std::string a = wide ? " (widescreen)" : " (4:3)";
+                if (i == 72) counts(0, 0, 1, 0, 0, 0, ("P1 trigger at the window's left edge = reload" + a).c_str());
+                if (i == 73) counts(0, 0, 1, 0, 0, 0, ("P1 trigger at the window's right edge = reload" + a).c_str());
+                if (i == 74) counts(0, 0, 1, 0, 0, 0, ("P1 trigger left of the window = reload" + a).c_str());
+                if (i == 75) counts(0, 0, 1, 0, 0, 0, ("P1 trigger right of the window = reload" + a).c_str());
+                if (i == 76) { gunIs(0, 300, 0, wide); counts(wide, 0, !wide, 0, 0, 0, ("P1 trigger at x 300: " + std::string(wide ? "a shot (the wide game area)" : "reload (the bar)") + a).c_str()); }
+                if (i == 77) counts(0, 0, 0, 1, 0, 0, ("P2 keyboard trigger at the window's edge = reload" + a).c_str());
+                if (i == 78) counts(0, wide, 0, !wide, 0, 0, ("P2 keyboard trigger at x 300: " + std::string(wide ? "a shot" : "reload (the bar)") + a).c_str());
+                if (i == 79) counts(0, wide, 0, !wide, 0, 0, ("P2 keyboard trigger in the left bar's middle: " + std::string(wide ? "a shot" : "reload") + a).c_str());
+                if (i == 95) { gunIs(0, 300, 0, wide); counts(wide, 0, !wide, 0, 0, 0, ("trigger at x 300 (off the 496 x 384 screen)" + a).c_str()); }
+            }
+            if (i >= kEdge0 && i < kEdge0 + kEdgeN && (i - kEdge0) % kEdgeStep == kEdgeStep - 1) {
+                // edgereload: every reload of this size's cases played the reload sound once (P1 in play)
+                const auto it = audio.codeCount.find(0xA01200);
+                const int heard = int((it == audio.codeCount.end() ? 0 : it->second) - s.edgeSounds0);
+                const int reloads = int(rt.reloadsIn[0] - s.edgeReloads0);
+                const bool inPlay = p1.state == 5 && rt.mem.u32(game::A::G::shot_enable) != 0;
+                char b[160];
+                std::snprintf(b, sizeof b, "edges (%dx%d): the reload sound %d time(s) for %d reloads (P1 in play: %d)", lw, lh, heard, reloads, inPlay ? 1 : 0);
+                expect(heard == (inPlay ? reloads : heard) && reloads > 0, b);
+            }
+            if (int k = 0, j = edgeCase(i, k); j >= 0) {   // edgereload: the edges (above; j: the case)
+                const bool wide = cfg.aspect == 0;
+                char b[200];
+                std::snprintf(b, sizeof b, " (%dx%d, %s)", lw, lh, wide ? "widescreen" : "4:3");
+                const std::string a = b;
+                const std::string side = wide ? "a shot (the widescreen picture reaches the window's edge)" : "reload (the 4:3 bar)";
+                if (j == 0) {
+                    int ww, wh;
+                    SDL_GetWindowSizeInPixels(window, &ww, &wh);
+                    std::snprintf(b, sizeof b, "edges: window %dx%d (pixels %dx%d), wanted %dx%d", lw, lh, ww, wh, edgeSizes[k][0], edgeSizes[k][1]);
+                    expect(lw == edgeSizes[k][0] && lh == edgeSizes[k][1], b);
+                    counts(wide, 0, !wide, 0, 0, 0, ("touch on the window's left edge pixel: " + side + a).c_str());
+                }
+                if (j == 1) counts(wide, 0, !wide, 0, 0, 0, ("touch on the bottom-right corner pixel: " + side + a).c_str());
+                if (j == 2) {
+                    counts(1, 0, 0, 0, 0, 0, ("touch on the top edge pixel: a shot" + a).c_str());
+                    std::snprintf(b, sizeof b, "touch at the top edge: P1 aims at y %.2f (in 191.5 .. 192)%s", rt.gun[0].y, a.c_str());
+                    expect(rt.gun[0].onScreen && rt.gun[0].y > 191.5f && rt.gun[0].y < 192.0f, b);
+                }
+                if (j == 3) counts(1, 0, 0, 0, 0, 0, ("pen on the bottom edge pixel: a shot" + a).c_str());
+                if (j == 4) counts(wide, 0, !wide, 0, 0, 0, ("pen on the right edge pixel: " + side + a).c_str());
+                if (j == 5) counts(0, 0, 1, 0, 0, 0, ("mouse pushed against the top edge: reload (as before)" + a).c_str());
+                if (j == 6) counts(1, 0, 0, 0, 0, 0, ("mouse one pixel inside the top edge: a shot" + a).c_str());
+                if (j == 7) counts(0, 0, 1, 0, 0, 0, ("touch: a second finger down = reload" + a).c_str());
+                if (j == 8) counts(0, 0, 1, 0, 0, 0, ("pen's barrel button = reload" + a).c_str());
+            }
+            if (i == 96) { gunIs(0, 247, 0, true); counts(1, 0, 0, 0, 0, 0, "trigger at x 247 = a shot"); }
+            if (i == 97) counts(0, 0, 0, 0, 1, 0, "middle button (P1's mouse) = P1 start");
+            if (i == 98) counts(0, 0, 0, 0, 1, 0, "key 1 = P1 start");
+            if (i == 99) counts(0, 0, 0, 0, 0, 1, "key 2 = P2 start");
+            if (i == 100) none("a Space key repeat");
+            if (i == 101) counts(0, 1, 0, 0, 0, 0, "Space = P2 trigger");
+            if (i == 102) counts(0, 1, 0, 0, 0, 0, "Right Ctrl = P2 trigger");
+            if (i == 103) counts(0, 0, 0, 1, 0, 0, "Enter = P2 reload");
+            if (i == 105) { expect((SDL_GetWindowFlags(window) & SDL_WINDOW_HIDDEN) != 0, "Alt+Enter: the window stays hidden"); none("Alt+Enter is not P2's reload"); }
+            if (i == 106) none("F11");
+            if (i == 104) counts(0, 0, 0, 1, 0, 0, "Right Shift = P2 reload");
+            if (i == 139 || i == 141) {
+                // held for frames 110-139 (down before frame 110's input, up before frame 140's): lw / 90 pixels a frame
+                const float want = s.mark[1][0] + 30 * (lw / 90.0f) * (192.0f / (lh / 2.0f));
+                gunIs(1, want, rt.gun[1].y, true, 0.1f);
+                gunIs(0, s.mark[0][0], s.mark[0][1], rt.gun[0].onScreen, 0.01f);
+            }
+            if (i == 145 || i == 146) {
+                expect(paused && rt.inputFrames == s.frames0, "paused: no game frame");
+                none(i == 145 ? "P and a click in one frame: the pause, no shot" : "Down while paused: no player input");
+                expect(pause.selection() == (i == 145 ? 0 : 1), i == 145 ? "the pause: Continue selected" : "Down: Exit selected");
+            }
+            if (i == 170 || i == 171) {
+                expect(paused && pause.selection() == (i == 170 ? 0 : 1), i == 170 ? "Escape in play: the pause (Continue)" : "Down: Exit");
+                none("the pause menu's keys: no player input");
+            }
+            if (i >= 10 && i < 148) expect(!relMice, "one mouse (ID 0): the desktop cursor");
+            if (i == 148) expect(!relMice && gMiceUsed.size() == 1, "one mouse used, the keyboard-mouse 303 silent: the desktop cursor (absolute)");
+            if (i == 149) expect(relMice && mouse1 == 101 && mouse2 == 202, "a second mouse used: relative mode, P1 = mouse 101, P2 = mouse 202");
+            if (i == 147) { expect(!paused, "P again: running"); none("the click before the pause does not fire after it"); }
+            if (i == 150 || i == 151 || i == 152) {
+                const float d[3][2][2] = {{{10, 0}, {0, 0}}, {{10, 0}, {-20, 30}}, {{15, 5}, {-13, 27}}};
+                for (int p = 0; p < 2; ++p) {
+                    char b[160];
+                    const float dx = guns[p].x - s.mark[p][0], dy = guns[p].y - s.mark[p][1];
+                    std::snprintf(b, sizeof b, "two mice: P%d moved (%.1f, %.1f) pixels, wanted (%.1f, %.1f)", p + 1, dx, dy,
+                                  d[i - 150][p][0], d[i - 150][p][1]);
+                    expect(approx(dx, d[i - 150][p][0]) && approx(dy, d[i - 150][p][1]), b);
+                }
+            }
+            if (i == 153) counts(0, 1, 0, 0, 0, 0, "mouse 202 left = P2 shot");
+            if (i == 154) counts(1, 0, 0, 0, 0, 0, "mouse 101 left = P1 shot");
+            if (i == 155) counts(0, 0, 0, 1, 0, 0, "mouse 202 right = P2 reload");
+            if (i == 156) counts(0, 0, 0, 0, 0, 1, "mouse 202 middle = P2 start");
+            if (i == 157) counts(0, 0, 0, 0, 1, 0, "mouse 101 middle = P1 start");
+            if (i == 158) {
+                none("relative mode: the desktop cursor's click (ID 0) ignored");
+                char b[120];
+                std::snprintf(b, sizeof b, "relative mode: the desktop cursor's motion ignored (P1 at %.1f, %.1f)", guns[0].x, guns[0].y);
+                expect(approx(guns[0].x - s.mark[0][0], 15) && approx(guns[0].y - s.mark[0][1], 5), b);
+            }
+            if (i == 159) { expect(!rt.gun[1].onScreen, "P2's mouse pushed out of the window: off the screen"); counts(0, 0, 0, 1, 0, 0, "P2 trigger off the screen = reload"); }
+            if (i == 163) { expect(!rt.gun[0].onScreen, "496 x 384 window, P1 out at the top: off the screen"); counts(0, 0, 1, 0, 0, 0, "P1 trigger above the screen = reload"); }
+            if (i == 164) { gunIs(0, 0, 0, true, 0.5f); counts(1, 0, 0, 0, 0, 0, "P1 back on the screen: a shot"); }
+            if (i == 302) {
+                char b[160];
+                std::snprintf(b, sizeof b, "second game: the shooting started after %d frames (P1 state %d, shot_enable %u)", s.hold,
+                              int(p1.state), unsigned(rt.mem.u32(game::A::G::shot_enable)));
+                expect(s.hold < 6000 && p1.state == 5 && rt.mem.u32(game::A::G::shot_enable) != 0, b);
+                counts(1, 0, 0, 0, 0, 0, "in play: a shot (no reload sound)");
+            }
+            if (i == 303) counts(0, 0, 1, 0, 0, 0, "in play: right button = reload");
+            if (i == 304) counts(0, 0, 1, 0, 0, 0, "in play: trigger at the window's corner = reload");
+            if (i == 305) counts(0, 0, 0, 1, 0, 0, "in play: Enter = P2 reload (P2 not in play: no sound)");
+            if (i >= 310 && i <= 315) {
+                counts(1, 0, 0, 0, 0, 0, "auto reload on: a shot");
+                expect(p1.rounds == 315 - i, "auto reload on: " + std::to_string(p1.rounds) + " rounds left");
+            }
+            if (i == 316) {
+                counts(0, 0, 1, 0, 0, 0, "auto reload on: the empty gun reloaded by itself");
+                expect(p1.rounds == 6 && p1.empty == 0, "auto reload: 6 rounds (" + std::to_string(p1.rounds) + ")");
+            }
+            if (i >= 318 && i <= 323) counts(1, 0, 0, 0, 0, 0, "auto reload off: a shot");
+            if (i == 324 || i == 325) {
+                none("auto reload off: no reload");
+                expect(p1.rounds == 0 && p1.empty == 1, "auto reload off: the gun stays empty (" + std::to_string(p1.rounds) + " rounds)");
+            }
+            if (i == 309) {
+                const int st = rt.mem.at<port::a::Player>(game::A::G::players, 1u).state;
+                expect(st == 5, "P2 joined with key 2: state " + std::to_string(st));
+                counts(0, 0, 0, 1, 0, 0, "in play: Enter = P2's keyboard reload");
+            }
+        };
+    }
+    // menuart: the front end after a passed files check (the PC art from the player's PC files); false: the text
+    // launcher's flow as before (no PC files / the art cannot be read)
+    auto enterMenu = [&]() -> bool {
+        if (!launcher || feFailed)
+            return false;
+        cfg = menu.cfg;
+        setPcFileMap(menu.pcOk ? menu.pcFiles : std::map<std::string, std::string>{});
+        if (!menu.pcOk)
+            return false;
+        if (!feLoaded) {
+            std::string ferr;
+            if (!fe.load(cfg.pc, ferr)) {
+                SDL_Log("front end: %s (the text launcher instead)", ferr.c_str());
+                feFailed = true;
+                return false;
+            }
+            feLoaded = true;
+            {   // the package's own game exe with the PC game's icon (util/game_exe.h): the files passed, the menu is up
+                static bool exeMade = false;
+                if (!exeMade && !automated) {
+                    exeMade = true;
+                    std::string m;
+                    util::makeGameExe(packageFolder(), menu.cfg.pc, m);
+                    SDL_Log("game exe: %s", m.c_str());
+                }
+            }
+            if (const char* dd = std::getenv("HOTD_DUMP_PM_SPRITES"))   // pmfix2 (testing): the PC's portraits as PNGs
+                for (int id = 0xED; id <= 0xF8; ++id) {
+                    const int sw = fe.sprites().width(id), sh = fe.sprites().height(id);
+                    int ox = 0, oy = 0;
+                    fe.sprites().origin(id, ox, oy);
+                    SDL_Log("PC sprite %#x: %d x %d, origin %d %d", id, sw, sh, ox, oy);
+                    if (sw > 0 && sh > 0)
+                        writePngRgba(std::string(dd) + "/spr_" + std::to_string(id) + ".png", sw, sh, fe.sprites().image(id));
+                }
+            fe.onCue = [&](int c) {
+                if (audio.traceCues)
+                    SDL_Log("[sound] front end: PC cue %d %s", c, audio.describe(c).c_str());
+                if (c >= game::kArcadeSongCue) {   // prerel: an arcade-only menu song (launcher.h)
+                    menuBoardPlay(0xA01000u + uint32_t(c - game::kArcadeSongCue));
+                    return;
+                }
+                // no CD file for a menu song (a PC copy without its music, user 2026-10-31): the arcade's own song on the
+                // sound board (the sound test's order: PC cues 8..22 = 0xA01000..0xA0100E)
+                if (audio.cueType(c) == 3 && c >= 8 && c <= 22 && !audio.hasMusicTrack(audio.cueValue(c))) {
+                    SDL_Log("menu music: no CD file for track %d: the arcade's song %#x", audio.cueValue(c), 0xA01000u + unsigned(c - 8));
+                    menuBoardPlay(0xA01000u + uint32_t(c - 8));
+                    return;
+                }
+                if (audio.cueType(c) == 3 || audio.cueType(c) == 5)   // (another song, or the music / everything off)
+                    menuBoardStop();
+                audio.pcCue(c);
+            };
+            fe.onMainMenu = [&](int item) { feAction = item; };
+            // PC Mode (docs/pcmode.md): the main menu's item opens screen 16, the character select; its Start -> feAction 16
+            // With Players 3 / 4 (the 4P mode) four panels (docs/pcmode.md "4 players in PC Mode"): the computer seats
+            // (p2bot.. p4bot) get a random pick, ready
+            fe.startPcMode = [&]() {
+                const bool cpu[4] = {false, menu.cfg.seatBot[1] > 0, menu.cfg.seatBot[2] > 0, menu.cfg.seatBot[3] > 0};
+                fe.pcModeOpen(gNet ? 2 : menu.cfg.players, cpu, uint32_t(SDL_GetTicks()));
+            };
+            fe.onPcModeStart = [&]() { feAction = 16; };
+            // Boss Mode (game/bossmode.h): a boss picture (0x422EE4 ..) -> the game; the times tables (screens 10-14)
+            fe.onBossMode = [&](int m) { feBoss = m; };
+            fe.startBossMode = [&]() { fe.screenBossMode(); };   // the menu's Boss Mode entry (0x422B90)
+            // the Gallery (game/gallery.h): the models of the player's own files; needs the arcade files (the
+            // skeletons and motions pose both sources)
+            fe.openGallery = [&]() {
+                std::string gerr;
+                if (!gallery.isOpen()) {
+                    game::Gallery::Paths gp;
+                    if (arcadeRegions(gerr)) {
+                        gp.regions = regions;
+                        gp.dumps = dumps;
+                        gp.texsets = texsets;
+                    }
+                    gp.pc = menu.pcOk ? cfg.pc : std::string();
+                    gp.blood = viewBlood();
+                    if (!gallery.open(gp, gerr)) {
+                        SDL_Log("gallery: %s", gerr.c_str());
+                        return;
+                    }
+                    if (cfg.models == 1 && gallery.hasSource(Source::PC)) gallery.setSource(Source::PC);
+                    // user 2026-10-26: "always default the gallery to rogan in players": it opens on Thomas Rogan
+                    // (t2) every time (was: where the player left it, launcher.ini gallery=); the backdrop is kept
+                    gallery.selectKey("t2");
+                    gallery.background = std::clamp(menu.cfg.galleryBg, 0, game::galleryBackgroundCount() - 1);
+                }
+                galleryTick = SDL_GetTicksNS();
+                galleryFrames = 0;
+                galleryFull = galleryDrag = galleryPanDrag = false;   // (the page; the info panel as it was this run)
+                fe.screenGallery();
+            };
+            fe.galleryText = [&]() {
+                game::Frontend::GalleryText t;
+                t.name = gallery.name();
+                t.group = gallery.group();
+                t.text = gallery.text();
+                t.motion = gallery.isOpen() ? gallery.motionLabel() : std::string();
+                t.source = gallery.sourceLabel();
+                t.status = gallery.status();
+                t.where = gallery.where();
+                t.facts = gallery.facts();
+                t.background = game::galleryBackgroundName(gallery.background);
+                t.category = gallery.category();
+                t.index = gallery.indexInCategory();
+                t.count = gallery.countInCategory(gallery.category());
+                for (int c = 0; c < game::kGalCategories; ++c) t.categories.push_back(game::galleryCategoryName(c));
+                t.otherSource = gallery.hasSource(Source::PC) && gallery.hasSource(Source::Arcade);
+                t.playing = gallery.playing;
+                t.pad = galleryPad;
+                t.full = galleryFull;
+                t.info = galleryInfo;
+                t.autoTurn = gallery.autoTurn;
+                t.light = gallery.lightLabel();
+                t.layout = menu.cfg.galleryLayout;
+                t.page = galleryPage;
+                for (int i = 0; i < gallery.count(); ++i)
+                    if (game::galleryEntries()[size_t(i)].category == t.category) {
+                        t.entries.push_back(i);
+                        t.entryNames.push_back(game::galleryEntries()[size_t(i)].name);   // (regallery: the list)
+                    }
+                t.key = gallery.key();
+                return t;
+            };
+            fe.galleryThumb = [&](int entry) { return gallery.thumb(entry); };
+            fe.galleryCard = [&]() -> const std::vector<uint8_t>* {
+                int w = 0, h = 0;
+                return gallery.isOpen() ? gallery.card(w, h) : nullptr;
+            };
+            fe.onGallery = [&](int a) {
+                if (a <= 1 || a == 8 || a == 9 || a >= 100) galleryPage = 0;   // (another entry: its first page)
+                switch (a) {
+                case 0: gallery.step(-1); break;
+                case 1: gallery.step(1); break;
+                case 8: case 9:   // the Remake layout's Q / E: the category before / after (the Cut-scenes page: key C)
+                    gallery.selectCategory((gallery.category() + (a == 9 ? 1 : game::kGalCategories - 1)) % game::kGalCategories);
+                    break;
+                case 15:   // the layout (K): Classic / Remake, kept in launcher.ini (gallerylayout=); regallery: the Remake
+                           // style: its own page, the portraits, the Classic page
+                    menu.cfg.galleryLayout = cfg.galleryLayout =
+                        menu.cfg.menuStyle == 1 ? (menu.cfg.galleryLayout + 1) % 3 : menu.cfg.galleryLayout == 1 ? 0 : 1;
+                    menu.cfg.save(cache + "launcher.ini");
+                    fe.hideHand = false;
+                    break;
+                case 16: ++galleryPage; break;   // the Remake layout's description: the next page (Tab)
+                case 17: saveGallery(); break;   // regallery: the Cut-scenes page next (its category clicked)
+                case 2: gallery.toggleSource(); break;
+                case 3: gallery.nextMotion(1); break;
+                case 4: gallery.playing = !gallery.playing; break;
+                case 5: gallery.resetView(); break;
+                case 6: saveGallery(); gallery.close(); break;
+                case 7: gallery.cycleBackground(1); break;
+                case 11: galleryFull = !galleryFull; galleryHint = 4; galleryDrag = galleryPanDrag = false; break;
+                case 12: galleryInfo = !galleryInfo; break;
+                case 13: gallery.autoTurn = !gallery.autoTurn; break;
+                case 14: gallery.nextLight(); break;
+                // galfix2: the Remake page's Viewer rows stepped back (their "<": Left, or a click on it)
+                case 30: gallery.nextMotion(-1); break;
+                case 31: gallery.light = (gallery.light + 8) % 9; break;
+                case 32: gallery.cycleBackground(-1); break;
+                case 33:   // (the layout back: the Remake style's three, else the two)
+                    menu.cfg.galleryLayout = cfg.galleryLayout =
+                        menu.cfg.menuStyle == 1 ? (menu.cfg.galleryLayout + 2) % 3 : menu.cfg.galleryLayout == 1 ? 0 : 1;
+                    menu.cfg.save(cache + "launcher.ini");
+                    fe.hideHand = false;
+                    break;
+                default:
+                    if (a >= 100 && a < 100 + game::kGalCategories) gallery.selectCategory(a - 100);
+                    else if (a >= 1000 && a < 1000 + gallery.count()) gallery.select(a - 1000);   // (a portrait)
+                    break;
+                }
+            };
+            // the Gallery's Cut-scenes page (game/scene_view.h): Play = feAction 40 (sceneStart)
+            if (sceneViewOpt < 0 && !gScene.active())
+                gScene.models = menu.cfg.models == 1 && menu.pcOk ? 1 : 0;
+            fe.scenesText = [&]() {
+                game::Frontend::ScenesText t;
+                t.rows = game::sceneRowLabels();
+                t.selected = gScene.entry;
+                t.line = game::sceneLine(gScene.entry);
+                t.status = gScene.error;
+                t.players = gScene.players;
+                t.pcThere = menu.pcOk;
+                t.pc = gScene.models == 1 && menu.pcOk;
+                t.clean = gScene.clean;
+                t.subtitles = gScene.subtitles;
+                for (int r = 0; r < game::SceneView::kRoles; ++r) {
+                    t.castRoles.push_back(game::SceneView::roleName(r));
+                    t.castActors.push_back(gScene.castLabel(r));
+                    t.castNow.push_back(gScene.cast[r]);
+                }
+                for (const auto& actor : game::SceneView::actors())   // galact: the Actors rows' dropdown list
+                    t.castChoices.push_back(actor.name);
+                return t;
+            };
+            fe.onScenes = [&](int a) {
+                if (a >= 100) {
+                    gScene.entry = std::clamp(a - 100, 0, int(game::sceneEntries().size()) - 1);
+                    gScene.error.clear();
+                } else if (a == 0) {
+                    gScene.players = gScene.players % 4 + 1;
+                } else if (a == 1 && menu.pcOk) {
+                    gScene.models ^= 1;
+                } else if (a == 2) {
+                    feAction = 40;
+                } else if (a == 4) {
+                    gScene.clean = !gScene.clean;
+                } else if (a == 5) {
+                    gScene.subtitles = !gScene.subtitles;
+                } else if (a >= 10 && a < 10 + game::SceneView::kRoles) {   // actorswap: a role's next / previous actor
+                    gScene.castStep(a - 10, 1);
+                    gSaveCast();
+                } else if (a >= 20 && a < 20 + game::SceneView::kRoles) {
+                    gScene.castStep(a - 20, -1);
+                    gSaveCast();
+                } else if (a <= -1000) {   // galact: the Actors dropdown: role r played by actor k
+                    const int r = (-a - 1000) / 100, k = (-a - 1000) % 100;
+                    if (r < game::SceneView::kRoles && k < int(game::SceneView::actors().size())) {
+                        gScene.cast[r] = k;
+                        gSaveCast();
+                    }
+                }
+            };
+            gSaveCast = [&]() {   // actors2: launcher.ini scenecast= (not with --cast)
+                if (castOpt)
+                    return;
+                menu.cfg.sceneCast = cfg.sceneCast = gScene.castString();
+                menu.cfg.save(cache + "launcher.ini");
+            };
+            fe.bossRows = [&](int m) {
+                game::BossTimes t;
+                t.load(gBossTimesFile);
+                std::vector<game::Frontend::RankRow> rows;
+                for (const game::BossTimes::Row& r : t.rows[std::clamp(m, 2, 6) - 2])
+                    rows.push_back({r.name, game::BossMode::timeText(r.ms), r.ms});
+                return rows;
+            };
+            // High Scores (screen 8): a table's top 10 (menu_pages.h menuRankingTables: the Sonic Mode presets, then the
+            // same for the 4P mode), the arcade's backup-RAM table (12 bytes an entry: 3 letters, 0, the rank card, ...,
+            // the score at +8) from ranking.bin / ranking_<preset>.bin (+ "4p": the 4P table), else the ROM's defaults
+            // (0xAA4A0); the stage is not kept
+            fe.rankingTables = game::menuRankingTables();
+            fe.rankingTables.push_back("PC Mode");   // PC Mode's table (THOTD.EXE screen 9, pcmode_scores.h)
+            gPmRankTable = int(fe.rankingTables.size()) - 1;
+            // then Boss Mode's five times tables, as the PC's High Scores arrows go on (8, 9, then 10-14 0x423A90 ..)
+            for (const char* n : {"Chariot Boss", "Hangedman Boss", "Hermit Boss", "Magician Boss", "All Bosses"})
+                fe.rankingTables.push_back(n);   // (the PC's labels 0x45 .. 0x49)
+            fe.rankingTableRows = [&](int table) {
+                std::vector<game::Frontend::RankRow> rows;
+                if (table > gPmRankTable) {   // a boss's times (bosstimes.cfg in the settings folder)
+                    game::BossTimes t;
+                    if (!gBossTimesFile.empty())
+                        t.load(gBossTimesFile);
+                    for (const game::BossTimes::Row& r : t.rows[std::clamp(table - gPmRankTable - 1, 0, 4)]) {
+                        game::Frontend::RankRow row{r.name, game::BossMode::timeText(r.ms), r.ms};
+                        row.time = true;
+                        rows.push_back(row);
+                    }
+                    return rows;
+                }
+                if (table == gPmRankTable) {
+                    game::PcModeScores t;
+                    if (!gPmScoresFile.empty())
+                        t.load(gPmScoresFile);
+                    static const char* const kStage[4] = {"Stage 1", "Stage 2", "Stage 3", "Stage 4"};   // 0x5CEC84
+                    for (const game::PcModeScores::Row& r : t.rows)
+                        rows.push_back({r.name, kStage[std::clamp(r.stage, 0, 3)], r.score, r.ch});
+                    return rows;
+                }
+                uint8_t b[0x78] = {};
+                bool have = false;
+                const std::string file = cache + rankingName(table % game::kSonicPresets) + (table >= game::kSonicPresets ? "4p" : "");
+                if (FILE* f = std::fopen(file.c_str(), "rb")) {
+                    have = std::fread(b, 1, sizeof b, f) == sizeof b;
+                    std::fclose(f);
+                }
+                if (!have && host.loaded() && host.runtime().mem.mapped(0xAA4A0) && host.runtime().mem.mapped(0xAA4A0 + 0x77)) {
+                    for (uint32_t i = 0; i < 0x78; ++i) b[i] = host.runtime().mem.at<uint8_t>(0xAA4A0 + i);
+                    have = true;
+                }
+                for (int e = 0; have && e < 10; ++e) {
+                    std::string name(reinterpret_cast<const char*>(b + e * 12), 3);
+                    for (char& ch : name) if (ch < 0x20 || ch > 0x7E) ch = ' ';
+                    int32_t score = 0;
+                    std::memcpy(&score, b + e * 12 + 8, 4);
+                    rows.push_back({name, "-", score});
+                }
+                return rows;
+            };
+            // the settings' pages (menu_pages.h): a category's page, the Co-op page; declared here for the sub-pages' exits
+            static std::function<void(int)> openCategory;
+            static std::function<void()> coopPage;
+            // Options (screen 2): our settings (LaunchConfig), saved to launcher.ini at once as the launcher does
+            fe.onOptions = [&]() {
+                const game::Frontend::Options& o = fe.options;
+                menu.cfg.difficulty = o.difficulty;
+                menu.cfg.lives = o.lives;
+                if (menu.cfg.blood != 5 || o.blood != 0)
+                    menu.cfg.blood = o.blood;
+                menu.cfg.autoReload = o.autoReload;
+                menu.cfg.continues = o.continues;
+                menu.cfg.sfxVolume = o.sfxVolume;
+                menu.cfg.musicVolume = o.musicVolume;
+                cfg = menu.cfg;
+                cfg.save(cache + "launcher.ini");
+                audio.setVolume(0.8f * cfg.sfxVolume / 100.0f, 0.6f * cfg.musicVolume / 100.0f);
+            };
+            fe.onControllerConfig = [&]() { openCategory(game::kCatControls); };   // (the text launcher before)
+            // menuart step 3: our extras on "More Options" (the values are menu.cfg's, saved at once)
+            auto saveCfg = [&]() {
+                cfg = menu.cfg;
+                cfg.save(cache + "launcher.ini");
+                audio.setMusicOn(cfg.music);
+                audio.musicNumbering = cfg.musicNumbering;
+                audio.setVolume(0.8f * cfg.sfxVolume / 100.0f, 0.6f * cfg.musicVolume / 100.0f);
+                // the Options screen shows the same values (Gameplay / Audio change them too)
+                fe.options = {menu.cfg.difficulty, menu.cfg.lives, std::min(menu.cfg.blood, 4), menu.cfg.sfxVolume,
+                              menu.cfg.musicVolume, menu.cfg.autoReload, menu.cfg.continues};
+                fe.freePlay = menu.cfg.freePlay;   // (feat29: Gameplay > Free Play and the Cheat screen's Free-Play: one setting)
+                fe.bloodRgb = (bloodOf(menu.cfg) & PcConfig::kBloodCustom) ? (bloodOf(menu.cfg) & 0xFFFFFF) : -1;   // (the menu's blood: blood2)
+            };
+            static std::string shortcutMsg, steamMsg;
+            // the Steam page (user 2026-10-18: pick and choose, mix and match, or add their own): per picture, the one
+            // made from the PC files or one of the player's own in the art folder (steam::artDir: covers, banners,
+            // heros, logos, icons; SteamGridDB's grids too), saved in launcher.ini; then Add
+            static std::function<void()> steamPage;
+            steamPage = [&, saveCfg]() {
+                static const char* const kKinds[5] = {"cover", "banner", "hero", "logo", "icon"};
+                static const char* const kNames[5] = {"Cover", "Wide Cover", "Background", "Logo", "Icon"};
+                const std::string dir = steam::artDir(winshell::selfExePath());
+                {   // the game's own pictures as Default.png in each folder (to see them next to the others)
+                    steam::Options so;
+                    so.exe = winshell::selfExePath();
+                    so.pcDir = menu.cfg.pc;
+                    std::vector<std::string> lines;
+                    steam::writeDefaultPictures(so, lines);
+                    for (const std::string& l : lines) SDL_Log("[steam] %s", l.c_str());
+                }
+                std::vector<game::Frontend::Extra> rows;
+                for (int i = 0; i < 5; ++i)
+                    rows.push_back({kNames[i], [&, i, dir]() {
+                                        const auto c = steam::artChoices(dir, kKinds[i]);
+                                        const std::string& cur = menu.cfg.steamArt[i];
+                                        const auto it = std::find(c.begin(), c.end(), cur);
+                                        if (cur.empty() || it == c.end())
+                                            return c.empty() ? std::string("Default") : "Default (+" + std::to_string(c.size()) + ")";
+                                        // SteamGridDB's pictures (file names "SteamGridDB - ...") are told apart: not
+                                        // ours, never to be published (user 2026-10-18)
+                                        auto sgdb = [](const std::string& rel) {
+                                            std::string n = rel.substr(rel.find('/') + 1);
+                                            for (char& ch : n) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+                                            return n.rfind("steamgriddb", 0) == 0;
+                                        };
+                                        const bool mine = sgdb(*it);
+                                        int n = 0;
+                                        for (auto k = c.begin(); k <= it; ++k) n += sgdb(*k) == mine;
+                                        return std::string(mine ? "SteamGridDB " : "Yours ") + std::to_string(n);
+                                    },
+                                    [&, i, dir, saveCfg]() {   // cycle: the game's, then each picture of the folder
+                                        const auto c = steam::artChoices(dir, kKinds[i]);
+                                        std::string& cur = menu.cfg.steamArt[i];
+                                        const auto it = std::find(c.begin(), c.end(), cur);
+                                        cur = cur.empty() || it == c.end() ? (c.empty() ? std::string() : c.front())
+                                                                           : (it + 1 == c.end() ? std::string() : *(it + 1));
+                                        saveCfg();
+                                    },
+                                    std::string("The Steam ") + kNames[i] + ": the game's own picture or one from the steam art folder"});
+                rows.push_back({"Add to Steam", [&]() { return steamMsg.empty() ? std::string("Add") : steamMsg; },
+                                [&]() {
+                                    steam::Options so;
+                                    so.exe = winshell::selfExePath();
+                                    so.pcDir = menu.cfg.pc;
+                                    for (int i = 0; i < 5; ++i) so.picks[kKinds[i]] = menu.cfg.steamArt[i];
+                                    const steam::Result sr = steam::addToSteam(so);
+                                    steamMsg = sr.brief;
+                                    for (const std::string& l : sr.lines) SDL_Log("[steam] %s", l.c_str());
+                                },
+                                "Add the game to Steam with these pictures (close Steam first)"});
+                fe.extras = rows;
+                fe.extrasTitle = "Steam";
+                fe.extrasTab = -1;
+                fe.extrasExit = [&]() {
+                    openCategory(game::kCatSystem);
+                };
+                fe.screenExtras();
+            };
+            // pads: a player's Controller page: the pad connected, the control style, that style's settings, the
+            // player's shared ones (launcher.h PadProfile); a new style rebuilds the page with its own settings
+            static std::function<void(int)> padPage;
+            // padfeel: the Aim Test page: what the pad reads now (rebuilt every 0.15 s while shown, aimTestRefresh),
+            // Calibrate Gyro, back to the Controller page
+            static std::function<void(int)> aimTestPage;
+            aimTestPage = [&](int p) {
+                auto probe = [&, p]() {
+                    int w = 16, h = 9;
+                    SDL_GetWindowSize(window, &w, &h);
+                    return pads.probe(p, w, h);
+                };
+                auto num = [](const char* f, float v) {
+                    char b[48];
+                    std::snprintf(b, sizeof b, f, double(v));
+                    return std::string(b);
+                };
+                std::vector<game::Frontend::Extra> rows;
+                rows.push_back({"Gyro", [probe, num]() {
+                                    const auto a = probe();
+                                    return !a.pad ? std::string("No Pad") : !a.gyro ? std::string("Off (this style)") : num("%.1f deg/s", a.gyroDeg);
+                                }, nullptr});
+                rows.push_back({"Gyro Width", [probe, num]() {
+                                    const auto a = probe();
+                                    return a.gyro ? num("%.0f deg = screen", a.spanDeg) : std::string("-");
+                                }, nullptr});
+                rows.push_back({"Stick", [probe, num]() {
+                                    const auto a = probe();
+                                    return a.pad ? num("%.0f%%", a.stick * 100.0f) + num(" -> %.0f%%", a.stickOut * 100.0f) : std::string("-");
+                                }, nullptr});
+                rows.push_back({"Crosshair Speed", [probe, num]() {
+                                    const auto a = probe();
+                                    return a.pad ? num("%.2f screens/s", a.widths) : std::string("-");
+                                }, nullptr});
+                rows.push_back({"Gyro Drift", [probe, num]() {
+                                    const auto a = probe();
+                                    return a.gyro ? num("%.2f deg/s", a.driftDeg) : std::string("-");
+                                }, nullptr});
+                rows.push_back({"Shake Reloads", [probe]() { return std::to_string(probe().shakes); }, nullptr});
+                rows.push_back({"Calibrate Gyro", [probe]() {
+                                    const auto a = probe();
+                                    return !a.gyro ? std::string("-") : a.calib < 0 ? std::string("Hold Still 2 s")
+                                           : a.calib >= 100 ? std::string("Done (Again?)") : "Hold Still... " + std::to_string(a.calib) + "%";
+                                },
+                                [&, p]() { pads.calibrate(p); }});
+                {   // (uxpolish: each row's help line)
+                    static const char* const kHelp[] = {
+                        "The gyro's turn rate now (degrees a second)", "How far the pad turns for the crosshair to cross the screen",
+                        "The aiming stick now -> what the curve and dead zone make of it", "The crosshair's speed now (screen widths a second)",
+                        "The gyro's drift while the pad lies still (Calibrate Gyro removes it)", "Shakes counted as reloads so far",
+                        "Lay the pad still, click, and keep it still for 2 seconds"};
+                    for (size_t i = 0; i < rows.size() && i < sizeof kHelp / sizeof kHelp[0]; ++i)
+                        rows[i].help = kHelp[i];
+                }
+                fe.extras = rows;
+                fe.extrasTitle = "Aim Test: Player " + std::to_string(p + 1);
+                fe.extrasExit = [&, p]() { padPage(p); };
+                fe.screenExtras();
+            };
+            aimTestRefresh = [&]() {
+                static Uint64 at = 0;
+                const Uint64 t = SDL_GetTicks();
+                if (fe.screen() == 100 && fe.extrasTitle.rfind("Aim Test", 0) == 0 && t - at >= 150) {
+                    at = t;
+                    fe.screenExtras();
+                }
+            };
+            // keybind (game/keybinds.h): the Keys & Buttons page, one player at a time (game/menu_pages.h menuBindRows: page
+            // 1 the keyboard's actions, page 2 the gamepad's); a row clicked waits for a key / button (Esc, a click or
+            // 5 s: cancelled); a key or button used twice is marked "!" and named on Status. Saved at once (launcher.ini)
+            static std::function<void(int)> bindPage;
+            static int bindSaved = 0;   // gBind.changes saved so far
+            static game::MenuHooks bindHooks;
+            bindHooks.save = saveCfg;
+            bindHooks.bindPlayer = [&](int q) { bindPage(q); };
+            bindHooks.padDefaults = [&](int q) { return pads.defaultBinds(q); };
+            bindHooks.padType = [&](int q) { return pads.promptStyle(q); };
+            bindHooks.padsChanged = [&]() { pads.configure(menu.cfg); };
+            bindPage = [&](int p) {
+                pads.configure(menu.cfg);
+                fe.extras = game::menuBindRows(p, menu.cfg, gBind, bindHooks);
+                fe.extrasTitle = "Keys & Buttons";
+                fe.extrasTab = -1;
+                fe.extrasExit = [&]() {
+                    gBind.cancel("");
+                    gBind.message.clear();
+                    openCategory(game::kCatControls);
+                };
+                fe.screenExtras();
+            };
+            // a key / button / click while waiting: the binding (saved at once), the page shown again
+            bindEvent = [&, saveCfg](const SDL_Event& e) {
+                if (!gBind.active())
+                    return false;
+                const int p = gBind.player();
+                const bool ate = gBind.event(e, menu.cfg.keys, menu.cfg.padBinds[p], pads.defaultBinds(p), pads.promptStyle(p), SDL_GetTicks());
+                if (gBind.changes != bindSaved) {
+                    bindSaved = gBind.changes;
+                    saveCfg();
+                    pads.configure(menu.cfg);
+                }
+                if (fe.screen() == 100 && fe.extrasTitle == "Keys & Buttons")
+                    fe.screenExtras();   // (also a time-out found here)
+                return ate;
+            };
+            // the countdown (every 0.25 s) and the time-out; the page left meanwhile: cancelled
+            bindRefresh = [&]() {
+                static Uint64 at = 0;
+                if (!gBind.active())
+                    return;
+                const Uint64 t = SDL_GetTicks();
+                if (fe.screen() != 100 || fe.extrasTitle != "Keys & Buttons") {
+                    gBind.cancel("");
+                    return;
+                }
+                if (gBind.tick(t) || t - at >= 250) {
+                    at = t;
+                    fe.screenExtras();
+                }
+            };
+            padPage = [&, saveCfg](int p) {
+                std::vector<game::Frontend::Extra> rows;
+                pads.configure(menu.cfg);
+                rows.push_back({"Pad", [&, p]() {
+                                    const std::string n = pads.padName(p);
+                                    if (!pads.want[p]) return std::string("Input: not Gamepad");
+                                    return n.empty() ? std::string("None Connected") : n;   // (a long name: cut with "...")
+                                }, nullptr, "The pad connected for this player (its input: Controls)"});
+                int nf = 0;
+                const game::PadField* f = game::padFields(nf);
+                game::PadProfile& pp = menu.cfg.pad[p];
+                const int style = pp.style >= 1 && pp.style <= game::kPadStyles ? pp.style : 0;
+                for (int i = 0; i < nf; ++i) {
+                    // a style's field: the chosen style's (Auto: the style the pad resolves to, else Motion + stick's)
+                    if (f[i].styleMember) {
+                        const int shown = style ? style : std::max(1, pads.styleOf(p) ? pads.styleOf(p) : 3);
+                        if (!(f[i].styleMask >> (shown - 1) & 1)) continue;
+                    }
+                    rows.push_back({f[i].label, [&, p, i]() {
+                                        int n2 = 0;
+                                        const game::PadField& fi = game::padFields(n2)[i];
+                                        game::PadProfile& q = menu.cfg.pad[p];
+                                        const int st = q.style >= 1 && q.style <= game::kPadStyles ? q.style
+                                                       : std::max(1, pads.styleOf(p) ? pads.styleOf(p) : 3);
+                                        const int v = fi.styleMember ? q.s[st - 1].*fi.styleMember : q.*fi.member;
+                                        return fi.names ? std::string(fi.names[v - fi.lo]) : std::to_string(v);
+                                    },
+                                    [&, p, i, saveCfg]() {
+                                        int n2 = 0;
+                                        const game::PadField& fi = game::padFields(n2)[i];
+                                        game::PadProfile& q = menu.cfg.pad[p];
+                                        const int st = q.style >= 1 && q.style <= game::kPadStyles ? q.style
+                                                       : std::max(1, pads.styleOf(p) ? pads.styleOf(p) : 3);
+                                        int& v = fi.styleMember ? q.s[st - 1].*fi.styleMember : q.*fi.member;
+                                        v = v >= fi.hi ? fi.lo : v + 1;
+                                        saveCfg();
+                                        pads.configure(menu.cfg);
+                                        if (fi.member == &game::PadProfile::style)
+                                            padPage(p);   // that style's settings
+                                    },
+                                    game::padFieldHelp(f[i].key)});
+                    // optui: the field's values as a list (set at once; a long number range stays a click-to-step row)
+                    if (f[i].hi - f[i].lo >= 1 && f[i].hi - f[i].lo <= 40) {
+                        for (int v = f[i].lo; v <= f[i].hi; ++v)
+                            rows.back().choices.push_back(f[i].names ? std::string(f[i].names[v - f[i].lo]) : std::to_string(v));
+                        auto field = [&, p, i]() -> int& {
+                            int n2 = 0;
+                            const game::PadField& fi = game::padFields(n2)[i];
+                            game::PadProfile& q = menu.cfg.pad[p];
+                            const int st = q.style >= 1 && q.style <= game::kPadStyles ? q.style
+                                           : std::max(1, pads.styleOf(p) ? pads.styleOf(p) : 3);
+                            return fi.styleMember ? q.s[st - 1].*fi.styleMember : q.*fi.member;
+                        };
+                        rows.back().choiceNow = [field, lo = f[i].lo]() { return field() - lo; };
+                        rows.back().pickAt = [&, field, p, lo = f[i].lo, style = f[i].member == &game::PadProfile::style, saveCfg](int k) {
+                            field() = lo + k;
+                            saveCfg();
+                            pads.configure(menu.cfg);
+                            if (style)
+                                padPage(p);   // that style's settings
+                        };
+                    }
+                }
+                // padfeel: the feel presets for the style shown (Precise / Balanced / Fast; Custom when changed by hand)
+                // and the Aim Test page (live readout, Calibrate Gyro)
+                auto shownStyle = [&, p]() {
+                    const game::PadProfile& q = menu.cfg.pad[p];
+                    return q.style >= 1 && q.style <= game::kPadStyles ? q.style : std::max(1, pads.styleOf(p) ? pads.styleOf(p) : 3);
+                };
+                rows.push_back({"Feel Preset", [&, p, shownStyle]() {
+                                    return std::string(game::kPadPresetNames[game::padPresetOf(menu.cfg.pad[p].s[shownStyle() - 1])]);
+                                },
+                                [&, p, shownStyle, saveCfg]() {
+                                    game::PadStyle& ps = menu.cfg.pad[p].s[shownStyle() - 1];
+                                    game::applyPadPreset(ps, game::padPresetOf(ps) % game::kPadPresets + 1);
+                                    saveCfg();
+                                    pads.configure(menu.cfg);
+                                },
+                                "Precise, Balanced or Fast: this style's speed settings at once (Custom: changed by hand)"});
+                for (int k = 1; k <= game::kPadPresets; ++k)   // (optui: as a list)
+                    rows.back().choices.push_back(game::kPadPresetNames[k]);
+                rows.back().choiceNow = [&, p, shownStyle]() { return game::padPresetOf(menu.cfg.pad[p].s[shownStyle() - 1]) - 1; };
+                rows.back().pickAt = [&, p, shownStyle, saveCfg](int k) {
+                    game::applyPadPreset(menu.cfg.pad[p].s[shownStyle() - 1], k + 1);
+                    saveCfg();
+                    pads.configure(menu.cfg);
+                };
+                // (uxpolish: the page rows say they open a page; the light gun's row as the Controls page's)
+                rows.push_back({"Aim Test", [&]() { return std::string("Open >"); }, [&, p]() { aimTestPage(p); },
+                                "What the pad reads now (gyro, stick, crosshair speed) and the gyro's calibration"});
+                game::lightGunRow(rows, "Light Gun Calibration", menu.cfg.gunCal[p], saveCfg);
+                fe.extras = rows;
+                fe.extrasTitle = "Controller: Player " + std::to_string(p + 1);
+                fe.extrasTab = -1;
+                fe.extrasExit = [&]() {
+                    openCategory(game::kCatControls);
+                };
+                fe.screenExtras();
+            };
+            // crt (render/crt.h): the CRT filter's page: the preset, Custom's steps (changing one picks Custom), where
+            // the crosshairs are drawn, the screenshots. Only menu.cfg + saveCfg: the frames pick cfg.crt up (gCrt.configure)
+            static std::function<void()> crtPage;
+            crtPage = [&, saveCfg]() {
+                using X2 = game::Frontend::Extra;
+                auto step = [&, saveCfg](const char* label, int CrtSettings::*m, int hi) {
+                    X2 x{label, [&, m]() { return std::to_string(menu.cfg.crt.*m) + (menu.cfg.crt.preset == 4 ? "" : " (Custom)"); },
+                         [&, m, hi, saveCfg]() {
+                             int& v = menu.cfg.crt.*m;
+                             v = v >= hi ? 0 : v + 1;
+                             menu.cfg.crt.preset = 4;
+                             saveCfg();
+                         }};
+                    for (int v = 0; v <= hi; ++v)   // (optui: 0 .. hi as a list; picking one picks Custom)
+                        x.choices.push_back(std::to_string(v));
+                    x.choiceNow = [&, m]() { return menu.cfg.crt.*m; };
+                    x.pickAt = [&, m, saveCfg](int k) { menu.cfg.crt.*m = k; menu.cfg.crt.preset = 4; saveCfg(); };
+                    return x;
+                };
+                std::vector<X2> rows;
+                rows.push_back({"CRT Filter", [&]() { return std::string(crtPresetName(menu.cfg.crt.preset)); },
+                                [&, saveCfg]() { menu.cfg.crt.preset = (menu.cfg.crt.preset + 1) % kCrtPresets; saveCfg(); }});
+                for (int k = 0; k < kCrtPresets; ++k)   // (optui: as lists)
+                    rows.back().choices.push_back(crtPresetName(k));
+                rows.push_back(step("Scanlines", &CrtSettings::scan, 10));
+                rows.push_back(step("Mask Strength", &CrtSettings::mask, 10));
+                rows.push_back({"Mask Type", [&]() { return std::string(crtMaskName(menu.cfg.crt.maskType)) + (menu.cfg.crt.preset == 4 ? "" : " (Custom)"); },
+                                [&, saveCfg]() { menu.cfg.crt.maskType = (menu.cfg.crt.maskType + 1) % 4; menu.cfg.crt.preset = 4; saveCfg(); }});
+                for (int k = 0; k < 4; ++k)
+                    rows.back().choices.push_back(crtMaskName(k));
+                rows.back().choiceNow = [&]() { return menu.cfg.crt.maskType; };
+                rows.back().pickAt = [&, saveCfg](int k) { menu.cfg.crt.maskType = k; menu.cfg.crt.preset = 4; saveCfg(); };
+                rows.push_back(step("Curvature", &CrtSettings::curve, 10));
+                rows.push_back(step("Bloom", &CrtSettings::bloom, 10));
+                rows.push_back(step("Brightness", &CrtSettings::bright, 10));
+                rows.push_back({"Crosshair", [&]() { return std::string(menu.cfg.crt.crispSights ? "Crisp (Over Filter)" : "In Filter"); },
+                                [&, saveCfg]() { menu.cfg.crt.crispSights = !menu.cfg.crt.crispSights; saveCfg(); }});
+                rows.push_back({"Screenshots", [&]() { return std::string(menu.cfg.crt.shotFiltered ? "Filtered" : "Plain"); },
+                                [&, saveCfg]() { menu.cfg.crt.shotFiltered = !menu.cfg.crt.shotFiltered; saveCfg(); }});
+                // the help lines (menu overhaul)
+                static const char* const kHelp[] = {
+                    "The CRT look: Off, Arcade Monitor, Consumer TV, Sharp Scanlines, or Custom (the steps below)",
+                    "The Custom preset: how dark the lines between the game's lines are (a click here picks Custom)",
+                    "The Custom preset: the phosphor mask's strength (a click here picks Custom)",
+                    "The Custom preset: the phosphor mask's pattern (a click here picks Custom)",
+                    "The Custom preset: how much the screen bulges (a click here picks Custom)",
+                    "The Custom preset: the glow around bright parts (a click here picks Custom)",
+                    "The Custom preset: brightness boost, 5 = none (a click here picks Custom)",
+                    "Draw the crosshairs crisp over the filter, or inside it", "F12 screenshots: the filtered picture, or the plain one"};
+                for (size_t i = 0; i < rows.size() && i < sizeof kHelp / sizeof kHelp[0]; ++i)
+                    rows[i].help = kHelp[i];
+                fe.extras = rows;
+                fe.extrasTitle = "CRT Filter";
+                fe.extrasTab = -1;
+                fe.extrasExit = [&]() { openCategory(game::kCatVideo); };
+                fe.screenExtras();
+            };
+            // mods (docs/modding.md; game/menu_pages.h menuModRows): one row per mod (its name: On / Off; on ones first, by
+            // priority: the first texture pack's pictures win), its Settings page, "Move Up" rows for the order; saved in
+            // launcher.ini (per PC), used at once (the Ragdoll mod) or from the next chapter start (texture packs)
+            static std::function<std::vector<game::Frontend::Extra>()> modsRows;
+            static std::function<void(const std::string&)> modSettingsPage;
+            auto modsChanged = [&, saveCfg]() {
+                saveCfg();
+                applyMods(menu.cfg);
+            };
+            modSettingsPage = [&, modsChanged](const std::string& id) {
+                for (const ModPack& p : allPacks)
+                    if (p.id == id) {
+                        fe.extras = game::menuModSettingRows(menu.cfg, p, modsChanged);
+                        fe.extrasTitle = p.name;
+                        fe.extrasTab = -1;
+                        fe.extrasExit = [&]() { openCategory(game::kCatMods); };
+                        fe.screenExtras();
+                        return;
+                    }
+            };
+            modsRows = [&, modsChanged]() {
+                allPacks = findMods(modDirs);   // (mods added while the game runs)
+                return game::menuModRows(menu.cfg, allPacks, modsChanged, [](const std::string& id) { modSettingsPage(id); });
+            };
+            // the menu's overhaul (user 2026-10-20; game/menu_pages.h): More Options' rows grouped into the categories
+            // Video, Audio, Controls, Gameplay, Mods and System (tabs on their pages and on Options), the Co-op page,
+            // Chapter Select and Sonic Mode on the main menu; the values and launcher.ini keys are More Options' own
+            static game::MenuHooks hooks;
+            gTourHooks = &hooks;   // (misc18: the perf tour's Firing Range / Language pages)
+            hooks.save = saveCfg;
+            hooks.padsChanged = [&]() { pads.configure(menu.cfg); };   // (padfix: Controls > Aim Sensitivity)
+            // padfix: the pad family the prompts show now (Button Style's grey choices): the pad used last, else
+            // player 1's / any connected pad's
+            hooks.promptStyleNow = [&]() {
+                if (fe.padPromptsShown() && fe.padType() > 0) return fe.padType();
+                for (int q = 0; q < game::kInputPlayers; ++q)
+                    if (pads.padOf(q)) return pads.promptStyle(q);
+                return 0;
+            };
+            hooks.padPage = [&](int p) { padPage(p); };
+            hooks.bindPage = [&]() { bindPage(0); };
+            hooks.steamPage = [&]() { steamPage(); };
+            hooks.crtPage = [&]() { crtPage(); };
+            // ipolish: Controls > Light Guns' Assign page (game/menu_pages.h menuGunAssignRows): a seat's row clicked
+            // waits 10 s for a trigger pull from any gun / mouse (Windows' raw input on meanwhile; the menu's clicks,
+            // keys and pad buttons eaten; Esc / the pad's East cancel), which takes the seat (launcher.ini gun1dev=)
+            static Uint64 gunWaitAt = 0, gunEatUntil = 0;
+            static bool gunRawOn = false;
+            auto gunRaw = [&](bool on) {
+                if (on == gunRawOn) return;
+                gunRawOn = on;
+                if (!rawWatch) rawMiceWatch(window, on);
+            };
+            auto gunPageShown = [&]() { return fe.screen() == 100 && fe.extrasTitle == "Light Guns"; };
+            hooks.gunPage = [&, gunRaw]() {
+                lightGuns.configure(menu.cfg);
+                fe.extras = game::menuGunAssignRows(menu.cfg, hooks);
+                fe.extrasTitle = "Light Guns";
+                fe.extrasTab = -1;
+                fe.extrasExit = [&, gunRaw]() {
+                    lightGuns.cancelAssign();
+                    gunRaw(false);
+                    openCategory(game::kCatControls);
+                };
+                fe.screenExtras();
+            };
+            hooks.gunAssign = [&, gunRaw](int seat) {
+                lightGuns.configure(menu.cfg);
+                lightGuns.startAssign(seat);
+                gunWaitAt = SDL_GetTicks();
+                gunRaw(true);
+                fe.screenExtras();
+            };
+            hooks.gunWaiting = [&]() { return lightGuns.assigning(); };
+            hooks.gunWaitLeft = [&]() { return std::max(0, 10 - int((SDL_GetTicks() - gunWaitAt) / 1000)); };
+            hooks.gunConnected = [&](const std::string& key) { return lightGuns.connected(key); };
+            gunAssignEvent = [&, gunRaw](const SDL_Event& e) {
+                const bool waiting = lightGuns.assigning() >= 0;
+                if (!waiting && SDL_GetTicks() >= gunEatUntil)
+                    return false;
+                const bool button = e.type == SDL_EVENT_MOUSE_BUTTON_DOWN || e.type == SDL_EVENT_MOUSE_BUTTON_UP;
+                if (!waiting)
+                    return button;   // (the pull that took the seat: its click is no menu click)
+                if ((e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_ESCAPE) ||
+                    (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_EAST)) {
+                    lightGuns.cancelAssign();
+                    gunRaw(false);
+                    if (gunPageShown()) fe.screenExtras();
+                    return true;
+                }
+                return button || e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP ||
+                       e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || e.type == SDL_EVENT_GAMEPAD_BUTTON_UP;
+            };
+            gunAssignRefresh = [&, gunRaw, gunPageShown, saveCfg]() {
+                static Uint64 at = 0;
+                const Uint64 t = SDL_GetTicks();
+                if (lightGuns.assigned.seat >= 0) {
+                    const game::LightGuns::Assigned a = lightGuns.assigned;
+                    lightGuns.assigned = {};
+                    for (int q = 0; q < 4; ++q)
+                        if (menu.cfg.gunDev[q] == a.key) menu.cfg.gunDev[q].clear(), menu.cfg.gunName[q].clear();
+                    menu.cfg.gunDev[a.seat] = a.key;
+                    menu.cfg.gunName[a.seat] = a.name;
+                    saveCfg();
+                    gunRaw(false);
+                    gunEatUntil = t + 400;
+                    if (gunPageShown()) fe.screenExtras();
+                    return;
+                }
+                if (lightGuns.assigning() < 0)
+                    return;
+                if (!gunPageShown() || t - gunWaitAt >= 10000) {
+                    lightGuns.cancelAssign();
+                    gunRaw(false);
+                    if (gunPageShown()) fe.screenExtras();
+                } else if (t - at >= 250) {
+                    at = t;
+                    fe.screenExtras();
+                }
+            };
+            // menufb (user 2026-10-26: "add a reset to default option"): a page's Reset to Defaults asks first (Reset /
+            // Cancel; Escape: Cancel), then the page's settings go back (game::menuReset), applied and saved
+            hooks.resetPage = [&, saveCfg](int page) {
+                auto back = [&, page]() {
+                    if (page == game::kResetAdvanced) hooks.advancedPage();
+                    else if (page == game::kResetRange) hooks.rangePage();
+                    else openCategory(page);
+                };
+                using X2 = game::Frontend::Extra;
+                std::vector<X2> rows;
+                rows.push_back({"Reset", nullptr, [&, saveCfg, page, back]() {
+                                    game::menuReset(menu.cfg, page);
+                                    if (page == game::kCatVideo) {
+                                        fe.setStyle(menu.cfg.menuStyle);
+                                        util::fullscreenLive() = -1;
+                                        util::resolutionLive() = {{menu.cfg.resFullW, menu.cfg.resFullH}, {menu.cfg.resWinW, menu.cfg.resWinH}, menu.cfg.exclusive};
+                                        util::applyResolution(window);
+                                    }
+                                    if (page == game::kCatAudio && hooks.menuMusicChanged)
+                                        hooks.menuMusicChanged();
+                                    saveCfg();
+                                    back();
+                                },
+                                "Put every setting on this page back to its default"});
+                rows.push_back({"Cancel", nullptr, [back]() { back(); }, "Keep the settings as they are"});
+                fe.extras = rows;
+                fe.extrasTitle = "Reset to Defaults?";
+                fe.extrasTab = -1;
+                fe.extrasExit = [back]() { back(); };
+                fe.screenExtras();
+            };
+            // menufb: Video > Crosshairs: the Firing Range (each player's crosshair; its range shot at with the
+            // players' inputs: the menu loop hands it the pads' aims)
+            hooks.rangePage = [&]() {
+                fe.rangeReset();
+                fe.extras = game::menuRangeRows(menu.cfg, hooks, gRangeSeat);
+                fe.extrasTitle = game::Frontend::kRangeTitle;
+                fe.extrasTab = -1;
+                fe.extrasExit = [&]() { openCategory(game::kCatVideo); };
+                fe.screenExtras();
+            };
+            fe.rangeSig = [&]() {
+                std::string s = std::to_string(menu.cfg.models) + "|" + std::to_string(gRangeSeat);
+                for (const game::SeatSight& q : menu.cfg.sights)
+                    s += "|" + std::to_string(q.style) + q.custom + "," + std::to_string(q.size) + "," + std::to_string(q.thick) + "," +
+                         std::to_string(q.colour);
+                return s;
+            };
+            fe.rangeArt = [&](int seat, int wh, game::SightArt& out) {
+                const game::SeatSight& q = menu.cfg.sights[seat & 3];
+                const assets::PcSprites* pc = game::sightStyleKept(q.style) <= 2 && hooks.sightSprites ? hooks.sightSprites() : nullptr;
+                game::seatSightArt(q, menu.cfg.models == 1, pc, game::findCustomSights(xhairDirs), seat & 3, wh, out);
+                return out.w > 0;
+            };
+            hooks.advancedPage = [&]() {   // advopt: Gameplay's Advanced page (Esc / Back: Gameplay)
+                fe.extras = game::menuAdvancedRows(menu.cfg, hooks);
+                fe.extrasTitle = "Advanced";
+                fe.extrasTab = -1;
+                fe.extrasExit = [&]() { openCategory(game::kCatGameplay); };
+                fe.screenExtras();
+            };
+            hooks.filesCheck = [&]() { feAction = 4; };
+            hooks.shortcut = [&]() {
+                std::string msg;
+                const auto r = winshell::createShortcut("", true, menu.cfg.pc, false, msg);
+                shortcutMsg = r == winshell::ShortcutResult::Created ? "Created"
+                              : r == winshell::ShortcutResult::Exists ? "Exists" : "Failed";
+                SDL_Log("shortcut: %s", msg.c_str());
+            };
+            hooks.shortcutValue = [&]() { return shortcutMsg.empty() ? std::string("Create") : shortcutMsg; };
+            hooks.modsRows = [&]() { return modsRows(); };
+            hooks.customSights = [&]() { return game::findCustomSights(xhairDirs); };
+            // feat29 (user 2026-10-29: "make sure the player knows they can add custom crosshairs"): the settings
+            // folder's crosshairs (one of xhairDirs; made here so the player finds it), named on the Crosshair row
+            hooks.crosshairDir = [&]() {
+                std::error_code ec;
+                std::filesystem::create_directories(cache + "crosshairs", ec);
+                return std::filesystem::path(cache + "crosshairs").make_preferred().string();
+            };
+            // optui: the crosshair preview's PC sprites (the PC's sight; loaded once, on the first preview) and its game
+            // picture (the live attract's saved stills, the models' first)
+            hooks.sightSprites = [&]() -> const assets::PcSprites* {
+                static assets::PcSprites spr;
+                static bool tried = false;
+                if (!tried && !menu.cfg.pc.empty()) {
+                    tried = true;
+                    std::string e2;
+                    if (!spr.load(menu.cfg.pc, e2, 1, 0))
+                        SDL_Log("crosshair preview: the PC sprites: %s", e2.c_str());
+                }
+                return spr.loaded() ? &spr : nullptr;
+            };
+            fe.previewStills.clear();
+            // (menus3: the settings pictures' attract frame first: the Firing Range's ground always has a picture)
+            fe.previewStills.push_back(game::previewBaseFile(prvDir, menu.cfg.models == 1 ? 1 : 0));
+            fe.previewStills.push_back(game::previewBaseFile(prvDir, 0));
+            for (const int pcFirst : {menu.cfg.models == 1 ? 1 : 0, menu.cfg.models == 1 ? 0 : 1})
+                for (int b = 0; b < 5; ++b)
+                    fe.previewStills.push_back(cache + "menu_backdrop_" + (pcFirst ? "pc" : "arcade") + "_" + std::to_string(b) + ".png");
+            hooks.menuMusicChanged = [&]() {   // (menufb, user 2026-10-26 "the menu music does not update right": played at once)
+                fe.menuCue = game::menuSongOf(menu.cfg.menuMusic).cue;
+                if (menu.cfg.music && fe.onCue)
+                    fe.onCue(fe.menuCue);
+            };
+            // fix28 / menus3: the settings' comparison pictures: the attract frame rendered in-process (prvFrame, kept in
+            // the settings folder's previews6\; Video > Models: Chapter 1's bridge frame), each picture drawn from it in memory (the crosshair, the blood burst;
+            // the custom colour live); a render that failed, e.g. no arcade files: "No picture"
+            hooks.previewPic = [&](const std::string& name) {
+                if (name.empty())
+                    return prvFailed[0] ? std::string() : std::string("x");
+                const std::string key = game::previewKey(name, menu.cfg, menu.pcOk && !menu.cfg.pc.empty());
+                if (key.empty())
+                    return std::string();
+                const int m = std::atoi(key.c_str() + key.find('|') + 1);
+                return prvHave(m, name.compare(0, 6, "models") == 0 ? game::kPreviewModels : game::kPreviewBlood) ? "mem:" + key : std::string();
+            };
+            fe.previewImage = [&](const std::string& key, std::vector<uint8_t>& rgba, int& w, int& h) {
+                return game::previewRender(key, prvDir, menu.cfg, hooks, rgba, w, h);
+            };
+            fe.previewGen = [&]() { return prvGen; };
+            hooks.menuStyleChanged = [&]() { fe.setStyle(menu.cfg.menuStyle); };
+            hooks.languageChanged = [&]() {   // lang: the texts redrawn in the new language, its own texture packs on
+                fe.langChanged();
+                applyMods(menu.cfg);
+            };
+            hooks.languagePage = [&]() {   // menufb: System > Language's own page (each language in its script)
+                fe.extras = game::menuLanguageRows(menu.cfg, hooks);
+                fe.extrasTitle = "Language";
+                fe.extrasTab = -1;
+                fe.extrasExit = [&]() { openCategory(game::kCatSystem); };
+                fe.screenExtras();
+            };
+            hooks.menuFpsAuto = [&]() { return std::to_string(menuFpsAuto()) + " fps"; };   // optui: Menu Frame Rate's Auto
+            hooks.liveBgAuto = [&]() {   // menuperf: Live Background's Auto here and now
+                liveBgOn();
+                return std::string(liveWeak == 1 ? "off, integrated graphics" : liveSlow ? "off, the menu ran slow" : "on");
+            };
+            // Video > Resolution (user 2026-10-21; util/resolution.h): a page of Auto and the sizes for the way the game
+            // shows now (fullscreen: the display's modes; a window: the common sizes that fit the desktop), applied at
+            // once; a fullscreen change asks "Keep this resolution?" for 10 s (gResKeep: the menu loop's tick), else
+            // it goes back to the one before
+            auto resChoice = [&]() -> util::ResolutionChoice {
+                return {{menu.cfg.resFullW, menu.cfg.resFullH}, {menu.cfg.resWinW, menu.cfg.resWinH}, menu.cfg.exclusive};
+            };
+            hooks.resolutionValue = [&, resChoice]() {
+                const util::ResolutionChoice c = resChoice();
+                const int m = util::displayMode(window);
+                return m == util::kBorderless ? std::string("Desktop") : util::sizeName(m == util::kExclusive ? c.fullscreen : c.window);
+            };
+            // rescrash: Video > Display Mode (Windowed / Borderless / Fullscreen): the window's mode now; another one
+            // at once (util::setDisplayMode), the start's from now on (launcher.ini displaymode= / exclusive=)
+            hooks.displayModeNow = [&]() { return util::displayMode(window); };
+            hooks.displayModeSet = [&, saveCfg, resChoice](int m) {
+                m = std::clamp(m, 0, 2);
+                menu.cfg.fullscreen = m != util::kWindowed;
+                if (m != util::kWindowed)
+                    menu.cfg.exclusive = m == util::kExclusive;
+                util::fullscreenLive() = -1;
+                util::resolutionLive() = resChoice();
+                const bool ok = util::setDisplayMode(window, m);
+                util::crashHandlerCheck();
+                SDL_Log("display mode: %s%s", m == util::kWindowed ? "windowed" : m == util::kBorderless ? "borderless" : "fullscreen (exclusive)",
+                        ok ? "" : " (the display mode could not be set: borderless)");
+                saveCfg();
+            };
+            gDisplayModeSet = hooks.displayModeSet;
+            gResRevert = [&, saveCfg, resChoice]() {
+                gResKeep.active = false;
+                menu.cfg.resFullW = gResKeep.before.w, menu.cfg.resFullH = gResKeep.before.h;
+                util::resolutionLive() = resChoice();
+                util::applyResolution(window);
+                saveCfg();
+                openCategory(game::kCatVideo);
+            };
+            gResKeepPage = [&, saveCfg]() {
+                using X2 = game::Frontend::Extra;
+                const int left = int((gResKeep.until - std::min(gResKeep.until, SDL_GetTicks()) + 999) / 1000);
+                gResKeep.shown = left;
+                std::vector<X2> rows;
+                rows.push_back({"Keep", nullptr, [&, saveCfg]() {
+                                    gResKeep.active = false;
+                                    saveCfg();
+                                    openCategory(game::kCatVideo);
+                                },
+                                "Keep the new resolution"});
+                rows.push_back({"Revert", [left]() { return "In " + std::to_string(left) + " s"; }, []() { gResRevert(); },
+                                "Back to the resolution before (by itself after 10 seconds; Escape too)"});
+                fe.extras = rows;
+                fe.extrasTitle = kResKeepTitle;
+                fe.extrasTab = -1;
+                fe.extrasExit = []() { gResRevert(); };
+                fe.screenExtras();
+            };
+            static std::function<void()> resolutionPage;
+            resolutionPage = [&, saveCfg, resChoice]() {
+                if (util::displayMode(window) == util::kBorderless)
+                    return;   // (rescrash: Borderless is the desktop's resolution; the row says so)
+                const bool fs = util::displayMode(window) == util::kExclusive;
+                std::vector<util::Size> sizes = fs ? util::fullscreenSizes(window) : util::windowSizes(window);
+                sizes.insert(sizes.begin(), util::Size{});   // Auto first
+                const util::ResolutionChoice now = resChoice();
+                const util::Size cur = fs ? now.fullscreen : now.window;
+                // menufb (user 2026-10-26: "too many different resolutions ... it should rely on the aspect ratio"):
+                // fullscreen lists the modes of the desktop's shape (and the Aspect setting's 4:3 / 16:10; the refresh
+                // rates are folded already), the current one kept; Show All at the end lists every mode
+                static bool resAll = false;
+                const size_t allCount = sizes.size();
+                if (fs && !resAll)
+                    sizes = util::sizesOfShape(sizes, window, menu.cfg.aspect == 1 ? 4.0f / 3.0f : menu.cfg.aspect == 2 ? 1.6f : 0.0f, cur);
+                const bool more = fs && (resAll || sizes.size() < allCount);
+                using X2 = game::Frontend::Extra;
+                std::vector<X2> rows;
+                for (const util::Size s : sizes) {
+                    const std::string name = s.automatic() ? (fs ? "Auto (Desktop)" : "Auto (As Sized)") : util::sizeName(s);
+                    rows.push_back({name, [s, cur]() { return std::string(s == cur ? "Current" : ""); },
+                                    [&, saveCfg, resChoice, fs, s]() {
+                                        const util::ResolutionChoice before = resChoice();
+                                        (fs ? menu.cfg.resFullW : menu.cfg.resWinW) = s.w;
+                                        (fs ? menu.cfg.resFullH : menu.cfg.resWinH) = s.h;
+                                        util::resolutionLive() = resChoice();
+                                        util::applyResolution(window);
+                                        util::crashHandlerCheck();
+                                        if (fs && !(s == before.fullscreen)) {   // a display mode change: kept only when confirmed
+                                            gResKeep = {true, before.fullscreen, SDL_GetTicks() + 10000, -1};
+                                            gResKeepPage();
+                                            return;
+                                        }
+                                        saveCfg();
+                                        openCategory(game::kCatVideo);
+                                    },
+                                    s.automatic() ? (fs ? "Exclusive fullscreen at the desktop's resolution"
+                                                        : "The window as you size it (drag its edges)")
+                                                  : fs ? "Exclusive fullscreen in this display mode" : "The window at this size"});
+                }
+                if (more)
+                    rows.push_back({resAll ? "Show Fewer" : "Show All", nullptr, [&]() {
+                                        resAll = !resAll;
+                                        resolutionPage();
+                                    },
+                                    resAll ? "Only the display modes of your screen's shape" : "Every display mode, in every shape"});
+                fe.extras = rows;
+                fe.extrasTitle = fs ? "Fullscreen Resolution" : "Window Size";
+                fe.extrasTab = -1;
+                fe.extrasExit = [&]() { openCategory(game::kCatVideo); };
+                fe.screenExtras();
+            };
+            hooks.resolutionPage = [&]() { resolutionPage(); };
+            // remakefix (user 2026-10-22): Video > Display, the monitor: the window's now; the next one moves it there
+            // at once (fullscreen stays fullscreen) and launcher.ini display= keeps it for the next start
+            hooks.displayValue = [&]() {
+                const SDL_DisplayID now = SDL_GetDisplayForWindow(window);
+                for (const util::DisplayInfo& d : util::displays())
+                    if (d.id == now) return d.label;
+                return std::string("Primary");
+            };
+            hooks.displayLabels = []() {
+                std::vector<std::string> v;
+                for (const util::DisplayInfo& d : util::displays()) v.push_back(d.label);
+                return v;
+            };
+            hooks.displayNext = [&, saveCfg]() {
+                const std::vector<util::DisplayInfo> ds = util::displays();
+                if (ds.size() < 2)
+                    return;
+                const SDL_DisplayID now = SDL_GetDisplayForWindow(window);
+                size_t i = 0;
+                while (i < ds.size() && ds[i].id != now) ++i;
+                const util::DisplayInfo& next = ds[(i + 1) % ds.size()];
+                util::moveToDisplay(window, next.id);
+                menu.cfg.display = next.key;
+                saveCfg();
+            };
+            hooks.displayPick = [&, saveCfg](const std::string& label) {
+                for (const util::DisplayInfo& d : util::displays())
+                    if (d.label == label) {
+                        util::moveToDisplay(window, d.id);
+                        menu.cfg.display = d.key;
+                        saveCfg();
+                    }
+            };
+            fe.resolutionValue = hooks.resolutionValue;
+            fe.onResolution = [&]() { resolutionPage(); };
+            hooks.online =[&]() { online.open(fe, [&]() { coopPage(); }); };
+            hooks.startCoop = [&, saveCfg](int players) {   // Co-op: that many players, the arcade from Chapter 1
+                menu.cfg.players = players;
+                saveCfg();
+                feAction = 0;
+            };
+            openCategory = [&](int k) {
+                fe.extras = game::menuCategoryRows(k, menu.cfg, hooks);
+                fe.extrasTitle = game::menuCategoryName(k);
+                fe.extrasTab = k;
+                fe.extrasExit = nullptr;   // Exit: Options
+                fe.screenExtras();
+            };
+            coopPage = [&]() {
+                fe.extras = game::menuCoopRows(menu.cfg, hooks);
+                fe.extrasTitle = "Co-op";
+                fe.extrasTab = -1;
+                fe.extrasExit = [&]() { fe.screenMainMenu(); };
+                fe.screenExtras();
+            };
+            for (int k = 0; k < game::kMenuCategories; ++k)
+                fe.tabs.push_back(game::menuCategoryName(k));
+            fe.onTab = [&](int k) { openCategory(k); };
+            fe.onCoop = [&]() { coopPage(); };
+            // playerpick: the players' quick choice before a local game (screen 22): the last one from launcher.ini
+            // (players= / p2bot..p4bot), kept on Start; never online (the session's seats decide there)
+            fe.playersAsk = [&]() { return !gNet; };
+            fe.playersGet = [&](int& n, int bot[4]) {
+                n = menu.cfg.players;
+                for (int p = 0; p < 4; ++p) bot[p] = menu.cfg.seatBot[p];
+            };
+            fe.playersSet = [&, saveCfg](int n, const int bot[4]) {
+                menu.cfg.players = n;
+                for (int p = 1; p < 4; ++p) menu.cfg.seatBot[p] = bot[p];
+                saveCfg();
+            };
+            fe.sonicValue = [&]() { return std::string(game::sonicName(menu.cfg.sonic)); };
+            fe.onSonic = [&, saveCfg]() { menu.cfg.sonic = (menu.cfg.sonic + 1) % game::kSonicPresets; saveCfg(); };
+            for (int k = 0; k < 4; ++k)
+                fe.chapterEnabled[k] = game::chapterPlayable(k);
+            fe.chapterEnabled[4] = game::chapterPlayable(3);   // the ending: after Chapter 4
+            fe.onChapter = [&, saveCfg](int c) {   // Chapter Select: that chapter (kept as launcher.ini chapter=)
+                menu.cfg.chapter = c;
+                saveCfg();
+                menuChapter = c, menuEvent = -1;
+                feAction = 6;
+            };
+            // the PC's Cheat screen (Ctrl + SKIDMARX; docs/teaser_status/pc_cheats.md): Start plays its stage from its
+            // scene (THOTD.EXE game_new 0x458588: chapter = 0xD5B350, event_index = 0xD5B354). Free-Play (0xD5B35C:
+            // pc_continues_init's unlimited continues): arcade games are free play anyway (no coins); PC Mode games
+            // read it (docs/pcmode.md row 8), kept in launcher.ini freeplay= as the PC keeps it in thotd.cfg
+            fe.freePlay = menu.cfg.freePlay;
+            fe.onFreePlay = [&, saveCfg](bool on) {
+                menu.cfg.freePlay = on;
+                saveCfg();
+            };
+            fe.onCheatStart = [&](int stage, int scene, bool) {
+                menuChapter = stage;
+                menuEvent = scene;
+                feAction = 6;
+            };
+            fe.onEditCharStats = [&]() { fe.screenPcMode(); };
+            // Creature Test's "View in Gallery" (ours): the Gallery at the entry of that creature type
+            fe.creatureViewable = [&](int bo) {
+                for (const game::GalleryEntry& g : game::galleryEntries())
+                    if (g.type == bo) return bool(fe.openGallery);
+                return false;
+            };
+            fe.onCreatureView = [&](int bo) {
+                const auto& es = game::galleryEntries();
+                for (size_t i = 0; i < es.size(); ++i)
+                    if (es[i].type == bo && fe.openGallery) {
+                        const auto f = fe.openGallery;
+                        f();
+                        if (gallery.isOpen()) {
+                            gallery.select(int(i));
+                            fe.screenGallery();
+                        }
+                        return;
+                    }
+            };   // (screen_pc_mode_edit 0x426190 is not ported: PC Mode's screen)
+            fe.extras =game::menuCategoryRows(game::kCatVideo, menu.cfg, hooks);   // (Options: the strip needs rows)
+        }
+        fe.options = {menu.cfg.difficulty, menu.cfg.lives, std::min(menu.cfg.blood, 4), menu.cfg.sfxVolume,
+                      menu.cfg.musicVolume, menu.cfg.autoReload, menu.cfg.continues};
+        fe.bloodRgb = (bloodOf(menu.cfg) & PcConfig::kBloodCustom) ? (bloodOf(menu.cfg) & 0xFFFFFF) : -1;   // (the menu's blood: blood2)
+        // blood2: the Remake menu's splatter pattern: each player's own (a random one at the first start, kept in
+        // launcher.ini menublood=), a new one on a click on the backdrop / R3 / B
+        if (menu.cfg.menuBlood == 0) {
+            std::random_device rd;
+            while (menu.cfg.menuBlood == 0)
+                menu.cfg.menuBlood = rd();
+            menu.cfg.save(cache + "launcher.ini");
+        }
+        fe.splatSeed = menu.cfg.menuBlood;
+        fe.onSplatSeed = [&](uint32_t sd) {
+            menu.cfg.menuBlood = sd;
+            menu.cfg.save(cache + "launcher.ini");
+        };
+        setWindowIconFromPc(window, cfg.pc);
+        audioStart(cfg.pc);
+        // the Jukebox (game/jukebox.h): needs the PC files' cue table (audio); the arcade source the sound ROMs
+        fe.openJukebox = nullptr;
+        if (audioOn) {
+            fe.openJukebox = [&]() {
+                menuBoardStop();   // (prerel: an arcade menu song too)
+                audio.silence();   // the menu music stops (it comes back on Exit)
+                jukeboxBoard = false;
+                jukebox.startBoard = [&]() {
+                    static std::vector<uint8_t> prog, samples;   // read once
+                    std::string e;
+                    if ((prog.empty() && !loadSoundRoms(regions, cfg.arcade, prog, samples, e)) || !audio.startBoard(prog, samples, e)) {
+                        SDL_Log("jukebox: no arcade sound board (%s)", e.c_str());
+                        return false;
+                    }
+                    jukeboxBoard = true;
+                    return true;
+                };
+                std::string e;
+                const bool arcadeThere = audio.boardOn() || (!cfg.arcade.empty() && !regions.empty()) || arcadeRegions(e);
+                jukebox.build(audio, arcadeThere);
+                if (arcadeThere && !jukeboxMeasure.started)   // once a session: the arcade lengths measured (or found complete)
+                    jukeboxMeasure.start(cache, regions, cfg.arcade);
+                jukebox.setArcadeLengths(game::Jukebox::readArcadeLengthsAll(cache, nullptr), jukeboxMeasure.running());
+                jukebox.musicVolume = menu.cfg.musicVolume;
+                jukebox.sfxVolume = menu.cfg.sfxVolume;
+                if (static bool first = true; first) {   // the first time: the source the game's sound setting uses
+                    first = false;
+                    jukebox.setSource(audio.boardOn() ? game::Jukebox::kArcade : game::Jukebox::kPc);
+                }
+                jukebox.select(jukebox.selected);
+                jukeboxTick = SDL_GetTicksNS();
+                fe.screenJukebox();
+            };
+            fe.jukeboxText = [&]() {
+                game::Frontend::JukeboxText t;
+                for (int c = 0; c < game::Jukebox::kCategories; ++c) t.tabs.push_back(c == game::Jukebox::kEffects ? "Effects" : game::Jukebox::categoryName(c));   // (menu2: short tabs)
+                t.tab = jukebox.category;
+                for (const game::JukeboxItem& it : jukebox.current()) t.rows.push_back({it.title, it.number});
+                t.selected = jukebox.selected;
+                t.playing = jukebox.playingRow();
+                t.source = game::Jukebox::sourceName(jukebox.source);
+                t.otherSource = jukebox.hasSource(game::Jukebox::kArcade);
+                t.now = jukebox.nowText();
+                t.time = jukebox.timeText();
+                t.progress = jukebox.progress();
+                const game::JukeboxItem* now = jukebox.nowItem();
+                const auto& l = jukebox.current();
+                t.info = now ? now->info : jukebox.selected < int(l.size()) ? l[size_t(jukebox.selected)].info : "";
+                t.mode = game::Jukebox::modeName(jukebox.mode);
+                t.musicVolume = menu.cfg.musicVolume;
+                t.sfxVolume = menu.cfg.sfxVolume;
+                return t;
+            };
+            fe.onJukebox = [&](int a) {
+                using F = game::Frontend;
+                auto vol = [&](int& v, int d) {
+                    v = std::clamp(v + d, 0, 100);
+                    fe.options.musicVolume = menu.cfg.musicVolume;
+                    fe.options.sfxVolume = menu.cfg.sfxVolume;
+                    if (fe.onOptions) fe.onOptions();   // saved and applied as the Options screen does
+                    jukebox.musicVolume = menu.cfg.musicVolume;
+                    jukebox.sfxVolume = menu.cfg.sfxVolume;
+                    jukebox.volumesChanged();
+                };
+                if (a >= F::kJbSeek) jukebox.seek((a - F::kJbSeek) / 1000.0);
+                else if (a >= F::kJbRow) jukebox.play(a - F::kJbRow);
+                else if (a >= F::kJbTab) jukebox.setCategory(a - F::kJbTab);
+                else switch (a) {
+                case F::kJbPrev: jukebox.step(-1); break;
+                case F::kJbPlay: jukebox.play(); break;
+                case F::kJbStop: jukebox.stop(); break;
+                case F::kJbNext: jukebox.step(1); break;
+                case F::kJbMode: jukebox.nextMode(); break;
+                case F::kJbSource: jukebox.toggleSource(); break;
+                case F::kJbMusicDown: vol(menu.cfg.musicVolume, -5); break;
+                case F::kJbMusicUp: vol(menu.cfg.musicVolume, 5); break;
+                case F::kJbSfxDown: vol(menu.cfg.sfxVolume, -5); break;
+                case F::kJbSfxUp: vol(menu.cfg.sfxVolume, 5); break;
+                case F::kJbPageUp: jukebox.select(jukebox.selected - game::Jukebox::kPerPage); break;
+                case F::kJbPageDown: jukebox.select(jukebox.selected + game::Jukebox::kPerPage); break;
+                case F::kJbExit:
+                    jukebox.stop();
+                    audio.silence();
+                    if (jukeboxBoard && cfg.sound == 2)
+                        audio.stopBoard();   // (the setting is the PC sound)
+                    jukeboxBoard = false;
+                    if (fe.onCue) {   // the menu music again (frontend_run's start: cue 1, the menu's song)
+                        fe.onCue(1);
+                        fe.onCue(fe.menuCue);
+                    }
+                    break;
+                default: break;
+                }
+            };
+        }
+        fe.menuCue = game::menuSongOf(menu.cfg.menuMusic).cue;
+        if (const std::string rg = menuRegionsGuess(regions, cache, root); !rg.empty())
+            fe.setArcadeRegions(rg);   // remake2: the Remake screens' blood (the arcade's hit marks)
+        fe.start();
+        feAction = -1;
+        menuChapter = -1, menuEvent = -1;
+        fe.rankingTable = menu.cfg.sonic + (menu.cfg.players >= 3 ? game::kSonicPresets : 0);   // High Scores: the table in use
+        SDL_HideCursor();   // the bony hand is the cursor
+        if (static bool sceneOnce = false; sceneViewOpt >= 0 && !sceneOnce) {   // --scene-view: its Play at once
+            sceneOnce = true;
+            fe.screenScenes();
+            feAction = 40;
+        }
+        return true;
+    };
+    auto backToMenu = [&]() -> Screen {
+        if (!feLoaded)
+            return Screen::Launcher;
+        fe.menuCue = game::menuSongOf(menu.cfg.menuMusic).cue;
+        fe.start();   // frontend_run's start again: cue 1, the menu music, the main menu
+        feAction = -1;
+        menuChapter = -1, menuEvent = -1;
+        // bossbug (user 2026-10-26): a Boss Mode game left by the pause's Exit (or any way back) keeps no boss: the
+        // next Arcade / Chapter Select / PC Mode game started that boss again (only bossEnded cleared it)
+        bossModeOpt = 0;
+        // soak (2026-10-27): PC Mode's flag likewise: every mode sets it at its start except the menu's attracts and
+        // Online Co-op, which after a PC Mode game ran with PC Mode's rules / its 60 Hz tick (Game Speed Auto)
+        gPcMode = 0;
+        SDL_HideCursor();
+        return Screen::Menu;
+    };
+    // menuboot: the attract that leads to the main menu (THOTD.EXE frontend_state 6); false: stay in the menu
+    auto enterAttract = [&](bool asked = false) -> bool {
+        if (!feLoaded || (!asked && ((!attractFirst && !bootTest) || !cfg.title)))
+            return false;
+        menuBoardStop();
+        audio.silence();
+        titleNow = 1;
+        const bool ok = enterGame();
+        titleNow = -1;
+        if (!ok)
+            return false;
+        feAttract = true;
+        attractFrames = 0;
+        SDL_Log("front end: the attract (a key or a click: the main menu)");
+        return true;
+    };
+    bool booted = false;   // the boot's attract once (Options / Files Check -> the launcher -> Start: the menu again)
+    if (screen == Screen::Game && !enterGame())
+        return 1;
+    if (gNet && (!netCatchUp(err) || !gNet->ready(host.runtime(), err, gNetTimeout))) {   // netplay: both PCs at the same game
+        SDL_Log("netplay: %s", err.c_str());
+        return 3;
+    }
+    bool netStart = false;   // netplay: the local start button since the last game frame (the lockstep's start bit)
+    bool netStart2 = false;  // the 4-seat game online: this PC's second seat's start (input slot 1)
+    // pads: a pad's / gun's start button as the keys' (netplay: this PC's start through the lockstep; a lost pad: the
+    // message only, no pause)
+    pads.onJoin = lightGuns.onJoin = [&](int p) {
+        if (gNet && host.runtime().coop4_on() && p == 1) netStart2 = true;   // (p: the input slot)
+        else if (gNet) netStart = true;
+        else host.runtime().player_join(p);
+    };
+    pads.lostPause = !gNet;
+    if (screen == Screen::Launcher && arrow)
+        SDL_SetCursor(arrow);
+    // setup (user 2026-10-31: "a small fixed-size window about the size of the reference", the 1998 CD's Auto Run
+    // window): while the setup page shows, the game's window is a small dialog (not resizable, no minimize / maximize
+    // box, centred, sized to the page x the display's scale); leaving it (Play, the menu, a game) puts back the window
+    // or the fullscreen it had, so the player's saved display mode applies as before. fullscreenLive (launcher.ini
+    // fullscreen=) is kept as it was through both switches
+    bool setupWin = false, setupWasFull = false;
+    int setupPrevX = 0, setupPrevY = 0, setupPrevW = 1280, setupPrevH = 720;
+    auto sizeSetup = [&]() {
+        const float sc = std::max(1.0f, SDL_GetWindowDisplayScale(window));
+        const int w = int(std::lround(menu.wantW * sc)), h = int(std::lround(menu.wantH * sc));
+        int cw = 0, ch = 0;
+        SDL_GetWindowSize(window, &cw, &ch);
+        if (cw == w && ch == h)
+            return;
+        SDL_SetWindowSize(window, w, h);
+        const SDL_DisplayID d = SDL_GetDisplayForWindow(window);
+        SDL_SetWindowPosition(window, int(SDL_WINDOWPOS_CENTERED_DISPLAY(d)), int(SDL_WINDOWPOS_CENTERED_DISPLAY(d)));
+        SDL_SyncWindow(window);
+    };
+    auto setupWindow = [&](bool on) {
+        const int live = util::fullscreenLive();
+        void* hwnd = SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
+        if (on) {
+            setupWasFull = util::windowFullscreen(window);
+            if (setupWasFull)
+                util::toggleFullscreen(window);   // (to its window; an exclusive display mode is left)
+            if (SDL_GetWindowFlags(window) & SDL_WINDOW_MAXIMIZED)
+                SDL_RestoreWindow(window);
+            SDL_SyncWindow(window);
+            SDL_GetWindowPosition(window, &setupPrevX, &setupPrevY);
+            SDL_GetWindowSize(window, &setupPrevW, &setupPrevH);
+            SDL_SetWindowMinimumSize(window, 1, 1);
+            SDL_SetWindowResizable(window, false);
+            winshell::dialogFrame(hwnd, true);
+            SDL_SetWindowTitle(window, lang::tr("The House of the Dead: ReWrithe Setup").c_str());
+            menu.windowed = true;
+            sizeSetup();
+        } else {
+            winshell::dialogFrame(hwnd, false);
+            SDL_SetWindowResizable(window, true);
+            SDL_SetWindowMinimumSize(window, 320, 240);
+            SDL_SetWindowTitle(window, "The House of the Dead: ReWrithe");
+            menu.windowed = false;
+            SDL_SetWindowSize(window, setupPrevW, setupPrevH);
+            SDL_SetWindowPosition(window, setupPrevX, setupPrevY);
+            SDL_SyncWindow(window);
+            if (setupWasFull)
+                util::toggleFullscreen(window);   // (borderless, or the exclusive display mode chosen)
+            else
+                util::applyResolution(window);
+        }
+        util::fullscreenLive() = live;
+        setupWin = on;
+        SDL_Log("setup window %s (%s)", on ? "on" : "off", setupWasFull ? "fullscreen before / after" : "a window before / after");
+        if (setupTest) {
+            int sw = 0, sh = 0;
+            SDL_GetWindowSize(window, &sw, &sh);
+            std::printf("SETUP TEST: setup window %s: %d x %d, display mode %d (0 window, 1 borderless, 2 exclusive), resizable %d, "
+                        "fullscreen= kept %d\n", on ? "on" : "off", sw, sh, util::displayMode(window),
+                        (SDL_GetWindowFlags(window) & SDL_WINDOW_RESIZABLE) ? 1 : 0, util::fullscreenLive());
+            std::fflush(stdout);
+            if (!on)
+                running = false;   // (the menu came: the test is over)
+        }
+    };
+    for (int loops = 0; running; ++loops) {
+        if (const bool want = screen == Screen::Launcher && !menu.quiet; want != setupWin)
+            setupWindow(want);
+        else if (setupWin)
+            sizeSetup();   // (the page's height changed: the check's report, the online rows)
+        if (padsPending && loops > 0) {   // (perf: the first frame is shown)
+            pads.start();
+            padsPending = false;
+        }
+        pads.refresh();   // pads: hot-plug on every screen
+        // netplay (an online game may start from the menu): no pause on a lost pad; this PC's input slot 0 plays the
+        // game's player 1 (host) or 2 (client)
+        pads.lostPause = !gNet;
+        pads.gamePlayer[0] = gNet ? gNet->localPlayer() : 0;
+        pads.gamePlayer[1] = gNet ? (gNet->multi() ? (gNet->secondSeat() > 0 ? gNet->secondSeat() : gNet->localPlayer())
+                                     : host.runtime().coop4_on() ? gNet->localPlayer() + 2 : 1 - gNet->localPlayer()) : 1;
+        if (menuAudioHeld && screen != Screen::Menu) {   // left the menu while inactive (the idle -> attract)
+            audio.pause(false);
+            menuAudioHeld = false;
+        }
+        int lw, lh, ww, wh;
+        SDL_GetWindowSize(window, &lw, &lh);
+        SDL_GetWindowSizeInPixels(window, &ww, &wh);
+        if (static Uint64 crashCheckAt = 0; SDL_GetTicks() >= crashCheckAt) {   // rescrash: the crash handler still ours
+            util::crashHandlerCheck();                                         // (an overlay / a driver may replace it)
+            crashCheckAt = SDL_GetTicks() + 1000;
+        }
+        if (screen != Screen::Game && SDL_GetWindowMouseGrab(window))
+            SDL_SetWindowMouseGrab(window, false);   // the mouse is kept in the window during play only
+        if (screen != Screen::Game && screen != Screen::Menu && !SDL_CursorVisible())
+            SDL_ShowCursor();
+        if (screen == Screen::Launcher) {
+            SDL_Event e;
+            while (SDL_PollEvent(&e)) {
+                if (online.editing() && online.textMode() && e.type != SDL_EVENT_QUIT) {   // online co-op: a field typed
+                    if (e.type == SDL_EVENT_TEXT_INPUT) { online.typed(e.text.text); continue; }
+                    if (e.type == SDL_EVENT_KEY_DOWN) {
+                        if (e.key.key == SDLK_BACKSPACE) online.backspace();
+                        else if (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER) online.endEdit(online.textFrontend(), true);
+                        else if (e.key.key == SDLK_ESCAPE) online.endEdit(online.textFrontend(), false);
+                        else if (e.key.key == SDLK_V && (e.key.mod & SDL_KMOD_CTRL)) online.typed(online.paste());
+                        continue;
+                    }
+                    if (e.type == SDL_EVENT_KEY_UP) continue;
+                    if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) online.endEdit(online.textFrontend(), true);
+                }
+                if (online.textMode() && e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_V && (e.key.mod & SDL_KMOD_CTRL) &&
+                    online.pasteCode(online.textFrontend()))
+                    continue;   // (the Join page: Ctrl+V puts the copied code in the box)
+                if (e.type == SDL_EVENT_QUIT) running = false;
+                else if (pads.event(e)) {}   // (the text launcher is the mouse's)
+                else if (isFullscreenKey(e)) { if (!setupWin) toggleFullscreen(window); }   // F11 (not in the setup's small window)
+                else menu.handle(e, window);
+            }
+            online.frameText();   // online co-op: the network, the LAN list
+            // testing: HOTD_ONLINE_TEST=launcher-alone: the launcher's rows Host a Game > Start Hosting > Play Alone
+            if (static const char* ot = std::getenv("HOTD_ONLINE_TEST"); ot && std::string(ot) == "launcher-alone" && online.textMode()) {
+                static int step = 0;
+                const char* const want[3] = {"Host a Game", "Start Hosting", "Play Alone"};
+                const auto rows = online.textRows();
+                for (size_t i = 0; step < 3 && i < rows.size(); ++i)
+                    if (rows[i].label == want[step] && rows[i].clickable) {
+                        std::printf("ONLINE TEST: launcher row \"%s\"\n", want[step]);
+                        std::fflush(stdout);
+                        online.clickText(int(i));
+                        ++step;
+                        break;
+                    }
+            }
+            if (static bool textOnL = false; online.editing() != textOnL) {
+                textOnL = online.editing();
+                if (textOnL) SDL_StartTextInput(window);
+                else SDL_StopTextInput(window);
+            }
+            if (online.ready() && online.textMode()) {
+                if (startOnline()) {
+                    screen = Screen::Game;
+                    continue;
+                }
+            }
+            if (inputTest)
+                inputTest(2, host.runtime(), lw, lh);   // --input-test: the end (Esc came back here)
+            gl::Viewport(0, 0, ww, wh);
+            if (menu.quiet) gl::ClearColor(0.0f, 0.0f, 0.0f, 1.0f);   // (remakefix: the start-up's check: black)
+            else gl::ClearColor(0.08f, 0.02f, 0.02f, 1.0f);
+            gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+            const game::Launcher::Result r = menu.frame(ww, wh);
+            if (r != game::Launcher::Result::None)
+                menu.quiet = false;   // (back here later: the page)
+            if (r == game::Launcher::Result::Quit)
+                running = false;
+            else if (r == game::Launcher::Result::Start) {
+                if (enterMenu()) {
+                    screen = Screen::Menu;
+                    // feat29 (user 2026-10-29): the Remake style shows its SEGA logo at start-up with Title / Attract
+                    // off too; PC Start-up Screens On (Gameplay, default on since pmpick): the PC's SEGA logo and title art in
+                    // either style, the attract after them only with Title / Attract on
+                    const bool remakeBoot = menu.cfg.menuStyle == 1, pcScreens = menu.cfg.pcSplash;
+                    if (!booted && attractFirst && (cfg.title || remakeBoot || pcScreens)) {   // THOTD's boot: the start-up splash, the attract
+                        audio.silence();                           // (the menu's cue 22 waits for the menu)
+                        menuBoardStop();                           // (and the arcade menu song: no CD files, user 2026-10-31)
+                        // (liveattract: the Remake style's boot: the SEGA logo only, then the attract from the story)
+                        fe.splashStart(uint32_t(SDL_GetTicks()), false, remakeBoot && !pcScreens);
+                    }
+                    SDL_HideCursor();
+                    booted = true;
+                } else if (enterGame())
+                    screen = Screen::Game;
+            }
+            if (static bool told = false; !told && std::getenv("HOTD_STARTUP_TIME")) {   // perf: the launcher's first frame
+                told = true;
+                std::printf("startup: the launcher's first frame at %.0f ms\n", sinceStartMs());
+            }
+            if (shot || (!shotAt.empty() && shotAt.front() == 0)) {
+                Renderer grab;   // readBack only reads the frame buffer
+                std::filesystem::create_directories(shotsRoot);
+                writePng(shotsRoot + "/hotd_launcher_" + timestamp() + ".png", ww, wh, grab.readBack(ww, wh));
+                shot = false;
+                if (!shotAt.empty() && shotAt.front() == 0)
+                    shotAt.erase(shotAt.begin());
+            }
+            if (autoStart || autoMenu) {   // --auto-start (testing): Start as if Enter was pressed, once
+                autoArcade = autoStart;    // and Arcade in the menu
+                autoStart = autoMenu = false;
+                SDL_Event ev{};
+                ev.type = SDL_EVENT_KEY_DOWN;
+                ev.key.key = SDLK_RETURN;
+                ev.key.windowID = SDL_GetWindowID(window);
+                SDL_PushEvent(&ev);
+            }
+            SDL_GL_SwapWindow(window);
+            menuPace();   // (menuperf: on the display's beat, was a 16 ms sleep)
+            continue;
+        }
+        if (screen == Screen::Menu) {
+            // menuperf: the frame's CPU time from here, its GPU time (HOTD_MENU_PERF_TOUR: the page it belongs to)
+            const auto menuLoopT0 = std::chrono::steady_clock::now();
+            static int tourPage = -1, tourFrame = 0;
+            gMenuGpu.begin(tourPage >= 0 && tourFrame >= 10 ? tourPage : -1);
+            // the PC port's front end: the window's input -> FrontendInput (the 640 x 480 picture fitted to the
+            // window's height, centred: the mouse mapped through the same rectangle)
+            game::FrontendInput in;
+            // pmfix2: the PC Mode extras' portraits (game/pm_portraits.h): from the settings folder, else made once from
+            // the player's files (one character a menu frame, before the frame is drawn: the Gallery's renderer draws
+            // in the window's corner and reads it back), then kept there. pmpick: per model set (Video > Models: the
+            // extras' arcade or PC models), pmportraits_arcade / pmportraits_pc; the set changed: the other's loaded /
+            // made (a set whose making failed: not tried again this run)
+            if (const int set = menu.cfg.models == 1 && menu.pcOk ? 1 : 0;
+                feLoaded && pmPortraitState == -1 && pmPortraitSet != set && !std::getenv("HOTD_NO_PM_PORTRAITS") &&
+                !(pmPortraitFailed & (1 << set)))
+                pmPortraitState = 0, pmPortraitSet = set;
+            if (feLoaded && pmPortraitState >= 0) {
+                if (pmPortraitSet < 0)
+                    pmPortraitSet = menu.cfg.models == 1 && menu.pcOk ? 1 : 0;
+                const std::string dir = cache + (pmPortraitSet == 1 ? "pmportraits_pc" : "pmportraits_arcade");
+                using PmChars = port::Game<port::A>;
+                if (pmPortraitState == 0) {
+                    if (game::pmPortraitsLoad(fe, dir)) {
+                        pmPortraitState = -1;
+                        fe.pcPortraitsChanged();
+                        SDL_Log("PC Mode portraits: from %s", dir.c_str());
+                    } else
+                        pmPortraitState = 1;
+                } else if (pmPortraitState == 1) {
+                    std::string gerr;
+                    game::Gallery::Paths gp;
+                    if (arcadeRegions(gerr)) {
+                        gp.regions = regions;
+                        gp.dumps = dumps;
+                        gp.texsets = texsets;
+                    }
+                    gp.pc = menu.pcOk ? cfg.pc : std::string();
+                    gp.blood = viewBlood();
+                    if (pmGallery.open(gp, gerr)) {
+                        pmPortraitState = 2, pmPortraitCh = PmChars::kPmPcChars;
+                        pmPortraitT0 = SDL_GetTicksNS();
+                    } else {
+                        SDL_Log("PC Mode portraits: %s (the extras without pictures)", gerr.c_str());
+                        pmPortraitState = -1;
+                        pmPortraitFailed |= 1 << pmPortraitSet;
+                    }
+                } else if (pmPortraitState == 2) {
+                    std::vector<uint8_t> big, small;
+                    const int ch = pmPortraitCh++;
+                    if (game::pmPortraitMake(pmGallery, fe.sprites(), ch, pmPortraitSet == 1, big, small)) {
+                        game::pmPortraitSave(dir, ch, big, small);
+                        fe.setPcPortrait(ch, false, game::kPmPortraitW, game::kPmPortraitH, std::move(big));
+                        fe.setPcPortrait(ch, true, game::kPmSmallW, game::kPmSmallH, std::move(small));
+                    } else
+                        SDL_Log("PC Mode portraits: character %d not made (%s)", ch, pmGallery.status().c_str());
+                    if (pmPortraitCh >= PmChars::kPmCharCount) {
+                        pmGallery.close();
+                        pmPortraitState = -1;
+                        fe.pcPortraitsChanged();
+                        SDL_Log("PC Mode portraits: made in %llu ms, kept in %s",
+                                (unsigned long long)((SDL_GetTicksNS() - pmPortraitT0) / 1000000), dir.c_str());
+                        if (const char* sh = std::getenv("HOTD_PM_PORTRAIT_SHEET"))   // (testing: the comparison sheet)
+                            game::pmPortraitSheet(fe, sh);
+                    }
+                }
+            }
+            // remakemenu: the menu's style (Options > Video > Menu Style) and, for the Remake style, the window's shape
+            if (fe.style != menu.cfg.menuStyle)
+                fe.setStyle(menu.cfg.menuStyle);
+            if (lw > 0 && lh > 0)
+                fe.setViewAspect(float(lw) / float(lh));
+            float sc, fx0, fy0;   // (the picture fitted inside the window: Hud::drawPicture)
+            game::Hud::pictureRect(fe.canvasWidth(), game::Frontend::kHeight, float(lw), float(lh), sc, fx0, fy0);
+            SDL_Event e;
+            while (SDL_PollEvent(&e)) {
+                if (bindEvent && bindEvent(e))   // keybind: the Keys & Buttons page waits for a key / button
+                    continue;
+                if (gunAssignEvent && gunAssignEvent(e))   // ipolish: a seat waits for a light gun's trigger pull
+                    continue;
+                // padpass: a pad's button: the prompts show that pad's buttons (Xbox / PlayStation / Nintendo names),
+                // whatever the button goes on to do (the Jukebox's, PC Mode's seats ...)
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+                    in.pad = true, in.keyboard = false;
+                    in.padType = game::padStyleOf(e.gbutton.which);   // (padglyphs: the pad's family / model)
+                }
+                // padpass: the Firing Range: Tab hands the keyboard to the keyboard players (their Aim / Fire keys aim
+                // and shoot there, every player's keys of Keys & Buttons); Tab / Esc again: the menu's keys
+                if (fe.rangeShown() && (e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP) && !isSystemKey(e) &&
+                    !isFullscreenKey(e)) {
+                    const bool down = e.type == SDL_EVENT_KEY_DOWN;
+                    const bool toggle = down && !e.key.repeat && (e.key.key == SDLK_TAB || (fe.rangeKeys && e.key.key == SDLK_ESCAPE));
+                    if (toggle || fe.rangeKeys) {
+                        if (toggle) {
+                            fe.rangeKeys = !fe.rangeKeys;
+                            std::fill(&gRangeKeyAim[0][0], &gRangeKeyAim[0][0] + 16, false);
+                            in.keyboard = true, in.pad = false;
+                        } else {
+                            const SDL_Scancode sc = e.key.scancode;
+                            for (int p = 0; p < 4; ++p) {
+                                for (int d = 0; d < 4; ++d)
+                                    if (menu.cfg.keys[p].has(game::kActUp + d, sc))
+                                        gRangeKeyAim[p][d] = down;
+                                if (down && !e.key.repeat && menu.cfg.keys[p].has(game::kActFire, sc))
+                                    gRangeKeyFire[p] = true;
+                            }
+                        }
+                        continue;
+                    }
+                }
+                if (online.editing() && e.type != SDL_EVENT_QUIT) {   // Online Co-op: typing a name / password / address
+                    // a controller: its d-pad / stick / South / East as the keys; the arrows pick letters (Up / Down
+                    // the last letter, Right a new one, Left deletes), Enter keeps, Esc cancels
+                    if (SDL_Event k; pads.menuKey(e, k)) e = k;
+                    else if (pads.event(e)) continue;
+                    if (e.type == SDL_EVENT_TEXT_INPUT) { online.typed(e.text.text); continue; }
+                    if (e.type == SDL_EVENT_KEY_DOWN) {
+                        if (e.key.key == SDLK_UP || e.key.key == SDLK_DOWN) online.pick(e.key.key == SDLK_UP ? 1 : -1);
+                        else if (e.key.key == SDLK_RIGHT) online.pickNext();
+                        else if (e.key.key == SDLK_LEFT || e.key.key == SDLK_BACKSPACE) online.backspace();
+                        else if (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER) online.endEdit(fe, true);
+                        else if (e.key.key == SDLK_ESCAPE) online.endEdit(fe, false);
+                        else if (e.key.key == SDLK_V && (e.key.mod & SDL_KMOD_CTRL)) online.typed(online.paste());
+                        continue;
+                    }
+                    if (e.type == SDL_EVENT_KEY_UP) continue;
+                    if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) online.endEdit(fe, true);   // (and the click goes on)
+                }
+                if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_V && (e.key.mod & SDL_KMOD_CTRL) && online.active(fe) &&
+                    online.pasteCode(fe))
+                    continue;   // (the Join page: Ctrl+V puts the copied code in the box)
+                if (fe.screen() == 19 && fe.onScenes) {   // the Cut-scenes page's own keys and buttons (game/scene_view.h)
+                    // gallery2: the page is the Gallery's last category: Tab / the triggers go on to its first (Shift+Tab,
+                    // the left trigger: its last)
+                    int cat = -1;
+                    if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.key == SDLK_TAB)
+                        cat = (e.key.mod & SDL_KMOD_SHIFT) ? game::kGalCut : game::kGalPlayers;
+                    else if (e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION &&
+                             (e.gaxis.axis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER || e.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER)) {
+                        const int side = e.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER ? 1 : -1;
+                        if (e.gaxis.value > 20000 && galleryTrigger != side) {
+                            galleryTrigger = side;
+                            cat = side > 0 ? game::kGalPlayers : game::kGalCut;
+                        } else if (e.gaxis.value < 8000 && galleryTrigger == side) {
+                            galleryTrigger = 0;
+                        }
+                    }
+                    if (cat >= 0 && fe.openGallery) {
+                        const auto og = fe.openGallery;
+                        og();
+                        if (gallery.isOpen() && fe.onGallery) {
+                            fe.onGallery(100 + cat);
+                            fe.screenGallery();
+                        }
+                        continue;
+                    }
+                    int act = -1;
+                    const int n = int(game::sceneEntries().size());
+                    if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+                        switch (e.gbutton.button) {
+                        case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: act = 100 + (gScene.entry + n - 1) % n; break;
+                        case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: act = 100 + (gScene.entry + 1) % n; break;
+                        case SDL_GAMEPAD_BUTTON_WEST: act = 0; break;
+                        case SDL_GAMEPAD_BUTTON_NORTH: act = 1; break;
+                        case SDL_GAMEPAD_BUTTON_START: act = 2; break;
+                        default: break;
+                        }
+                    } else if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) {
+                        switch (e.key.key) {
+                        case SDLK_PAGEUP: case SDLK_Q: act = 100 + (gScene.entry + n - 1) % n; break;
+                        case SDLK_PAGEDOWN: case SDLK_E: act = 100 + (gScene.entry + 1) % n; break;
+                        case SDLK_P: act = 0; break;
+                        case SDLK_M: act = 1; break;
+                        case SDLK_F5: act = 2; break;
+                        case SDLK_C: act = 4; break;
+                        case SDLK_T: act = 5; break;   // trailer: Subtitles
+                        case SDLK_1: case SDLK_2: case SDLK_3: case SDLK_4:   // actorswap: a role's actor (Shift: back)
+                            act = ((e.key.mod & SDL_KMOD_SHIFT) ? 20 : 10) + int(e.key.key - SDLK_1);
+                            break;
+                        default: break;
+                        }
+                    }
+                    if (act >= 0) {
+                        fe.onScenes(act);
+                        if (fe.galleryRE() && act != 2) fe.cue();   // regallery: the menu's sound for a key / button
+                        if (fe.screen() == 19)
+                            fe.screenScenes();
+                        continue;
+                    }
+                }
+                if (fe.screen() == 17 && gallery.isOpen()) {   // the Gallery's own keys, buttons, drag and wheel
+                    // gallery2: Q / E (Page Up / Down, the shoulder buttons) the entry, Tab / Shift+Tab the category,
+                    // 1-6 a category, M motion, S model, B background, C the Cut-scenes page. gallery3 (a model viewer
+                    // like Resident Evil Requiem's): Space / P plays the motion (off at first), T / F (pad Start) hide
+                    // the page (the full view; again / Esc / pad B back), I the info panel, O the slow turn, L the light, R / Home the first
+                    // view; drag turns, right / middle drag or Shift+arrows pan, the wheel zooms. Pad: the right stick
+                    // turns, the left stick pans, the triggers zoom, the d-pad turns as the arrows do, X plays the
+                    // motion, Y the next motion, View the background, L3 the next category, R3 the first view
+                    int act = -1;
+                    if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION)
+                        galleryPad = true;
+                    else if (e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_MOUSE_BUTTON_DOWN || e.type == SDL_EVENT_MOUSE_WHEEL)
+                        galleryPad = false;
+                    if (e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN)
+                        galleryHint = 4;   // (the full view's prompts back for a moment)
+                    if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+                        switch (e.gbutton.button) {
+                        case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: act = galleryRemake() ? 8 : 0; break;
+                        case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: act = galleryRemake() ? 9 : 1; break;
+                        case SDL_GAMEPAD_BUTTON_NORTH: act = 3; break;
+                        case SDL_GAMEPAD_BUTTON_WEST: act = 4; break;
+                        case SDL_GAMEPAD_BUTTON_BACK: act = 7; break;
+                        case SDL_GAMEPAD_BUTTON_LEFT_STICK: act = galleryRemake() ? 16 : 9; break;
+                        case SDL_GAMEPAD_BUTTON_RIGHT_STICK: act = 5; break;
+                        case SDL_GAMEPAD_BUTTON_START: act = 11; break;
+                        case SDL_GAMEPAD_BUTTON_EAST: if (galleryFull) act = 11; break;   // (else Escape: back)
+                        case SDL_GAMEPAD_BUTTON_DPAD_LEFT: if (galleryRemake()) act = 20; break;   // (the Remake layout: the grid)
+                        case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: if (galleryRemake()) act = 21; break;
+                        case SDL_GAMEPAD_BUTTON_DPAD_UP: if (galleryRemake()) act = 22; break;
+                        case SDL_GAMEPAD_BUTTON_DPAD_DOWN: if (galleryRemake()) act = 23; break;
+                        default: break;
+                        }
+                    } else if (e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION) {
+                        const float v = float(e.gaxis.value) / 32767.0f;
+                        switch (e.gaxis.axis) {
+                        case SDL_GAMEPAD_AXIS_RIGHTX: galleryStick[0] = v; break;
+                        case SDL_GAMEPAD_AXIS_RIGHTY: galleryStick[1] = v; break;
+                        case SDL_GAMEPAD_AXIS_LEFTX: galleryStick[2] = v; break;
+                        case SDL_GAMEPAD_AXIS_LEFTY: galleryStick[3] = v; break;
+                        case SDL_GAMEPAD_AXIS_LEFT_TRIGGER: galleryStick[4] = v; break;
+                        case SDL_GAMEPAD_AXIS_RIGHT_TRIGGER: galleryStick[5] = v; break;
+                        default: break;
+                        }
+                        continue;   // (the sticks pan and turn here, not the hand)
+                    } else if (e.type == SDL_EVENT_KEY_DOWN && galleryFull && e.key.key == SDLK_ESCAPE) {
+                        act = 11;   // Escape in the full view: the page back
+                    } else if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && galleryRemake() &&
+                               (e.key.key == SDLK_Q || e.key.key == SDLK_E || e.key.key == SDLK_W || e.key.key == SDLK_A ||
+                                e.key.key == SDLK_S || e.key.key == SDLK_D || e.key.key == SDLK_TAB || e.key.key == SDLK_V)) {
+                        // the Remake layout: Q / E the category, W A S D the grid, Tab the description's next page, V the model
+                        switch (e.key.key) {
+                        case SDLK_Q: act = 8; break;
+                        case SDLK_E: act = 9; break;
+                        case SDLK_A: act = 20; break;
+                        case SDLK_D: act = 21; break;
+                        case SDLK_W: act = 22; break;
+                        case SDLK_S: act = 23; break;
+                        case SDLK_TAB: act = 16; break;
+                        default: act = 2; break;
+                        }
+                    } else if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) {
+                        switch (e.key.key) {
+                        case SDLK_K: act = 15; break;
+                        case SDLK_F: case SDLK_T: act = 11; break;
+                        case SDLK_I: act = 12; break;
+                        case SDLK_O: act = 13; break;
+                        case SDLK_L: act = 14; break;
+                        case SDLK_R: act = 5; break;
+                        case SDLK_P: act = 4; break;
+                        case SDLK_PAGEUP: case SDLK_Q: act = 0; break;
+                        case SDLK_PAGEDOWN: case SDLK_E: act = 1; break;
+                        case SDLK_TAB: act = (e.key.mod & SDL_KMOD_SHIFT) ? 8 : 9; break;
+                        case SDLK_S: act = 2; break;
+                        case SDLK_B: act = 7; break;
+                        case SDLK_M:
+                            if (e.key.mod & SDL_KMOD_SHIFT) { gallery.nextMotion(-1); act = 10; } else act = 3;
+                            break;
+                        case SDLK_SPACE: act = 4; break;
+                        case SDLK_HOME: act = 5; break;
+                        case SDLK_U: gallery.clayCut = !gallery.clayCut; continue;   // the cut creatures untextured
+                        case SDLK_1: case SDLK_2: case SDLK_3: case SDLK_4: case SDLK_5: case SDLK_6:
+                            act = 100 + int(e.key.key - SDLK_1);
+                            break;
+                        case SDLK_7: case SDLK_C:   // the Cut-scenes page
+                            if (fe.onScenes) {
+                                saveGallery();
+                                fe.screenScenes();
+                                continue;
+                            }
+                            break;
+                        default: break;
+                        }
+                    } else if (e.type == SDL_EVENT_MOUSE_WHEEL) {
+                        // menus3: over the Remake Gallery's list the wheel scrolls it (else it zooms)
+                        float mx = e.wheel.mouse_x, my = e.wheel.mouse_y;
+                        gCrt.toSource(mx, my, lw, lh);
+                        if (!galleryFull && e.wheel.y != 0 &&
+                            fe.galleryListWheel(int((mx - fx0) / sc), int((my - fy0) / sc), e.wheel.y > 0 ? 1 : -1)) {
+                            fe.screenGallery();
+                            continue;
+                        }
+                        gallery.zoom(e.wheel.y > 0 ? 1.12f : e.wheel.y < 0 ? 1 / 1.12f : 1.0f);
+                        continue;
+                    } else if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && (e.button.button == SDL_BUTTON_LEFT ||
+                               e.button.button == SDL_BUTTON_RIGHT || e.button.button == SDL_BUTTON_MIDDLE)) {
+                        float mx = e.button.x, my = e.button.y;
+                        gCrt.toSource(mx, my, lw, lh);
+                        const int cx = int((mx - fx0) / sc), cy = int((my - fy0) / sc);
+                        const int* r = fe.galleryRect();
+                        // the Remake layout: the model is under the page's middle part and the gaps beside it
+                        int rx = -1, ry = -1;
+                        const bool gap = galleryRemake() && !galleryCanvasPoint(mx, my, float(lw), float(lh), rx, ry);
+                        if (galleryRemake() && (gap || (rx >= 200 && rx < 440 && ry >= 48))) {
+                            (e.button.button == SDL_BUTTON_LEFT ? galleryDrag : galleryPanDrag) = true;
+                            galleryDragX = e.button.x;
+                            galleryDragY = e.button.y;
+                            continue;
+                        }
+                        if (!galleryRemake() && (galleryFull || (cx >= r[0] && cx < r[0] + r[2] && cy >= r[1] && cy < r[1] + r[3]))) {
+                            (e.button.button == SDL_BUTTON_LEFT ? galleryDrag : galleryPanDrag) = true;
+                            galleryDragX = e.button.x;
+                            galleryDragY = e.button.y;
+                            if (galleryFull) continue;   // (the full view: no clicks on the page)
+                        }
+                    } else if (e.type == SDL_EVENT_MOUSE_BUTTON_UP) {
+                        if (e.button.button == SDL_BUTTON_LEFT) galleryDrag = false;
+                        else galleryPanDrag = false;
+                    } else if (e.type == SDL_EVENT_MOUSE_MOTION && (galleryDrag || galleryPanDrag)) {
+                        // (window points: the pixels' scale for the pan)
+                        const float ps = lw > 0 ? float(ww) / float(lw) : 1.0f;
+                        if (galleryDrag)
+                            gallery.turnNow((e.motion.x - galleryDragX) * 0.01f, -(e.motion.y - galleryDragY) * 0.01f);
+                        else
+                            gallery.panPixels((e.motion.x - galleryDragX) * ps, (e.motion.y - galleryDragY) * ps);
+                        galleryDragX = e.motion.x;
+                        galleryDragY = e.motion.y;
+                    }
+                    if (act >= 20 && act <= 23) {   // the Remake layout's grid: left, right, up, down
+                        galleryGrid(act == 20 ? -1 : act == 21 ? 1 : act == 22 ? -3 : 3);
+                        fe.screenGallery();
+                        continue;
+                    }
+                    if ((act == 8 || act == 9) && galleryRemake()) {   // the Remake layout's Q / E: wraps in the categories
+                        fe.onGallery(act);
+                        fe.screenGallery();
+                        continue;
+                    }
+                    if (act == 8 || act == 9) {   // the category before / after (past the last: the Cut-scenes page)
+                        const int c = gallery.category() + (act == 9 ? 1 : -1);
+                        if ((c >= game::kGalCategories || c < 0) && fe.onScenes) {
+                            saveGallery();
+                            fe.screenScenes();
+                            continue;
+                        }
+                        act = 100 + (c + game::kGalCategories) % game::kGalCategories;
+                    }
+                    if (act >= 0) {
+                        if (act != 10 && fe.onGallery) fe.onGallery(act);
+                        if (fe.galleryRE() && act != 11) fe.cue();   // regallery: the menu's sound for a key / button
+                        fe.screenGallery();
+                        continue;
+                    }
+                    if (e.type == SDL_EVENT_KEY_DOWN && (e.key.key == SDLK_EQUALS || e.key.key == SDLK_KP_PLUS || e.key.key == SDLK_PLUS)) {
+                        gallery.zoom(1.12f);
+                        continue;
+                    }
+                    if (e.type == SDL_EVENT_KEY_DOWN && (e.key.key == SDLK_MINUS || e.key.key == SDLK_KP_MINUS)) {
+                        gallery.zoom(1 / 1.12f);
+                        continue;
+                    }
+                }
+                if (fe.screen() == 20 && fe.onJukebox && e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {   // the Jukebox's pad buttons
+                    int act = -1;
+                    switch (e.gbutton.button) {
+                    case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: act = game::Frontend::kJbPrev; break;
+                    case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: act = game::Frontend::kJbNext; break;
+                    case SDL_GAMEPAD_BUTTON_WEST: act = game::Frontend::kJbStop; break;
+                    case SDL_GAMEPAD_BUTTON_NORTH: act = game::Frontend::kJbMode; break;
+                    case SDL_GAMEPAD_BUTTON_LEFT_STICK: case SDL_GAMEPAD_BUTTON_RIGHT_STICK: act = game::Frontend::kJbSource; break;
+                    default: break;
+                    }
+                    if (act >= 0) {
+                        fe.onJukebox(act);
+                        fe.screenJukebox();
+                        continue;
+                    }
+                }
+                if (fe.screen() == 16 && fe.pcSeats == 4 && pcSeatEvent(e))   // PC Mode's four panels: a seat's key / pad
+                    continue;
+                // playerpick: the Classic style's players' choice: a pad's shoulder buttons / Q / E one player less / more
+                if (!fe.remakeScreen() && fe.screen() == 22 &&
+                    ((e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && (e.gbutton.button == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER ||
+                                                                 e.gbutton.button == SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER)) ||
+                     (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && !(e.key.mod & SDL_KMOD_CTRL) &&
+                      (e.key.key == SDLK_Q || e.key.key == SDLK_E)))) {
+                    const bool prev = e.type == SDL_EVENT_KEY_DOWN ? e.key.key == SDLK_Q : e.gbutton.button == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER;
+                    (prev ? in.tabPrev : in.tabNext) = true;
+                    continue;
+                }
+                // remakemenu: the Remake style's tabs (Q / E, Page Up / Down, a pad's shoulder buttons) and which input
+                // was used last (its prompts show a pad's buttons or the keys)
+                if (fe.remakeScreen()) {
+                    if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN &&
+                        (e.gbutton.button == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER || e.gbutton.button == SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER)) {
+                        (e.gbutton.button == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER ? in.tabPrev : in.tabNext) = true;
+                        in.pad = true;
+                        continue;
+                    }
+                    // (remakepages: the Jukebox keeps Page Up / Down for its pages; Q / E turn its lists)
+                    if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && !(e.key.mod & SDL_KMOD_CTRL) &&
+                        (e.key.key == SDLK_Q || e.key.key == SDLK_E ||
+                         (fe.screen() != 20 && (e.key.key == SDLK_PAGEUP || e.key.key == SDLK_PAGEDOWN)))) {
+                        (e.key.key == SDLK_Q || e.key.key == SDLK_PAGEUP ? in.tabPrev : in.tabNext) = true;
+                        in.keyboard = true;
+                        continue;
+                    }
+                    // blood2: a new splatter pattern (R3 / B; a click on the backdrop: Frontend::remakeNav)
+                    if ((e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_RIGHT_STICK) ||
+                        (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && !(e.key.mod & SDL_KMOD_CTRL) && e.key.key == SDLK_B)) {
+                        in.newSplat = true;
+                        continue;
+                    }
+                }
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) in.pad = true, in.keyboard = false;
+                else if (e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) in.keyboard = true, in.pad = false;
+                bool padKey = false;
+                // menufb: the Firing Range: a player's pad aims and shoots there as in play (its sticks, gyro,
+                // touchpad, triggers); its d-pad, Start and Back still work the menu
+                if (fe.rangeShown()) {
+                    SDL_JoystickID jid = 0;
+                    bool nav = false;
+                    if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || e.type == SDL_EVENT_GAMEPAD_BUTTON_UP) {
+                        jid = e.gbutton.which;
+                        const int b = e.gbutton.button;
+                        nav = b == SDL_GAMEPAD_BUTTON_DPAD_UP || b == SDL_GAMEPAD_BUTTON_DPAD_DOWN || b == SDL_GAMEPAD_BUTTON_DPAD_LEFT ||
+                              b == SDL_GAMEPAD_BUTTON_DPAD_RIGHT || b == SDL_GAMEPAD_BUTTON_START || b == SDL_GAMEPAD_BUTTON_BACK ||
+                              b == SDL_GAMEPAD_BUTTON_SOUTH || b == SDL_GAMEPAD_BUTTON_EAST;   // (padpass: A / B the menu's as everywhere: B was the reload here, so B never went back)
+                    } else if (e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION)
+                        jid = e.gaxis.which;
+                    else if (e.type == SDL_EVENT_GAMEPAD_SENSOR_UPDATE)
+                        jid = e.gsensor.which;
+                    else if (e.type == SDL_EVENT_GAMEPAD_TOUCHPAD_DOWN || e.type == SDL_EVENT_GAMEPAD_TOUCHPAD_MOTION ||
+                             e.type == SDL_EVENT_GAMEPAD_TOUCHPAD_UP)
+                        jid = e.gtouchpad.which;
+                    if (jid && !nav && pads.playerOf(jid) >= 0 && pads.event(e))
+                        continue;
+                }
+                // padglyphs: a pad's touchpad / gyro move the bone hand (menu_cursor.h); its touches and the
+                // touchpad's click are the cursor's (not the touchpad's aim / reload of play)
+                if (!fe.rangeShown()) {
+                    SDL_JoystickID jid = 0;
+                    if (e.type == SDL_EVENT_GAMEPAD_TOUCHPAD_DOWN || e.type == SDL_EVENT_GAMEPAD_TOUCHPAD_MOTION || e.type == SDL_EVENT_GAMEPAD_TOUCHPAD_UP)
+                        jid = e.gtouchpad.which;
+                    else if (e.type == SDL_EVENT_GAMEPAD_SENSOR_UPDATE)
+                        jid = e.gsensor.which;
+                    else if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || e.type == SDL_EVENT_GAMEPAD_BUTTON_UP)
+                        jid = e.gbutton.which;
+                    else if (e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION)
+                        jid = e.gaxis.which;
+                    if (jid) {   // (padfix: any pad, whoever it plays for: was player 1's / an unassigned one only)
+                        const game::MenuCursorConfig cc{menu.cfg.touchCursor != 0, menu.cfg.gyroCursor, menu.cfg.cursorSpeed};
+                        static std::set<SDL_JoystickID> gyroOn;   // (the gyro turned on once a pad: its events come)
+                        if (cc.gyro > 0 && !gyroOn.count(jid))
+                            if (SDL_Gamepad* g = SDL_GetGamepadFromID(jid); g && SDL_GamepadHasSensor(g, SDL_SENSOR_GYRO)) {
+                                SDL_SetGamepadSensorEnabled(g, SDL_SENSOR_GYRO, true);
+                                gyroOn.insert(jid);
+                            }
+                        if (gMenuCursor.event(e, cc, float(fe.canvasWidth())))
+                            continue;
+                    }
+                }
+                if (SDL_Event k; pads.menuKey(e, k)) e = k, padKey = true;   // pads: d-pad / stick = arrows, South / Start = Enter, East / Back = Esc
+                else if (pads.event(e)) continue;
+                if (fe.screen() == 20 && fe.onJukebox) {   // the Jukebox's keys (the pads' d-pad / South come as arrows / Enter)
+                    using F = game::Frontend;
+                    int act = -1;
+                    if (e.type == SDL_EVENT_KEY_DOWN && !isSystemKey(e)) {
+                        const bool music = jukebox.category == game::Jukebox::kMusic;
+                        switch (e.key.key) {
+                        case SDLK_UP: case SDLK_KP_8: jukebox.select(jukebox.selected - 1); act = 1000; break;
+                        case SDLK_DOWN: case SDLK_KP_2: jukebox.select(jukebox.selected + 1); act = 1000; break;
+                        case SDLK_LEFT: case SDLK_KP_4: if (!e.key.repeat) act = F::kJbTab + (jukebox.category + (lang::rtl() ? 1 : 2)) % 3; break;   // (ipolish, rtl: the tabs mirrored, Left the next)
+                        case SDLK_RIGHT: case SDLK_KP_6: if (!e.key.repeat) act = F::kJbTab + (jukebox.category + (lang::rtl() ? 2 : 1)) % 3; break;
+                        case SDLK_PAGEUP: act = F::kJbPageUp; break;
+                        case SDLK_PAGEDOWN: act = F::kJbPageDown; break;
+                        case SDLK_HOME: jukebox.select(0); act = 1000; break;
+                        case SDLK_END: jukebox.select(int(jukebox.current().size()) - 1); act = 1000; break;
+                        case SDLK_RETURN: case SDLK_KP_ENTER: if (!e.key.repeat) act = F::kJbPlay; break;
+                        case SDLK_SPACE: if (!e.key.repeat) act = jukebox.playing() ? F::kJbStop : F::kJbPlay; break;
+                        case SDLK_S: act = F::kJbStop; break;
+                        case SDLK_N: act = F::kJbNext; break;
+                        case SDLK_P: act = F::kJbPrev; break;
+                        case SDLK_L: if (!e.key.repeat) act = F::kJbMode; break;
+                        case SDLK_TAB: if (!e.key.repeat) act = F::kJbSource; break;
+                        case SDLK_EQUALS: case SDLK_PLUS: case SDLK_KP_PLUS: act = music ? F::kJbMusicUp : F::kJbSfxUp; break;
+                        case SDLK_MINUS: case SDLK_KP_MINUS: act = music ? F::kJbMusicDown : F::kJbSfxDown; break;
+                        default: break;
+                        }
+                    } else if (e.type == SDL_EVENT_MOUSE_WHEEL && e.wheel.y != 0) {
+                        jukebox.select(jukebox.selected + (e.wheel.y > 0 ? -1 : 1));
+                        act = 1000;
+                    }
+                    if (act >= 0) {
+                        if (act != 1000) fe.onJukebox(act);
+                        fe.screenJukebox();
+                        continue;
+                    }
+                }
+                if (fe.screen() == 15 && e.type == SDL_EVENT_KEY_DOWN && !isSystemKey(e)) {
+                    // the name entry (0x425188): the keyboard types (Enter / Escape end it, the arrows move the cursor);
+                    // a pad's keys work the grid (its arrows move the hand, South picks) and East (Escape) deletes
+                    const SDL_Scancode k = e.key.scancode;
+                    int key = -1;
+                    if (padKey) {
+                        if (k == SDL_SCANCODE_ESCAPE) key = game::kKeyBack;
+                    } else if (k >= SDL_SCANCODE_A && k <= SDL_SCANCODE_Z) key = 'A' + (k - SDL_SCANCODE_A);
+                    else if (k >= SDL_SCANCODE_1 && k <= SDL_SCANCODE_9) key = '1' + (k - SDL_SCANCODE_1);
+                    else if (k == SDL_SCANCODE_0) key = '0';
+                    else if (k == SDL_SCANCODE_SPACE) key = ' ';
+                    else if (k == SDL_SCANCODE_RETURN || k == SDL_SCANCODE_KP_ENTER || k == SDL_SCANCODE_ESCAPE) key = game::kKeyEnter;
+                    else if (k == SDL_SCANCODE_BACKSPACE) key = game::kKeyBack;
+                    else if (k == SDL_SCANCODE_DELETE) key = game::kKeyDel;
+                    else if (k == SDL_SCANCODE_LEFT || k == SDL_SCANCODE_KP_4) key = game::kKeyLeft;
+                    else if (k == SDL_SCANCODE_RIGHT || k == SDL_SCANCODE_KP_6) key = game::kKeyRight;
+                    else if (k == SDL_SCANCODE_HOME) key = game::kKeyHome;
+                    else if (k == SDL_SCANCODE_END) key = game::kKeyEnd;
+                    if (key >= 0) {
+                        in.nameKeys.push_back(key);
+                        continue;
+                    }
+                }
+                if (e.type == SDL_EVENT_QUIT) running = false;
+                else if (isFullscreenKey(e)) toggleFullscreen(window);
+                else if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.key == SDLK_F12)
+                    shot = true;   // F12 on the menu screens (Gallery, Jukebox, Options ...): saved after this frame
+                else if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.key == SDLK_F5 && lang::active()) {
+                    // lang (docs/translating.md): F5 reloads the language file (translators: edit, F5, look)
+                    std::string err;
+                    lang::reload(&err);
+                    fe.langChanged();
+                    SDL_Log("language %s reloaded%s%s", lang::code().c_str(), err.empty() ? "" : ": ", err.c_str());
+                }
+                else if ((e.type == SDL_EVENT_WINDOW_FOCUS_LOST || e.type == SDL_EVENT_WINDOW_FOCUS_GAINED) && !automated)
+                    // the PC pauses its CD audio when the window goes inactive on the menu screens too (0x565BE0 /
+                    // 0x565B90); ours holds the menu music and sounds where they are and lets them go on in place
+                    audio.pause(menuAudioHeld = e.type == SDL_EVENT_WINDOW_FOCUS_LOST);
+                else if (e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP) {
+                    const SDL_Scancode k = e.key.scancode;
+                    const int dir = k == SDL_SCANCODE_UP || k == SDL_SCANCODE_KP_8 ? 0 : k == SDL_SCANCODE_DOWN || k == SDL_SCANCODE_KP_2 ? 1
+                                    : k == SDL_SCANCODE_LEFT || k == SDL_SCANCODE_KP_4 ? 2 : k == SDL_SCANCODE_RIGHT || k == SDL_SCANCODE_KP_6 ? 3 : -1;
+                    if (dir >= 0)
+                        feHeld[dir] = e.key.down;
+                    if (!e.key.down || e.key.repeat || isSystemKey(e))
+                        continue;
+                    in.anyKey = true;
+                    if (e.key.mod & SDL_KMOD_CTRL) {   // frontend_input 0x41DA18's secret codes (pc_cheats.md)
+                        in.ctrl = true;
+                        if (k >= SDL_SCANCODE_A && k <= SDL_SCANCODE_Z)   // (DIK positions -> ASCII 0x5CED9C)
+                            in.typed += char('A' + (k - SDL_SCANCODE_A));
+                    } else if (k >= SDL_SCANCODE_1 && k <= SDL_SCANCODE_4)
+                        in.digit = 1 + (k - SDL_SCANCODE_1);   // playerpick: the players' choice (the top row's 1-4)
+                    if (e.key.key == SDLK_ESCAPE) in.escape = true;
+                    else if (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER || e.key.key == SDLK_SPACE) in.press = true;
+                } else if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && e.button.button == SDL_BUTTON_LEFT) {
+                    in.press = in.anyKey = in.click = true;
+                    feLeftHeld = true;
+                } else if (e.type == SDL_EVENT_MOUSE_BUTTON_UP && e.button.button == SDL_BUTTON_LEFT) {
+                    feLeftHeld = false;
+                } else if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && e.button.button == SDL_BUTTON_RIGHT) {
+                    in.anyKey = true;   // the splash's 0x419FC0 (mouse buttons 0 / 1)
+                    in.alt = true;      // (optui: the Classic settings pages: a row's dropdown)
+                } else if (e.type == SDL_EVENT_MOUSE_WHEEL && e.wheel.y != 0) {
+                    in.wheel += e.wheel.y > 0 ? 1 : -1;   // (optui: a settings list / dropdown scrolls)
+                } else if (e.type == SDL_EVENT_MOUSE_MOTION) {
+                    in.mouseMoved = true;
+                    float mx = e.motion.x, my = e.motion.y;
+                    gCrt.toSource(mx, my, lw, lh);   // crt: the menu point the curved screen shows under the mouse
+                    in.mouseX = int((mx - fx0) / sc);
+                    in.mouseY = int((my - fy0) / sc);
+                    fe.hideHand = false;
+                    fe.handAlpha = 1.0f;
+                    if (fe.screen() == 17 && fe.galleryRE()) {
+                        // regallery: on the stage (it turns the model) the hand see-through over the model (galfix, user
+                        // 2026-10-26: it was hidden there, an arrow instead: "the hand vanishes in the middle of the screen")
+                        const int* r = fe.galleryRect();
+                        if (galleryFull || (in.mouseX >= r[0] && in.mouseX < r[0] + r[2] && in.mouseY >= r[1] && in.mouseY < r[1] + r[3]))
+                            fe.handAlpha = 0.55f;
+                    }
+                    if (fe.screen() == 17 && galleryRemake()) {   // gallery3, the Remake layout: its three parts
+                        int rx, ry;
+                        if (galleryCanvasPoint(mx, my, float(lw), float(lh), rx, ry))
+                            in.mouseX = rx, in.mouseY = ry;
+                        else
+                            fe.hideHand = true;   // (between the parts: the model's, no hand)
+                    }
+                }
+            }
+            in.up = feHeld[0], in.down = feHeld[1], in.left = feHeld[2], in.right = feHeld[3];
+            // padglyphs: the pad cursor's move this frame: as the mouse's (the hand shows; the d-pad hides it again)
+            float cdx = 0, cdy = 0;
+            if (bool cclick = false; gMenuCursor.take(cdx, cdy, cclick)) {
+                static float cx = -1, cy = -1;   // (the fraction kept; a mouse / the menu moved it: from there)
+                if (std::fabs(cx - float(fe.pointerX())) >= 1.0f || std::fabs(cy - float(fe.pointerY())) >= 1.0f)
+                    cx = float(fe.pointerX()), cy = float(fe.pointerY());
+                cx = std::clamp(cx + cdx, 0.0f, float(fe.canvasWidth() - 1));
+                cy = std::clamp(cy + cdy, 0.0f, float(game::Frontend::kHeight - 1));
+                in.mouseMoved = true, in.pad = false;
+                in.mouseX = int(cx), in.mouseY = int(cy);
+                fe.hideHand = false;
+                fe.handAlpha = 1.0f;
+                if (cclick) in.press = in.anyKey = in.click = true;
+            }
+            in.ctrl = in.ctrl || (SDL_GetModState() & SDL_KMOD_CTRL) != 0;   // (DIK 0x1D / 0x9D held)
+            {   // HOTD_MENU_TYPE="N:TEXT[;M:X,Y]" (developer, pc_cheats): at the menu's N-th frame TEXT typed with Ctrl held;
+                // at frame M a click at (X, Y) (640 x 480): for HOTD_MENU_SHOT pictures of the secret screens
+                static const std::string typeSpec = std::getenv("HOTD_MENU_TYPE") ? std::getenv("HOTD_MENU_TYPE") : "";
+                static int typeFrames = 0;
+                if (!typeSpec.empty()) {
+                    ++typeFrames;
+                    for (size_t p = 0; p < typeSpec.size();) {
+                        size_t e = typeSpec.find(';', p);
+                        if (e == std::string::npos) e = typeSpec.size();
+                        const std::string part = typeSpec.substr(p, e - p);
+                        p = e + 1;
+                        const size_t c = part.find(':');
+                        if (c == std::string::npos || std::atoi(part.c_str()) != typeFrames) continue;
+                        const std::string v = part.substr(c + 1);
+                        if (const size_t k = v.find(','); k != std::string::npos) {
+                            fe.setPointer(std::atoi(v.c_str()), std::atoi(v.c_str() + k + 1));
+                            in.press = in.click = true;   // (a mouse click: blood2, on the backdrop a new splatter)
+                        } else {
+                            in.ctrl = true;
+                            in.typed += v;
+                        }
+                    }
+                }
+            }
+            float galleryDt = 0;
+            if (fe.screen() == 17 && gallery.isOpen()) {   // the Gallery: the arrows / stick turn the model (not the hand)
+                const Uint64 now = SDL_GetTicksNS();
+                galleryDt = std::min(0.1f, float(now - galleryTick) / 1e9f);
+                galleryTick = now;
+                const float sp = 1.6f * galleryDt;
+                if (SDL_GetModState() & SDL_KMOD_SHIFT) {   // gallery3: Shift + arrows pan
+                    const float pp = 0.8f * galleryDt;
+                    if (in.left || in.right) gallery.pan(in.left ? -pp : pp, 0);
+                    if (in.up || in.down) gallery.pan(0, in.up ? -pp : pp);
+                } else {
+                    if (in.left || in.right) gallery.turn(in.left ? -sp : sp, 0);
+                    if ((in.up || in.down) && galleryRemake())   // (the Remake layout: up / down pan, as the Remake's)
+                        gallery.pan(0, in.up ? -0.8f * galleryDt : 0.8f * galleryDt);
+                    else if (in.up || in.down)
+                        gallery.turn(0, in.up ? sp : -sp);
+                }
+                in.up = in.down = in.left = in.right = false;
+                if (fe.hideHand != SDL_CursorVisible()) {   // the Remake layout: the arrow between its parts
+                    if (fe.hideHand) SDL_ShowCursor();
+                    else SDL_HideCursor();
+                }
+                // a pad (gallery3): the right stick turns, the left stick pans, the triggers zoom (a small dead zone)
+                auto dz = [](float v) { return std::fabs(v) < 0.2f ? 0.0f : (v - std::copysign(0.2f, v)) / 0.8f; };
+                if (const float sx = dz(galleryStick[0]); sx != 0) gallery.turn(sx * 2.4f * galleryDt, 0);
+                if (const float sy = dz(galleryStick[1]); sy != 0) gallery.turn(0, -sy * 1.6f * galleryDt);
+                const float lx = dz(galleryStick[2]), ly = dz(galleryStick[3]);
+                if (lx != 0 || ly != 0) gallery.pan(lx * 0.8f * galleryDt, ly * 0.8f * galleryDt);
+                if (const float tz = dz(galleryStick[5]) - dz(galleryStick[4]); tz != 0) gallery.zoom(std::exp(tz * 1.5f * galleryDt));
+                // the full view's prompts: shown for a few seconds after a key / button, then faded out
+                galleryHint = std::max(0.0f, galleryHint - galleryDt);
+            } else if (gallery.isOpen()) {
+                saveGallery();
+                gallery.close();   // (left the page some other way)
+            }
+            if (fe.screen() != 17)
+                fe.handAlpha = 1.0f;
+            if (fe.screen() != 17 && fe.hideHand) {
+                fe.hideHand = false;
+                SDL_HideCursor();
+            }
+            if (gResKeep.active) {   // Video > Resolution: "Keep this resolution?" counts down, then goes back
+                const Uint64 nowMs = SDL_GetTicks();
+                if (nowMs >= gResKeep.until)
+                    gResRevert();
+                else if (fe.screen() == 100 && fe.extrasTitle == kResKeepTitle &&
+                         int((gResKeep.until - nowMs + 999) / 1000) != gResKeep.shown)
+                    gResKeepPage();
+                else if (fe.screen() != 100 || fe.extrasTitle != kResKeepTitle)
+                    gResKeep.active = false;   // (left the page some other way: kept)
+            }
+            // menufb: the scroll bars' drag (the left button held); the Firing Range's players: the mouse's (the first
+            // player on a mouse / gun), each pad player's aim and trigger (its crosshair from the middle when the page
+            // opens), a rumble on a hit
+            // (the input test's injected button: from its events; SDL's state never sees a pushed event)
+            in.mouseHeld = inputTest ? feLeftHeld : (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON_LMASK) != 0;
+            fe.artSeat = gRangeSeat;
+            fe.rangeFlash = menu.cfg.teamFlash;
+            fe.rangeMouseSeat = menu.cfg.p1Input == 0 || menu.cfg.p1Input == 3 ? 0 : menu.cfg.p2Input == 0 || menu.cfg.p2Input == 3 ? 1 : 0;
+            {
+                game::GunState* const rangeGuns = gRangeGuns;
+                static bool rangeWas = false;
+                static Uint64 rangeTick = 0;
+                static int rangeHitsWas[4] = {};
+                const Uint64 nowNs = SDL_GetTicksNS();
+                const bool on = fe.rangeShown();
+                if (on && !rangeWas)
+                    for (int p = 0; p < game::kInputPlayers; ++p) {
+                        rangeGuns[p] = game::GunState{};
+                        rangeGuns[p].x = float(lw) * (0.3f + 0.13f * float(p)), rangeGuns[p].y = float(lh) * 0.72f;
+                        rangeHitsWas[p] = 0;
+                    }
+                rangeWas = on;
+                if (!on)
+                    fe.rangeKeys = false;   // (padpass: the keys are the menu's again off the range)
+                for (game::Frontend::RangeAim& a : fe.rangeAim)
+                    a = game::Frontend::RangeAim{};
+                if (on) {
+                    const float dt = rangeTick ? std::min(0.1f, float(nowNs - rangeTick) / 1e9f) : 0.0f;
+                    pads.aim(rangeGuns, lw, lh, dt);
+                    pads.rangeApply(rangeGuns, lw, lh);
+                    for (int p = 0; p < 4; ++p) {
+                        game::GunState& g = rangeGuns[p];
+                        // padpass: a keyboard player (Tab: the keys aim): its Aim keys move its crosshair at the
+                        // game's keyboard speed (lw / 90 a 60 Hz frame), its Fire key shoots
+                        bool keyed = false;
+                        if (fe.rangeKeys && !pads.padOf(p))
+                            for (int d = 0; d < 4; ++d)
+                                keyed = keyed || menu.cfg.keys[p].k[game::kActUp + d][0] != SDL_SCANCODE_UNKNOWN ||
+                                        menu.cfg.keys[p].k[game::kActUp + d][1] != SDL_SCANCODE_UNKNOWN;
+                        if (keyed) {
+                            const bool* k = gRangeKeyAim[p];
+                            const float v = float(lw) / 90.0f * 60.0f * (dt > 0 ? dt : 1.0f / 60.0f);
+                            g.x = std::clamp(g.x + v * float((k[3] ? 1 : 0) - (k[2] ? 1 : 0)), 0.0f, float(lw));
+                            g.y = std::clamp(g.y + v * float((k[1] ? 1 : 0) - (k[0] ? 1 : 0)), 0.0f, float(lh));
+                            g.trigger = g.trigger || gRangeKeyFire[p];
+                        }
+                        gRangeKeyFire[p] = false;
+                        if (pads.padOf(p) || keyed) {
+                            fe.rangeAim[p].on = true;
+                            fe.rangeAim[p].x = (g.x - fx0) / sc, fe.rangeAim[p].y = (g.y - fy0) / sc;
+                            fe.rangeAim[p].shot = g.trigger;
+                        }
+                        g.trigger = g.reload = false;
+                        if (fe.rangeHits(p) > rangeHitsWas[p])
+                            pads.rumble(p, 0.35f, 0.3f, 120);
+                        rangeHitsWas[p] = fe.rangeHits(p);
+                    }
+                }
+                rangeTick = nowNs;
+            }
+            const bool splashing = fe.splashActive();
+            fe.promptChoice = menu.cfg.padPrompts, fe.buttonStyle = menu.cfg.buttonStyle;   // padglyphs: Controls > Button Prompts / Style
+            fe.iconOutline = menu.cfg.iconOutline != 0;   // menus3: Controls > Icon Outline
+            fe.update(in, uint32_t(SDL_GetTicks()));
+            // HOTD_MENU_PERF_TOUR=N (menuperf, docs/performance.md): every Remake page in turn, N frames each, Down then
+            // Up pressed every 12 frames (the focus moving; the Jukebox: the chosen row), then the table and the end
+            // (a hidden window; it starts once the live attract shows, or after 15 s)
+            static std::vector<std::pair<std::string, std::function<void(int)>>> tourPages;
+            static std::vector<MenuTourStats> tourStats;
+            if (gMenuTourN && tourPages.empty()) {
+                auto key = [&](SDL_Keycode k) {
+                    SDL_Event ev{};
+                    ev.type = SDL_EVENT_KEY_DOWN;
+                    ev.key.key = k;
+                    ev.key.scancode = SDL_GetScancodeFromKey(k, nullptr);
+                    ev.key.down = true;
+                    ev.key.windowID = SDL_GetWindowID(window);
+                    SDL_PushEvent(&ev);
+                    ev.type = SDL_EVENT_KEY_UP;
+                    ev.key.down = false;
+                    SDL_PushEvent(&ev);
+                };
+                auto moves = [w = window](int f) {   // (held over two frames: the menu reads the arrows as held)
+                    if (f % 12 != 6 && f % 12 != 8) return;
+                    SDL_Event ev{};
+                    ev.type = f % 12 == 6 ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+                    ev.key.key = f < gMenuTourN / 2 ? SDLK_DOWN : SDLK_UP;
+                    ev.key.scancode = SDL_GetScancodeFromKey(ev.key.key, nullptr);
+                    ev.key.down = f % 12 == 6;
+                    ev.key.windowID = SDL_GetWindowID(w);
+                    SDL_PushEvent(&ev);
+                };
+                auto page = [&](const std::string& name, std::function<void()> open, std::function<void(int)> more = nullptr) {
+                    tourPages.push_back({name, [open, more, moves](int f) {
+                        if (f == 0) open();
+                        if (more) more(f);
+                        if (f >= 10) moves(f);
+                    }});
+                };
+                page("Main menu", [&]() { fe.mainMenuGroup(0); fe.screenMainMenu(); });
+                page("More Modes", [&]() { fe.mainMenuGroup(1); fe.screenMainMenu(); });
+                page("Extras", [&]() { fe.mainMenuGroup(2); fe.screenMainMenu(); });
+                page("Options: Game", [&]() { fe.mainMenuGroup(0); fe.screenOptions(); });
+                for (int k = 0; k < int(fe.tabs.size()); ++k)
+                    page("Options: " + fe.tabs[size_t(k)], [&, k]() { if (fe.onTab) fe.onTab(k); });
+                page("Options: dropdown", [&]() { fe.screenOptions(); }, [key](int f) { if (f == 3) key(SDLK_RETURN); });
+                page("Chapter Select", [&]() { fe.screenChapters(); });
+                page("Boss Mode", [&]() { if (fe.startBossMode) fe.startBossMode(); else fe.screenBossMode(); });
+                page("PC Mode", [&]() { if (fe.startPcMode) fe.startPcMode(); else fe.screenPcMode(); });
+                page("High Scores", [&]() { fe.screenRanking(); });
+                page("Jukebox (playing)", [&]() {
+                    if (fe.openJukebox) fe.openJukebox();
+                    jukebox.play(0);
+                    fe.screenJukebox();
+                });
+                // (misc18: the Firing Range and the Language page too; the Mods page is Options' Mods tab)
+                page("Firing Range", []() { if (gTourHooks && gTourHooks->rangePage) gTourHooks->rangePage(); });
+                page("Language", []() { if (gTourHooks && gTourHooks->languagePage) gTourHooks->languagePage(); });
+                page("Gallery", [&]() { fe.mainMenuGroup(2); fe.screenMainMenu(); if (fe.openGallery) fe.openGallery(); });
+                page("Cut-scenes", [&]() { fe.screenMainMenu(); if (fe.openGallery) fe.openGallery(); },
+                     [key](int f) { if (f == 3) key(SDLK_C); });
+                page("Main menu (again)", [&]() { fe.mainMenuGroup(0); fe.screenMainMenu(); });
+            }
+            if (gMenuTourN && running && !fe.splashActive()) {
+                static int tourWait = 0;
+                if (tourPage < 0 && ((fe.liveTex && liveDrawn) || ++tourWait > 900 || (!liveBgOn() && tourWait > 60) ||
+                                     std::getenv("HOTD_NO_LIVE_ATTRACT"))) {
+                    tourPage = 0, tourFrame = 0;
+                    std::printf("menu tour: %d pages, %d frames each, live attract %s\n", int(tourPages.size()), gMenuTourN,
+                                fe.liveTex ? "shown" : "not shown");
+                }
+                if (tourPage >= 0 && tourPage < int(tourPages.size())) {
+                    if (tourFrame == 0) {
+                        tourStats.emplace_back();
+                        tourStats.back().name = tourPages[size_t(tourPage)].first;
+                    }
+                    tourPages[size_t(tourPage)].second(tourFrame);
+                }
+            }
+            // the Jukebox (game/jukebox.h): its clock (a frame's time; --audio-wav: the WAV's frame, mixed here), the end
+            // of a sound, the page's texts. HOTD_JUKEBOX_SHOT=<arcade|pc>,<category 0-2>,<row>,<frames>,<png> (testing,
+            // hidden window): the page with that row playing, a picture after that many frames, then the run ends
+            static const char* jshot = std::getenv("HOTD_JUKEBOX_SHOT");
+            static int jshotFrames = -1, jshotAt = 0;
+            static std::string jshotPng;
+            if (jshot && jshotFrames < 0 && fe.screen() == 1 && !fe.splashActive()) {
+                std::vector<std::string> f;
+                std::stringstream js(jshot);
+                for (std::string t; std::getline(js, t, ',');) f.push_back(t);
+                jshotAt = f.size() > 3 ? std::max(1, std::atoi(f[3].c_str())) : 60;
+                jshotPng = f.size() > 4 ? f[4] : root + "/private/screenshots/jukebox.png";
+                jshotFrames = 0;
+                if (!fe.openJukebox) {
+                    std::printf("JUKEBOX SHOT: no Jukebox (no sound)\n");
+                    running = false;
+                } else {
+                    fe.openJukebox();
+                    if (!f.empty()) jukebox.setSource(f[0] == "arcade" ? game::Jukebox::kArcade : game::Jukebox::kPc);
+                    if (f.size() > 1) jukebox.setCategory(std::atoi(f[1].c_str()));
+                    if (f.size() > 2 && std::atoi(f[2].c_str()) >= 0) jukebox.play(std::atoi(f[2].c_str()));
+                    fe.setPointer(600, 470);
+                    fe.screenJukebox();
+                }
+            }
+            menuBoardTick();   // prerel: an arcade menu song's command once the board runs
+            if (fe.screen() == 20) {
+                const Uint64 now = SDL_GetTicksNS();
+                double dt = std::min(0.25, double(now - jukeboxTick) / 1e9);
+                jukeboxTick = now;
+                if (audio.wavOpen()) {
+                    audio.renderFrame();
+                    dt = 1.0 / 60.0;
+                }
+                if (jukebox.measuring() && SDL_GetTicks() - jukeboxLengthsRead >= 1000) {   // the arcade lengths as they come in
+                    jukeboxLengthsRead = SDL_GetTicks();
+                    const bool still = jukeboxMeasure.running();
+                    jukebox.setArcadeLengths(game::Jukebox::readArcadeLengthsAll(cache, nullptr), still);
+                }
+                jukebox.update(dt);
+                fe.refreshJukebox();
+            } else if (jukebox.playing()) {
+                jukebox.stop();   // (the page was left some other way)
+            }
+            // HOTD_GALLERY_SHOT=<entry>,<arcade|pc>,<motion>,<frames>,<png>[,<yaw degrees>[,<zoom>[,<background>]]] (testing,
+            // hidden window): the Gallery at that entry (its index in the list, or its key: t11, coin ...) / source /
+            // motion, a picture of the window after that many frames, then the run ends
+            static const char* gshot = std::getenv("HOTD_GALLERY_SHOT");
+            static int gshotFrames = -1;
+            static std::string gshotPng;
+            if (gshot && gshotFrames < 0 && fe.screen() == 1 && !fe.splashActive()) {
+                std::vector<std::string> f;
+                std::stringstream gs(gshot);
+                for (std::string t; std::getline(gs, t, ',');) f.push_back(t);
+                gshotFrames = f.size() > 3 ? std::max(1, std::atoi(f[3].c_str())) : 30;
+                gshotPng = f.size() > 4 ? f[4] : root + "/private/gallery/gallery.png";
+                if (fe.openGallery) fe.openGallery();
+                if (!gallery.isOpen()) {
+                    std::printf("GALLERY SHOT: the gallery did not open\n");
+                    running = false;
+                } else {
+                    if (!f.empty() && f[0] == "-") {
+                        // "-": the entry the Gallery opened at (launcher.ini gallery=: the remembered one)
+                    } else if (f.empty() || f[0].empty() || std::isdigit(uint8_t(f[0][0])))
+                        gallery.select(f.empty() ? 0 : std::atoi(f[0].c_str()));
+                    else if (!gallery.selectKey(f[0]))
+                        std::printf("GALLERY SHOT: no entry %s\n", f[0].c_str());
+                    if (f.size() > 1) gallery.setSource(f[1] == "pc" ? Source::PC : Source::Arcade);
+                    for (int k = f.size() > 2 ? std::atoi(f[2].c_str()) : 0; k > 0; --k) gallery.nextMotion(1);
+                    gallery.autoTurn = false;
+                    if (f.size() > 5) gallery.turn(float(std::atof(f[5].c_str())) * 3.14159265f / 180.0f, 0);
+                    if (f.size() > 6 && std::atof(f[6].c_str()) > 0) gallery.zoom(float(std::atof(f[6].c_str())));
+                    gallery.clayCut = std::getenv("HOTD_GALLERY_CLAY") != nullptr;   // (the cut creatures untextured)
+                    gallery.background = f.size() > 7 ? std::clamp(std::atoi(f[7].c_str()), 0, game::galleryBackgroundCount() - 1) : 0;
+                    gallery.settle();   // (the view at once, not eased)
+                    gallery.autoTurn = false;
+                    fe.setPointer(4, 470);   // (the hand out of the way)
+                    fe.screenGallery();
+                    // HOTD_GALLERY_KEYS=<key>[+shift] ... (SDL key names, space-separated: "Tab E B M Escape"): pressed
+                    // through the event queue (the page's own keys, as a player's); leaving the page ends the run
+                    // HOTD_GALLERY_POINTER=<x>,<y> (window pixels): a mouse move there through the event queue (galfix:
+                    // the hand's pictures, over the model / the page)
+                    if (const char* pt = std::getenv("HOTD_GALLERY_POINTER")) {
+                        SDL_Event ev{};
+                        ev.type = SDL_EVENT_MOUSE_MOTION;
+                        ev.motion.windowID = SDL_GetWindowID(window);
+                        if (std::sscanf(pt, "%f,%f", &ev.motion.x, &ev.motion.y) == 2) SDL_PushEvent(&ev);
+                    }
+                    if (const char* keys = std::getenv("HOTD_GALLERY_KEYS")) {
+                        std::istringstream ks(keys);
+                        for (std::string k; ks >> k;) {
+                            const bool shift = k.size() > 6 && k.compare(k.size() - 6, 6, "+shift") == 0;
+                            if (shift) k.resize(k.size() - 6);
+                            SDL_Event ev{};
+                            ev.type = SDL_EVENT_KEY_DOWN;
+                            ev.key.key = SDL_GetKeyFromName(k.c_str());
+                            ev.key.scancode = SDL_GetScancodeFromKey(ev.key.key, nullptr);
+                            ev.key.mod = shift ? SDL_KMOD_LSHIFT : SDL_KMOD_NONE;
+                            ev.key.down = true;
+                            ev.key.windowID = SDL_GetWindowID(window);
+                            SDL_PushEvent(&ev);
+                            ev.type = SDL_EVENT_KEY_UP;
+                            ev.key.down = false;
+                            SDL_PushEvent(&ev);
+                        }
+                    }
+                }
+            }
+            if (gshot && gshotFrames > 0 && fe.screen() != 17 && fe.screen() != 19 && !gallery.isOpen() && running) {
+                std::printf("GALLERY SHOT: left the page (screen %d), gallery=%s gallerybg=%d\n", fe.screen(),
+                            menu.cfg.galleryEntry.c_str(), menu.cfg.galleryBg);
+                std::fflush(stdout);
+                running = false;
+            }
+            if (aimTestRefresh) aimTestRefresh();   // padfeel: the Aim Test page's readout
+            if (bindRefresh) bindRefresh();       // keybind: the Keys & Buttons page's countdown
+            if (gunAssignRefresh) gunAssignRefresh();   // ipolish: the Light Guns page's wait / its result
+            // Online Co-op: the network and the page's values; text input on while a field is edited; the game when
+            // both PCs are ready (the host pressed Start)
+            online.frame(fe);
+            static bool scripted = false;   // testing: the Online page's Host / Join without clicks (hidden window)
+            if (static const char* ot = std::getenv("HOTD_ONLINE_TEST"); ot && (scripted || (fe.screen() == 1 && !fe.splashActive()))) {
+                if (!scripted) {
+                    scripted = true;
+                    online.open(fe, [&]() { fe.screenMainMenu(); });
+                    const bool picks = std::string(ot) == "pc-picks" || std::string(ot) == "boss-picks";
+                    if (picks)   // (launcher.ini netpcmode= / netpcchar= / netbossmode=: as loaded, then as saved)
+                        std::printf("ONLINE TEST: loaded game mode %d, characters %d,%d, boss %d\n", online.base.pcMode ? 1 : 0,
+                                    online.base.pcChar[0], online.base.pcChar[1], online.base.bossMode);
+                    online.script(fe, ot);
+                    std::printf("ONLINE TEST: %s (editing %d)\n", ot, online.editing() ? 1 : 0);
+                    std::fflush(stdout);
+                    if (picks) {
+                        std::printf("ONLINE TEST: saved game mode %d, characters %d,%d, boss %d\n", menu.cfg.netPcMode ? 1 : 0,
+                                    menu.cfg.netPcChar[0], menu.cfg.netPcChar[1], menu.cfg.netBossMode);
+                        running = false;
+                    }
+                    if (std::string(ot) == "edit-name")   // the letter picker through the event queue (as a pad's keys)
+                        for (SDL_Keycode k : {SDLK_UP, SDLK_UP, SDLK_RIGHT, SDLK_DOWN, SDLK_RIGHT, SDLK_UP, SDLK_LEFT, SDLK_RETURN}) {
+                            SDL_Event ev{};
+                            ev.type = SDL_EVENT_KEY_DOWN;
+                            ev.key.key = k;
+                            ev.key.down = true;
+                            ev.key.windowID = SDL_GetWindowID(window);
+                            SDL_PushEvent(&ev);
+                        }
+                } else if (std::string(ot) == "edit-name" && !online.editing()) {
+                    std::printf("ONLINE TEST: name \"%s\" (want \"BA\")\n", online.name.c_str());
+                    std::fflush(stdout);
+                    running = false;
+                }
+            }
+            if (static bool textOn = false; online.editing() != textOn) {
+                textOn = online.editing();
+                if (textOn) SDL_StartTextInput(window);
+                else SDL_StopTextInput(window);
+            }
+            if (online.ready()) {
+                if (startOnline())
+                    screen = Screen::Game;
+                else
+                    SDL_HideCursor();
+                continue;
+            }
+            if (splashing && !fe.splashActive()) {   // the start-up splash ended: the attract (else the menu)
+                // (menuhost: never while hosting / joining from the menu: the attract's game screen does not poll the
+                // waiting room, so the host would answer no joiner and a joiner would lose the host)
+                if (!online.busy() && enterAttract()) {
+                    attractKind = menu.cfg.menuStyle == 1 ? 1 : 0;
+                    attractRanked = false;
+                    SDL_ShowCursor();
+                    screen = Screen::Game;
+                    continue;
+                }
+                fe.menuCue = game::menuSongOf(menu.cfg.menuMusic).cue;
+                fe.start();
+            }
+            // (perf: HOTD_MENU_WAIT=N ms: --auto-start's Arcade after N ms in the menu, as a player who looks at it first)
+            static const double menuWait = std::getenv("HOTD_MENU_WAIT") ? std::atof(std::getenv("HOTD_MENU_WAIT")) : 0.0;
+            static const double menuSince = sinceStartMs();
+            if (autoArcade && sinceStartMs() - menuSince >= menuWait) {   // --auto-start / --input-test: Arcade, once
+                autoArcade = false;
+                feAction = 0;
+            }
+            if (inputTest)
+                inputTest(2, host.runtime(), lw, lh);   // --input-test: Esc in the game / on the end screen came back here
+            if (fe.galleryRemake() && gallery.isOpen())   // gallery3, the Remake layout: a few portraits (the window's corner)
+                gallery.makeThumbs(ww, wh, gallery.category(), 3);
+            // perf (HOTD_MENU_PERF): the frame's time from here (the live attract included)
+            const auto menuT0 = std::chrono::steady_clock::now();
+            // menus3: the settings pictures' attract frames, made in the background when missing (not in the Gallery)
+            // (HOTD_PREVIEW_TEST=1, testing: made, then the run ends with their count)
+            if (!gallery.isOpen()) {
+                const bool busy = prvFrame(true);
+                if (std::getenv("HOTD_PREVIEW_TEST") && !busy) {
+                    std::printf("settings pictures: %d of %d made in %s\n", int(prvHave(0)) + int(prvHave(1)),
+                                menu.pcOk && !menu.cfg.pc.empty() ? 2 : 1, prvDir.c_str());
+                    // HOTD_PREVIEW_OUT=<folder>: every picture the pages would show, as PNGs (the custom colour: bloodrgb=)
+                    if (const char* out = std::getenv("HOTD_PREVIEW_OUT")) {
+                        std::error_code ec;
+                        std::filesystem::create_directories(out, ec);
+                        for (const char* n : {"models_0", "models_1", "blood_0", "blood_1", "blood_2", "blood_3", "blood_4", "blood_5"}) {
+                            std::vector<uint8_t> px;
+                            int w = 0, h = 0;
+                            if (fe.previewImage && fe.previewImage(game::previewKey(n, menu.cfg, menu.pcOk), px, w, h))
+                                writePngRgba(std::string(out) + "/preview_" + n + ".png", w, h, px);
+                        }
+                    }
+                    running = false;
+                }
+            }
+            // liveattract: the Remake screens' background, the attract running live (before the CRT's target is bound)
+            // (regallery: not behind the Remake Gallery's pages: the Gallery's own stage / a dark ground)
+            liveFrame((fe.remakeScreen() || fe.classicBackdrop()) && !fe.splashActive() && !(fe.galleryRemake() && gallery.isOpen()) &&
+                          !fe.galleryRE(), ww, wh);
+            gCrt.configure(menu.cfg.crt, 480, fe.canvasWidth());   // crt: the menus are the PC's 640 x 480 screen (a Remake screen: wider)
+            const bool crtMenu = gCrt.begin(ww, wh);
+            gl::Viewport(0, 0, ww, wh);
+            gl::ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+            // blood2: a Remake screen composed on the GPU at the window's resolution (Hud::drawRemake)
+            // (perf: HOTD_MENU_CPU=1 the old way, the CPU composing; HOTD_MENU_PERF=1 the frame's CPU and CPU + GPU time)
+            static const bool menuCpu = std::getenv("HOTD_MENU_CPU") != nullptr, menuPerf = std::getenv("HOTD_MENU_PERF") != nullptr;
+            fe.setOutputHeight(wh);
+            // (regallery: the Remake Gallery's pages always: the page over the model needs the layers)
+            fe.gpuLayers = (!menuCpu || fe.galleryRE()) && fe.remakeScreen() && !fe.splashActive() && !(fe.galleryRemake() && gallery.isOpen());
+            fe.render(feCanvas);
+            if (fe.classicBackdrop() && !fe.splashActive())   // remakepages: the Gallery's PC page over the Remake backdrop
+                hud.drawRemake(fe.backdropLayers(), ww, wh);
+            if (fe.screen() == 17 && gallery.isOpen()) {   // the Gallery's model in the page's window, then the page over it
+                gallery.update(galleryDt);
+                float ps, px0, py0;
+                game::Hud::pictureRect(fe.canvasWidth(), game::Frontend::kHeight, float(ww), float(wh), ps, px0, py0);
+                const int* r = fe.galleryRect();
+                const std::string before = gallery.status();
+                float gs, gx[3], gy;   // the Remake layout's parts (Gallery::drawSplit)
+                game::Gallery::splitRect(float(ww), float(wh), gs, gx, gy);
+                const int frame[4] = {int(gx[0] + 188 * gs), int(gy + 48 * gs), int(gx[2] + 6 * gs) - int(gx[0] + 188 * gs), int(432 * gs)};
+                gallery.reStage = fe.galleryRE();
+                if (fe.galleryRE()) {   // regallery: the stage over the window, the model framed between the page's columns
+                    const int* pn = fe.galleryRePanels();
+                    const int* fr = fe.galleryReFrame();
+                    gallery.rePanels[0] = px0 + float(pn[0]) * ps;
+                    gallery.rePanels[1] = pn[1] >= fe.canvasWidth() ? float(ww + 1) : px0 + float(pn[1]) * ps;
+                    gallery.rePanels[2] = py0 + float(pn[2]) * ps;
+                    const int reFrame[4] = {int(px0 + float(fr[0]) * ps), int(py0 + float(fr[1]) * ps), int(float(fr[2]) * ps),
+                                            int(float(fr[3]) * ps)};
+                    if (fe.galleryFull())
+                        gallery.draw(ww, wh, 0, 0, ww, wh, 0.10f);
+                    else
+                        gallery.draw(ww, wh, 0, 0, ww, wh, 0, reFrame);
+                } else if (fe.galleryFull())   // gallery3: the full view: the whole window, the model above the bottom lines
+                    gallery.draw(ww, wh, 0, 0, ww, wh, 0.10f);
+                else if (fe.galleryRemake())   // the Remake layout: the window, the model between the panels
+                    gallery.draw(ww, wh, 0, 0, ww, wh, 0, frame);
+                else
+                    gallery.draw(ww, wh, int(px0 + r[0] * ps), int(py0 + r[1] * ps), int(r[2] * ps), int(r[3] * ps));
+                if (gallery.status() != before) {   // (a model that cannot be drawn: the page says why)
+                    fe.screenGallery();
+                    fe.render(feCanvas);
+                }
+                if (fe.galleryFull() && galleryHint < 1.0f) {   // the prompts' band fading out (its pixels' alpha)
+                    const float a = std::max(0.0f, galleryHint);
+                    for (size_t i = size_t(game::Frontend::kGalleryHintY) * game::Frontend::kWidth * 4 + 3; i < feCanvas.size(); i += 4)
+                        feCanvas[i] = uint8_t(float(feCanvas[i]) * a);
+                }
+                ++galleryFrames;
+            }
+            if (fe.galleryRemake() && gallery.isOpen())   // gallery3: the Remake layout's page in three parts
+                gallery.drawSplit(feCanvas, ww, wh);
+            else if (fe.gpuLayers && fe.galleryRE() && fe.galleryFull() && galleryHint < 1.0f) {
+                game::Frontend::RemakeLayers L = fe.remakeLayers();   // regallery: the full view's controls fading out
+                L.fade = 1.0f - std::max(0.0f, galleryHint);
+                hud.drawRemake(L, ww, wh);
+            } else if (fe.gpuLayers) {
+                hud.drawRemake(fe.remakeLayers(), ww, wh);
+                // HOTD_MENU_MASK_CHECK=1 with the tour (misc18): each page's 60th frame drawn again with the whole
+                // layers (no tiles) and the two pictures compared byte for byte
+                static const bool maskCheck = std::getenv("HOTD_MENU_MASK_CHECK") != nullptr;
+                if (maskCheck && tourPage >= 0 && tourFrame == 60 && tourPage < int(tourStats.size()) && !fe.remakeLayers().noBackdrop) {
+                    Renderer grab;
+                    const std::vector<uint8_t> a = grab.readBack(ww, wh);
+                    game::Hud::fullLayers = !std::getenv("HOTD_MENU_MASK_SAME");   // (SAME: both drawn the same way: the check of the check)
+                    hud.drawRemake(fe.remakeLayers(), ww, wh);
+                    game::Hud::fullLayers = false;
+                    const std::vector<uint8_t> b = grab.readBack(ww, wh);
+                    size_t diff = a.size() == b.size() ? 0 : a.size();
+                    for (size_t i = 0; i < a.size() && i < b.size(); ++i) diff += a[i] != b[i];
+                    std::printf("mask check %s: %zu bytes differ (%dx%d)\n", tourStats.back().name.c_str(), diff, ww, wh);
+                    if (const char* dir = std::getenv("HOTD_MENU_MASK_PNG"); dir && diff) {   // (the two pictures)
+                        writePng(std::string(dir) + "/mask_" + std::to_string(tourPage) + "_a.png", ww, wh, a);
+                        writePng(std::string(dir) + "/mask_" + std::to_string(tourPage) + "_b.png", ww, wh, b);
+                    }
+                }
+            }
+            else
+                hud.drawPicture(feCanvas, fe.canvasPixelsW(), fe.canvasPixelsH(), ww, wh);
+            // HOTD_GALLERY_SHOT's picture: the page over the model (regallery: the Cut-scenes page too, reached with
+            // HOTD_GALLERY_KEYS=C), the window as it is now
+            static int scenesFrames = 0;
+            if (fe.screen() == 19) ++scenesFrames;
+            if (gshot && running && ((fe.screen() == 17 && gallery.isOpen() && galleryFrames == gshotFrames) ||
+                                     (fe.screen() == 19 && scenesFrames == gshotFrames))) {
+                Renderer grab;
+                std::filesystem::create_directories(std::filesystem::path(gshotPng).parent_path());
+                writePng(gshotPng, ww, wh, grab.readBack(ww, wh));
+                if (fe.screen() == 19)
+                    std::printf("GALLERY SHOT: %s (Cut-scenes page)\n", gshotPng.c_str());
+                else
+                    std::printf("GALLERY SHOT: %s (%s, %s, %s, %s, %s)%s%s\n", gshotPng.c_str(), gallery.name().c_str(),
+                                gallery.group().c_str(), gallery.sourceLabel().c_str(), gallery.motionLabel().c_str(),
+                                game::galleryBackgroundName(gallery.background), gallery.status().empty() ? "" : ": ",
+                                gallery.status().c_str());
+                std::fflush(stdout);
+                running = false;
+            }
+            if (menuPerf && fe.remakeScreen() && !liveJob.valid()) {   // (a mean over the frames from the 31st, printed at frame 150 / N)
+                // HOTD_MENU_PERF=N (liveattract): N frames (default 150); the live attract's own CPU share, the most
+                static const int perfN = std::atoi(std::getenv("HOTD_MENU_PERF")) >= 60 ? std::atoi(std::getenv("HOTD_MENU_PERF")) : 150;
+                static int n = 0;
+                static double cpuSum = 0, allSum = 0, cpuMax = 0, allMax = 0, liveSum = 0;
+                const double cpu = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - menuT0).count();
+                gl::Finish();
+                const double all = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - menuT0).count();
+                if (++n > 30)
+                    cpuSum += cpu, allSum += all, cpuMax = std::max(cpuMax, cpu), allMax = std::max(allMax, all), liveSum += liveCpuMs;
+                if (n == perfN) {
+                    const double k = 1.0 / double(perfN - 30);
+                    std::printf("menu perf (%s, %dx%d, live attract %s, %s models): CPU %.2f ms a frame (most %.2f; the live "
+                                "attract %.2f), CPU + GPU (glFinish) %.2f ms (most %.2f); live: %llu pictures, game frame %llu\n",
+                                fe.gpuLayers ? "GPU layers" : "CPU composing", ww, wh, fe.liveTex ? "on" : "off",
+                                menu.cfg.models == 1 ? "PC" : "arcade", cpuSum * k, cpuMax, liveSum * k, allSum * k, allMax, (unsigned long long)liveRenders,
+                                (unsigned long long)(liveHost ? liveHost->runtime().frameCount : 0));
+                    std::fflush(stdout);
+                }
+            }
+            if (crtMenu)
+                gCrt.present(ww, wh, 0);
+            if (jshot && jshotFrames >= 0 && fe.screen() == 20 && ++jshotFrames == jshotAt) {   // HOTD_JUKEBOX_SHOT
+                Renderer grab;
+                if (std::filesystem::path(jshotPng).has_parent_path())
+                    std::filesystem::create_directories(std::filesystem::path(jshotPng).parent_path());
+                writePng(jshotPng, ww, wh, grab.readBack(ww, wh));
+                std::printf("JUKEBOX SHOT: %s (%s; %s)\n", jshotPng.c_str(), jukebox.nowText().c_str(), jukebox.timeText().c_str());
+                std::fflush(stdout);
+                running = false;
+            }
+            // padglyphs: HOTD_CURSOR_TEST=1 (testing, hidden): a virtual DualSense with a touchpad and a gyro on the main
+            // menu: a stroke on its touchpad, then the gyro turned with ZL held, then its click; the hand's moves, the end
+            if (static const bool ct = std::getenv("HOTD_CURSOR_TEST") != nullptr; ct && !fe.splashActive()) {
+                static int f = 0, p0 = 0, touchDx = 0, gyroDx = 0;
+                static SDL_JoystickID vid = 0;
+                static SDL_Joystick* vj = nullptr;
+                static uint64_t ts = 1000000000ull;
+                ++f;
+                if (f == 10) {
+                    static SDL_VirtualJoystickTouchpadDesc tp{3, {}};
+                    static SDL_VirtualJoystickSensorDesc sd{SDL_SENSOR_GYRO, 200.0f};
+                    SDL_VirtualJoystickDesc d;
+                    SDL_INIT_INTERFACE(&d);
+                    d.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+                    d.naxes = SDL_GAMEPAD_AXIS_COUNT;
+                    d.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+                    d.vendor_id = 0x054C, d.product_id = 0x0CE6, d.name = "Test DualSense (cursor)";
+                    d.ntouchpads = 1, d.touchpads = &tp, d.nsensors = 1, d.sensors = &sd;
+                    vid = SDL_AttachVirtualJoystick(&d);
+                    vj = vid ? SDL_OpenJoystick(vid) : nullptr;
+                    if (!vj) SDL_Log("cursor test: virtual pad: %s", SDL_GetError());
+                    // padfix: HOTD_CURSOR_TEST=2: player 1 on the mouse, the pad player 2's (the cursor still follows it)
+                    if (vj && std::strcmp(std::getenv("HOTD_CURSOR_TEST"), "2") == 0) {
+                        menu.cfg.p1Input = 0, menu.cfg.p2Input = 2;
+                        pads.configure(menu.cfg);
+                    }
+                } else if (vj && f == 30) {
+                    p0 = fe.pointerX();
+                    SDL_SetJoystickVirtualTouchpad(vj, 0, 0, true, 0.3f, 0.5f, 1.0f);
+                } else if (vj && f > 30 && f <= 40) {
+                    SDL_SetJoystickVirtualTouchpad(vj, 0, 0, true, 0.3f + 0.02f * float(f - 30), 0.5f, 1.0f);
+                } else if (vj && f == 41) {
+                    SDL_SetJoystickVirtualTouchpad(vj, 0, 0, false, 0.5f, 0.5f, 0.0f);
+                } else if (vj && f == 43) {
+                    touchDx = fe.pointerX() - p0;
+                    p0 = fe.pointerX();
+                    SDL_SetJoystickVirtualAxis(vj, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 32767);
+                } else if (vj && f > 45 && f <= 55) {
+                    const float g[3] = {0.0f, f < 50 ? 0.0f : -1.0f, 0.0f};   // (yaw: turning right; the first ones still)
+                    SDL_SendJoystickVirtualSensorData(vj, SDL_SENSOR_GYRO, ts += 10000000ull, g, 3);
+                } else if (vj && f == 57) {
+                    SDL_SetJoystickVirtualAxis(vj, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, -32768);
+                    gyroDx = fe.pointerX() - p0;
+                } else if (f == 60) {
+                    const bool ok = touchDx > 20 && gyroDx > 5;
+                    SDL_Log("cursor test (%s menu): touchpad stroke moved the hand %+d (%d touches), the gyro %+d (%d samples): %s",
+                            menu.cfg.menuStyle == 1 ? "Remake" : "Classic", touchDx, gMenuCursor.touches, gyroDx, gMenuCursor.gyroMoves,
+                            ok ? "passed" : "FAILED");
+                    std::printf("cursor test: touchpad %+d, gyro %+d (the pad: player %d's): %s\n", touchDx, gyroDx, pads.playerOf(vid) + 1, ok ? "passed" : "FAILED");
+                    if (vj) SDL_SetJoystickVirtualButton(vj, SDL_GAMEPAD_BUTTON_TOUCHPAD, true);
+                } else if (f == 62) {
+                    if (vj) SDL_SetJoystickVirtualButton(vj, SDL_GAMEPAD_BUTTON_TOUCHPAD, false);
+                } else if (f == 64) {
+                    std::printf("cursor test: touchpad click %s\n", gMenuCursor.clicks > 0 ? "passed" : "FAILED");
+                    if (vj) SDL_CloseJoystick(vj);
+                    if (vid) SDL_DetachVirtualJoystick(vid);
+                    vj = nullptr, vid = 0;
+                    running = false;
+                }
+            }
+            // HOTD_MENU_SHOT=N (developer, menuart): a screenshot at the menu's N-th frame, then the run ends
+            static const int menuShotAt = std::getenv("HOTD_MENU_SHOT") ? std::atoi(std::getenv("HOTD_MENU_SHOT")) : -1;
+            static int menuFrames = 0;
+            ++menuFrames;
+            static int menuShown = 0;   // (remakemenu: the menu's own frames, after the splash)
+            const bool menuShot = !fe.splashActive() && ++menuShown == menuShotAt;
+            // perf (2026-10-21): while the menu shows, Chapter 1's view (Arcade) is prepared on a worker with the menu's
+            // settings (ViewPrefetch); Arcade then only finishes it (the GL part). Another chapter or a changed setting
+            // loads as before
+            if (static bool regionsTried = false; menuFrames > 2 && menu.pcOk && inputTestFile.empty()) {
+                std::string e2;
+                if (!regions.empty() || (!regionsTried && (regionsTried = true) && arcadeRegions(e2))) {
+                    fe.setArcadeRegions(regions);   // (remake2: a first start's checked ROMs: the arcade's blood from now)
+                    gViewPrefetch.start(regions, dumps, texsets, 0, menu.cfg.models == 1 ? menu.cfg.pc : std::string(),
+                                        bloodOf(menu.cfg));
+                }
+            }
+            if (menuShot)
+                running = false;
+            if (menuFrames == 1 && std::getenv("HOTD_STARTUP_TIME")) {   // perf: the menu's first frame, then the end
+                std::printf("startup: the menu's first frame at %.0f ms\n", sinceStartMs());
+                if (!autoArcade)   // (--auto-start: on to the game)
+                    running = false;
+            }
+            // HOTD_MENU_SEQ=<dir>,<from>,<to>,<every> (developer, remakefix): the menu's frames from..to (after the
+            // splash), every N-th, as <dir>/menu_<frame>_<ms>.png (the idle fade's pictures)
+            if (static const char* seq = std::getenv("HOTD_MENU_SEQ"); seq && !fe.splashActive()) {
+                static std::string dir;
+                static int from = 0, to = -1, every = 1;
+                if (to < 0) {
+                    const std::string s = seq;
+                    const size_t c = s.find(',');
+                    dir = s.substr(0, c);
+                    if (c != std::string::npos)
+                        std::sscanf(s.c_str() + c + 1, "%d,%d,%d", &from, &to, &every);
+                    every = std::max(1, every);
+                    std::error_code ec;   // (menuperf: a bad folder ends nothing: the error code, not a throw)
+                    if (!std::filesystem::create_directories(dir, ec) && ec)
+                        SDL_Log("HOTD_MENU_SEQ: cannot make %s (%s)", dir.c_str(), ec.message().c_str());
+                }
+                if (menuShown >= from && menuShown <= to && (menuShown - from) % every == 0) {
+                    Renderer grab;
+                    char name[64];
+                    std::snprintf(name, sizeof name, "/menu_%05d_%06u.png", menuShown, unsigned(SDL_GetTicks()));
+                    writePng(dir + name, ww, wh, grab.readBack(ww, wh));
+                }
+            }
+            if (shot || menuShot || (!shotAt.empty() && shotAt.front() == 0)) {
+                Renderer grab;
+                const char* menuPng = menuShot ? std::getenv("HOTD_MENU_SHOT_PNG") : nullptr;   // (remakemenu: its own file)
+                if (!menuPng) std::filesystem::create_directories(shotsRoot);
+                writePng(menuPng ? std::string(menuPng) : shotsRoot + "/hotd_menu_" + timestamp() + ".png", ww, wh, grab.readBack(ww, wh));
+                shot = false;
+                if (!shotAt.empty() && shotAt.front() == 0)
+                    shotAt.erase(shotAt.begin());
+            }
+            // HOTD_SCENE_TEST: back on the Cut-scenes page after the viewer: its picture, then the end
+            if (static const char* st = std::getenv("HOTD_SCENE_TEST"); st && gSceneTestStage == 6 && fe.screen() == 19) {
+                static int pageFrames = 0;
+                if (++pageFrames == 20) {
+                    Renderer grab;
+                    std::filesystem::create_directories(st);
+                    writePng(std::string(st) + "/scene_page.png", ww, wh, grab.readBack(ww, wh));
+                    SDL_Log("scene test: back on the Cut-scenes page");
+                    running = false;
+                }
+            }
+            {   // menuperf: the frame's times: Live Background's budget, the tour's accounting (HOTD_MENU_PERF_TOUR)
+                gMenuGpu.end();
+                const auto tNow = std::chrono::steady_clock::now();
+                const double cpu = std::chrono::duration<double, std::milli>(tNow - menuLoopT0).count();
+                static auto tLast = tNow;
+                const double gap = std::chrono::duration<double, std::milli>(tNow - tLast).count();
+                tLast = tNow;
+                // Live Background's budget, over 3 s with the attract shown: the menu's GPU time over 6 ms a frame: the
+                // attract at 30 pictures a second; Auto, over 10 ms or a third of the frames late: the attract off
+                // (the still instead) for this run
+                static double budgetGpu = 0;
+                static int budgetGpuN = 0, budgetFrames = 0, budgetLate = 0;
+                // misc18: the Auto tier's window (menuFpsAuto): every menu frame but the slides' unseen capture
+                static double tierGpu = 0;
+                static int tierGpuN = 0, tierFrames = 0, tierLate = 0;
+                if (!liveCapture) {
+                    ++tierFrames;
+                    if (gap > double(menuNs) / 1e6 * 1.5) ++tierLate;
+                }
+                if (tierFrames >= 180) {
+                    const double avg = tierGpuN ? tierGpu / tierGpuN : 0.0;
+                    const bool late = tierLate > tierFrames / 3;
+                    const int cap = menuFpsShown;
+                    if (menu.cfg.menuFps == 0 && cap > 60 && (avg > 6.0 || late))
+                        menuTierCap = 60;
+                    else if (menu.cfg.menuFps == 0 && cap > 30 && cap <= 60 && (avg > 12.0 || late))
+                        menuTierCap = 30;
+                    if (menuTierCap && menuTierCap < cap)
+                        SDL_Log("menu frame rate: Auto: the menu's GPU %.1f ms a frame, %d of %d frames late: %d fps", avg, tierLate,
+                                tierFrames, menuTierCap);
+                    tierGpu = 0, tierGpuN = tierFrames = tierLate = 0;
+                }
+                const bool liveShown = liveHost && liveDrawn && fe.liveTex && fe.remakeScreen();
+                if (liveShown) {
+                    ++budgetFrames;
+                    if (gap > double(menuNs) / 1e6 * 1.5) ++budgetLate;
+                }
+                if (budgetFrames >= 180) {
+                    const double avg = budgetGpuN ? budgetGpu / budgetGpuN : 0.0;
+                    if (avg > 6.0 && !liveHalf) {
+                        liveHalf = true;
+                        SDL_Log("live background: the menu's GPU time %.1f ms a frame: the attract at 30 pictures a second", avg);
+                    }
+                    if (menu.cfg.liveBackground == 0 && (avg > 10.0 || budgetLate > budgetFrames / 3) && !liveSlow) {
+                        liveSlow = true;
+                        SDL_Log("live background: Auto: the menu runs slow (GPU %.1f ms a frame, %d of %d frames late): off", avg,
+                                budgetLate, budgetFrames);
+                    }
+                    budgetGpu = 0, budgetGpuN = budgetFrames = budgetLate = 0;
+                }
+                static uint64_t upLast = 0, fillLast = 0;
+                const uint64_t up = game::Hud::remakeUploadBytes - upLast;
+                upLast = game::Hud::remakeUploadBytes;
+                const double fillNow = double(game::Hud::remakeFillPixels - fillLast) / std::max(1.0, double(ww) * double(wh));
+                fillLast = game::Hud::remakeFillPixels;
+                if (tourPage >= 0 && tourPage < int(tourStats.size())) {
+                    MenuTourStats& s = tourStats[size_t(tourPage)];
+                    if (tourFrame == 0)
+                        s.open = cpu;
+                    else if (tourFrame >= 10) {
+                        ++s.frames;
+                        s.cpu += cpu, s.cpuMax = std::max(s.cpuMax, cpu), s.live += liveCpuMs;
+                        s.gap += gap, s.gapMax = std::max(s.gapMax, gap);
+                        s.upload += up, s.uploadMax = std::max(s.uploadMax, up);
+                        s.fill += fillNow;
+                        if (gap > 1000.0 / 60.0 * 1.25) ++s.over;
+                    }
+                }
+                gMenuGpu.collect([&](int tag, double ms) {
+                    static const bool spikeLog = std::getenv("HOTD_MENU_GPU_LOG") != nullptr;   // (misc18: the slow GPU frames)
+                    if (spikeLog && ms > 3.0)
+                        std::printf("gpu %.2f ms: tag %d, slide %d (prev %d, mix %.2f), live %d capture %d, uploads %llu KB\n", ms, tag,
+                                    slideCur, slidePrev, fe.liveMix, liveHost ? 1 : 0, liveCapture ? 1 : 0,
+                                    (unsigned long long)(game::Hud::remakeUploadBytes / 1024));
+                    if (liveShown)
+                        budgetGpu += ms, ++budgetGpuN;
+                    // (misc18: the Auto tier; a broken query's value left out; HOTD_MENU_GPU_ADD=ms, testing: a slower GPU)
+                    static const double gpuAdd = std::getenv("HOTD_MENU_GPU_ADD") ? std::atof(std::getenv("HOTD_MENU_GPU_ADD")) : 0.0;
+                    if (!liveCapture && ms < 1000.0)
+                        tierGpu += ms + gpuAdd, ++tierGpuN;
+                    if (tag < 0 || tag >= int(tourStats.size())) return;
+                    MenuTourStats& s = tourStats[size_t(tag)];
+                    ++s.gpuFrames;
+                    s.gpu += ms, s.gpuMax = std::max(s.gpuMax, ms);
+                });
+                if (tourPage >= 0 && ++tourFrame >= gMenuTourN && ++tourPage >= int(tourPages.size()) && running) {
+                    gl::Finish();
+                    gMenuGpu.collect([&](int tag, double ms) {
+                        if (tag < 0 || tag >= int(tourStats.size())) return;
+                        ++tourStats[size_t(tag)].gpuFrames;
+                        tourStats[size_t(tag)].gpu += ms, tourStats[size_t(tag)].gpuMax = std::max(tourStats[size_t(tag)].gpuMax, ms);
+                    });
+                    const char* gpuName = reinterpret_cast<const char*>(gl::GetString(gl::RENDERER));
+                    std::printf("menu tour (%dx%d, %s, %s models, live attract %s): ms a frame, mean (most)\n", ww, wh,
+                                gpuName ? gpuName : "?", menu.cfg.models == 1 ? "PC" : "arcade",
+                                !liveHost ? (fe.liveTex ? "off, the still" : "off") : liveHalf ? "on, 30 a second" : "on");
+                    std::printf("  %-22s %16s %8s %16s %10s %14s %13s %5s %6s\n", "page", "CPU", "live", "GPU", "open", "upload KB/f",
+                                "frame gap", "slow", "fill");
+                    double worstCpu = 0, worstGpu = 0;
+                    for (const MenuTourStats& s : tourStats) {
+                        const double k = s.frames ? 1.0 / s.frames : 0, kg = s.gpuFrames ? 1.0 / s.gpuFrames : 0;
+                        std::printf("  %-22s %7.2f (%6.2f) %8.2f %7.2f (%6.2f) %10.1f %6.0f (%5.0f) %5.1f (%5.1f) %5d %6.2f\n", s.name.c_str(),
+                                    s.cpu * k, s.cpuMax, s.live * k, s.gpu * kg, s.gpuMax, s.open, double(s.upload) * k / 1024.0,
+                                    double(s.uploadMax) / 1024.0, s.gap * k, s.gapMax, s.over, s.fill * k);
+                        worstCpu = std::max(worstCpu, s.cpu * k), worstGpu = std::max(worstGpu, s.gpu * kg);
+                    }
+                    std::printf("menu tour: the slowest page's mean CPU %.2f ms, GPU %.2f ms\n", worstCpu, worstGpu);
+                    std::fflush(stdout);
+                    running = false;
+                }
+                if (tourPage >= 0 && tourFrame >= gMenuTourN)
+                    tourFrame = 0;
+            }
+            drawGunAids(menu.cfg, ww, wh, false);   // padpass: a Sinden's white border on the menus too
+            SDL_GL_SwapWindow(window);
+            menuPace();   // (menuperf: on the display's beat, was a 16 ms sleep)
+            int action = feAction;
+            feAction = -1;
+            // pmfix2 (testing): HOTD_MENU_PCMODE=<p1 char>,<p2 char>,<ms>: once the menu has run that long (its live
+            // background, the settings pictures), a PC Mode game with those characters as the PC Mode screen's Start
+            // does it (the menu path's prepared view, unlike --pc-char); with --shot-at for its pictures
+            // Several games: "a,b,ms;a,b,ms;..." (each but the last left for the menu at frame 600: gMenuPmLeft)
+            // pmpick (testing): HOTD_MENU_PICK=a,b[,c,d]: the live menu's PC Mode pick with those characters (four: the
+            // 4P screen) once the splash is over; with HOTD_MENU_SHOT for its picture
+            if (static const char* pk = std::getenv("HOTD_MENU_PICK"); pk && !fe.splashActive() && fe.screen() != 16) {
+                static bool done = false;
+                int c[4] = {0, 0, 0, 0};
+                const int n = std::sscanf(pk, "%d,%d,%d,%d", &c[0], &c[1], &c[2], &c[3]);
+                if (!done && n >= 1) {
+                    done = true;
+                    for (int k = 0; k < 4; ++k)
+                        fe.pcChars[k] = c[k];
+                    const bool cpu[4] = {false, false, false, false};
+                    fe.pcModeOpen(n >= 3 ? 4 : 2, cpu, 1);
+                }
+            }
+            if (static const char* pm = std::getenv("HOTD_MENU_PCMODE"); pm && action < 0) {
+                static uint64_t t0 = 0;
+                static size_t next = 0;
+                std::vector<std::string> games;
+                for (std::string s = pm; !s.empty();) {
+                    const size_t q = s.find(';');
+                    games.push_back(s.substr(0, q));
+                    s = q == std::string::npos ? std::string() : s.substr(q + 1);
+                }
+                if (t0 == 0)
+                    t0 = SDL_GetTicks();
+                int a = 0, b = 0, ms = 0;
+                if (next < games.size() && std::sscanf(games[next].c_str(), "%d,%d,%d", &a, &b, &ms) == 3 &&
+                    SDL_GetTicks() - t0 >= uint64_t(ms)) {
+                    ++next;
+                    t0 = 0;
+                    gMenuPmLeft = int(games.size() - next);
+                    if (a < 0) {   // "-1,<viewer entry>,ms": the cut-scene viewer's entry (launcher.ini scenecast=)
+                        gScene.entry = b;
+                        action = 40;
+                        SDL_Log("HOTD_MENU_PCMODE: the cut-scene viewer, entry %d", b);
+                    } else {
+                        fe.pcSeats = 2;
+                        fe.pcChars[0] = a, fe.pcChars[1] = b;
+                        action = 16;
+                        SDL_Log("HOTD_MENU_PCMODE: PC Mode with %d, %d after %d ms in the menu", a, b, ms);
+                    }
+                }
+            }
+            if ((fe.attractDue() || fe.attractAsked) && online.busy()) {   // (menuhost: hosting / joining: no attract, as above)
+                fe.attractAsked = false;
+                fe.clearAttract();
+            }
+            if (fe.attractDue() || fe.attractAsked) {   // 0x420F2B: 30 s idle on the main menu -> frontend_state 6, the attract
+                const bool asked = fe.attractAsked;   // (blood2: Extras > Attract Demo: even with the title off)
+                fe.attractAsked = false;
+                fe.clearAttract();
+                SDL_Log("front end: %s -> the attract", asked ? "Attract Demo" : "idle on the main menu");
+                if (enterAttract(asked)) {
+                    attractKind = asked ? 2 : 0;
+                    SDL_ShowCursor();
+                    screen = Screen::Game;
+                    continue;
+                }
+            }
+            if (feBoss) {   // Boss Mode (0x422EE4 ..: frontend_state 4): the boss's game
+                gPcMode = 0;   // (boss mode is never PC Mode)
+                bossModeOpt = feBoss;
+                feBoss = 0;
+                SDL_ShowCursor();
+                titleNow = 0;
+                const bool ok = enterGame();
+                titleNow = -1;
+                if (ok)
+                    screen = Screen::Game;
+                else {
+                    bossModeOpt = 0;
+                    screen = Screen::Launcher;
+                }
+                continue;
+            }
+            // startPcMode (docs/pcmode.md): a PC Mode game (THOTD.EXE 0x425990: frontend_state 5) with the characters
+            // chosen on screen 16 (feAction 16); then the game starts as Arcade's does. Seats 3 / 4: their panels'
+            // picks with four panels (Players 3 / 4), else --pc-char's / the defaults
+            if (action == 40) {   // the Cut-scenes page's Play (game/scene_view.h)
+                SDL_ShowCursor();
+                if (sceneStart())
+                    screen = Screen::Game;
+                else
+                    fe.screenScenes();   // its status says why
+                continue;
+            }
+            if (action == 16) {
+                gPcMode = 1;
+                pcModeTakePicks(fe);
+                SDL_Log("PC Mode: characters %d, %d, %d, %d, CPU seats %x", gPcChars[0], gPcChars[1], gPcChars[2],
+                        gPcChars[3], gPcCpuSeats);
+                action = 0;
+            } else if (action == 0 || action == 6) {
+                gPcMode = 0;   // Arcade / Chapter Select (frontend_state 2)
+            }
+            if (action == 0 || action == 6)   // bossbug: a new game never keeps a Boss Mode boss (its game left by Exit)
+                bossModeOpt = 0;
+            if (action == 0 || action == 6) {   // Arcade (0x420F70, frontend_state 2): Chapter 1 directly (the attract came
+                // before); 6: Chapter Select's chapter (menuChapter set by it)
+                if (action == 0)
+                    menuChapter = 0, menuEvent = -1;
+                SDL_ShowCursor();
+                titleNow = 0;
+                const bool ok = enterGame();
+                titleNow = -1;
+                if (ok)
+                    screen = Screen::Game;
+                else
+                    screen = Screen::Launcher;   // its status says why
+            } else if (action == 4) {   // Options > System > Files Check: the setup dialog (the files, the check)
+                audio.silence();
+                screen = Screen::Launcher;
+            } else if (action == 5) {   // Quit (0x420F80) / Escape
+                running = false;
+            }
+            // Ranking (0x423028): its screen comes with the next screens (menuart step 2)
+            continue;
+        }
+        if (screen == Screen::End) {
+            // the end of the teaser: Chapter 1 cleared; a click, Enter or Esc goes back to the launcher (no launcher:
+            // a click or Enter plays again, Esc quits)
+            if (inputTest)
+                inputTest(4, host.runtime(), lw, lh);   // --input-test: Esc on the end screen
+            SDL_Event e;
+            bool back = false;
+            while (SDL_PollEvent(&e)) {
+                if (SDL_Event k; pads.menuKey(e, k)) e = k;   // pads: South / Start = Enter, East / Back = Esc
+                else if (pads.event(e)) continue;
+                if (e.type == SDL_EVENT_QUIT) running = false;
+                else if (isFullscreenKey(e)) toggleFullscreen(window);   // before Enter: Alt+Enter is no "back"
+                else if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_ESCAPE) {
+                    if (launcher) back = true;
+                    else running = false;
+                }
+                else if ((e.type == SDL_EVENT_KEY_DOWN && (e.key.key == SDLK_RETURN || e.key.key == SDLK_SPACE)) ||
+                         e.type == SDL_EVENT_MOUSE_BUTTON_DOWN)
+                    back = true;
+            }
+            game::Runtime& rt = host.runtime();
+            // a dark background (the frozen name-entry picture made the text unreadable; user 2026-10-19)
+            gl::Viewport(0, 0, ww, wh);
+            gl::ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            gl::Clear(gl::COLOR_BUFFER_BIT);
+            const int clearedChapter = rt.mem.at<int8_t>(game::A::G::chapter) + 1;
+            std::vector<std::string> lines = {"CHAPTER " + std::to_string(clearedChapter) + " CLEAR", "",
+                                              clearedChapter < 4 && !game::chapterPlayable(clearedChapter)
+                                                  ? "Chapter " + std::to_string(clearedChapter + 1) + " is not finished yet. Thank you for playing."
+                                                  : "Thank you for playing.", ""};
+            for (uint32_t p = 0; p < 2; ++p) {
+                const port::a::Player& pl = rt.mem.at<port::a::Player>(game::A::G::players, p);
+                if (pl.state == 5 || pl.score > 0) {
+                    char buf[48];
+                    std::snprintf(buf, sizeof buf, "%uP  %07d", p + 1, std::max(pl.score, 0));
+                    lines.push_back(buf);
+                }
+            }
+            lines.push_back("");
+            // (uxpolish: it went to the main menu while it said "the launcher"; Esc and a pad's A / B named too)
+            lines.push_back(!launcher ? "Click or press Enter: play again   Esc: quit"
+                            : feLoaded ? "Click, Enter, Esc or pad A / B: back to the main menu"
+                                       : "Click, Enter, Esc or pad A / B: back to the launcher");
+            endScreen.setText(lines, wh >= 720 && ww >= 1280 ? 3 : 2);
+            pillarbox(ww, wh);
+            endScreen.drawAt(ww, wh, ww * 0.5f, wh * 0.5f);
+            if (shot) {
+                std::filesystem::create_directories(shotsRoot);
+                writePng(shotsRoot + "/hotd_end_" + timestamp() + ".png", ww, wh, view->renderer.readBack(ww, wh));
+                shot = false;
+                if (!shotAt.empty())   // a scripted run ends here
+                    running = false;
+            }
+            SDL_GL_SwapWindow(window);
+            menuPace();   // (menuperf: on the display's beat, was a 16 ms sleep)
+            if (back) {
+                leaveGame();
+                if (launcher)
+                    screen = backToMenu();
+                else if (enterGame())
+                    screen = Screen::Game;
+                else
+                    running = false;
+            }
+            continue;
+        }
+        if (bossEnded) {   // Boss Mode's end (0x419168: frontend_state 7): the menus, the mode's times table
+            bossEnded = false;
+            if (gNet) {   // Boss Mode online (docs/netplay.md): the end once confirmed (the same frame on every PC), the
+                          // session ends there; each PC files the time in its own table (its own name entry), as PC Mode
+                game::Runtime& brt = host.runtime();
+                if (!gNet->settled())
+                    gNet->settle(brt, 3000);
+                if (!(brt.boss.active() && brt.boss.phase == game::BossMode::Done))
+                    continue;   // (rollback took the end back: play on)
+                const std::string r = gNet->finish(brt, 1500);
+                std::printf("%s\n", r.c_str());
+                SDL_Log("[net] Boss Mode: the game is over: %s", r.c_str());
+                bossModeFinish(brt);
+                gNet.reset();
+                netRestore();
+            }
+            bossModeOpt = 0;
+            if (launcher && feLoaded) {
+                leaveGame();
+                screen = backToMenu();
+                if (gBossEntryMs >= 0) {   // 0x5CE340 = 3: the name entry (screen 15), then the table with the row lit
+                    fe.onNameEntered = [&fe](const std::string& n) { fe.screenBossTimes(gBossShowMode, bossNameEntered(n)); };
+                    fe.screenNameEntry(game::BossMode::timeText(gBossEntryMs));
+                } else
+                    fe.screenBossTimes(gBossShowMode, gBossShowRank);
+            } else {
+                if (gBossEntryMs >= 0)   // (no menus to ask in: filed as the empty entry's name)
+                    bossNameEntered("ANONYMOUS");
+                running = false;
+            }
+            continue;
+        }
+        // PC Mode's end (THOTD.EXE mode67_ranking_pc 0x44D0C4: frontend_state 7): a game over or the game's end goes to
+        // the menus: the name entry (screen 15) for each player whose row goes in, then the PC Mode table (screen 9)
+        auto pmEntry = [&fe]() {   // (the rows queued by pcModeFinish: their names, then the table)
+            auto showTable = [&fe]() {
+                fe.rankingTable = gPmRankTable;   // (PC Mode's table)
+                fe.screenRanking();
+            };
+            if (!gPmQueue.empty()) {
+                fe.onNameEntered = [&fe, showTable](const std::string& n) {
+                    pmNameEntered(n);
+                    if (!gPmQueue.empty())
+                        fe.screenNameEntry(std::to_string(gPmQueue.front().score), gPmQueueSeat.front() & 1);
+                    else
+                        showTable();
+                };
+                fe.screenNameEntry(std::to_string(gPmQueue.front().score), gPmQueueSeat.front() & 1);
+            } else
+                showTable();
+        };
+        if (host.runtime().pcmode && !gNet && launcher && feLoaded && (host.runtime().gameOverDone || host.runtime().chapterDone)) {
+            pcModeFinish(host.runtime());
+            leaveGame();
+            screen = backToMenu();
+            pmEntry();
+            continue;
+        }
+        if (gNet && (host.runtime().gameOverDone || host.runtime().chapterDone) && !gNet->settled())
+            gNet->settle(host.runtime(), 3000);   // netplay rollback: a game over / the end only once confirmed
+        // PC Mode online (docs/netplay.md "PC Mode online"): a game over or the end (confirmed: the same frame on every
+        // PC) ends the session there, as PC Mode's end goes to the menus; then each PC's own players enter their names
+        // on that PC and its PC Mode table is saved there (nothing of it goes over the network). The arcade's online
+        // games restart the chapter on a game over, as before
+        if (gNet && host.runtime().pcmode && (host.runtime().gameOverDone || host.runtime().chapterDone)) {
+            const unsigned own = pmOwnSeats();
+            const std::string r = gNet->finish(host.runtime(), 1500);
+            std::printf("%s\n", r.c_str());
+            SDL_Log("[net] PC Mode: the game is over: %s", r.c_str());
+            pcModeFinish(host.runtime(), own);
+            gNet.reset();
+            netRestore();
+            if (launcher && feLoaded) {
+                leaveGame();
+                screen = backToMenu();
+                pmEntry();
+            } else {   // a command-line online game (no menus to ask in): filed under the entry's empty name
+                while (!gPmQueue.empty())
+                    pmNameEntered("ANONYMOUS");
+                running = false;
+            }
+            continue;
+        }
+        // relplay (user 2026-10-30: "When I died, the attract played, skipped the attract and immediately loaded up the
+        // last game mode played"): a game from the menus (Arcade, Chapter Select) ends its game over in the menus' own
+        // attract (the boot's / the idle main menu's: a key, a click or a pad button goes to the main menu, nothing starts
+        // a game by itself), or with the title off in the main menu, as the PC's game over goes back to its front end.
+        // It restarted the game here: the arcade's title loop (its start button / a trigger started Chapter 1 again),
+        // or a chapter past Chapter 1 straight away. Online, the scripted runs and the cut-scene viewer: as before
+        if (host.runtime().gameOverDone && launcher && feLoaded && !gNet && inputTestFile.empty() && !gScene.active() &&
+            !host.runtime().boss.active() && !gBot && checkpoints.empty()) {
+            SDL_Log("front end: game over -> %s", cfg.title ? "the attract" : "the main menu");
+            leaveGame();
+            screen = backToMenu();
+            if (cfg.title && enterAttract(true)) {
+                attractKind = 0;
+                SDL_ShowCursor();
+                screen = Screen::Game;
+            }
+            continue;
+        }
+        if (host.runtime().gameOverDone) {
+            if (gNet)   // netplay: a joining PC's replay restarts here too
+                gNet->markRestart();
+            if (!startGame())
+                return 1;
+            if (gBot)
+                gBot->restarted();
+        }
+        game::Runtime& rt = host.runtime();
+        if (rt.chapterDone) {
+            screen = Screen::End;
+            if (!shotAt.empty())
+                shot = true;
+            continue;
+        }
+        // during play the mouse stays inside the window while it has the focus (with two monitors it slid onto the other
+        // one, where a shot went to another program); Alt+Tab / the launcher / the end screen let it go
+        {
+            const bool want = (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS) != 0 && !inputTest;
+            if (want != SDL_GetWindowMouseGrab(window))
+                SDL_SetWindowMouseGrab(window, want);
+        }
+        // the window's size changed (resize, maximize, fullscreen): every gun keeps its point of the game's screen
+        // (P1's desktop cursor: until its next motion)
+        if ((lw != gunW || lh != gunH) && gunW > 0 && gunH > 0 && lw > 0 && lh > 0) {
+            for (Gun& g : guns) {
+                float ax, ay;
+                view->toArcade(g.x, g.y, gunW, gunH, ax, ay);
+                view->fromArcade(ax, ay, lw, lh, g.x, g.y);
+            }
+            gunW = lw;
+            gunH = lh;
+        }
+        // a gun moved by its mouse's own motion (relative mode, or player 2's mouse): a little past the window's
+        // edges, so that pushing the mouse out of the window aims off the screen (the reload)
+        auto moveGun = [&](Gun& g, float dx, float dy) {
+            const float m = lh * 0.05f;
+            g.x = std::clamp(g.x + dx, -m, float(lw) + m);
+            g.y = std::clamp(g.y + dy, -m, float(lh) + m);
+        };
+        if (inputTest)
+            inputTest(0, rt, lw, lh);   // --input-test: this frame's injected events
+        // a second mouse has really been used (motion / a button): relative mode from now on, each mouse its own
+        // gun (P1 the mouse used first); its first event before the switch went to the desktop cursor
+        if (!relMice && cfg.p2Input == 0 && cfg.p1Input == 0 && !lightGuns.active() && gMiceUsed.size() >= 2) {
+            mouse1 = gMiceUsed[0];
+            mouse2 = gMiceUsed[1];
+            relMice = true;
+            if (rawWatch)
+                rawMiceWatch(window, false);   // SDL's relative mode has its own raw input
+            rawWatch = false;
+            if (inputTestFile.empty() && !SDL_SetWindowRelativeMouseMode(window, true)) {
+                SDL_Log("relative mouse mode: %s (player 2: the keyboard)", SDL_GetError());
+                relMice = false;
+                gMiceUsed.resize(1);   // not again
+                cfg.p2Input = 1;
+            }
+            if (relMice)
+                SDL_Log("input: a second mouse (%u, P1 %u): relative mode, one crosshair per mouse", unsigned(mouse2), unsigned(mouse1));
+        }
+        SDL_Event e;
+        // pmfix2 (testing, HOTD_MENU_PCMODE): a game before the last one goes back to the menu at its frame 600
+        if (gMenuPmLeft > 0 && !feAttract && screen == Screen::Game && (gPcMode || gScene.active()) && rt.frameCount >= (gScene.active() ? 32300u : 600u)) {
+            SDL_Log("HOTD_MENU_PCMODE: back to the menu at frame %llu", (unsigned long long)rt.frameCount);
+            gMenuPmLeft = 0;
+            leaveGame();
+            screen = backToMenu();
+            continue;
+        }
+        // liveattract: the Remake style's boot attract ends by itself after one round (the ranking): the menu, whose
+        // background is that attract running on
+        if (feAttract && attractKind == 1 && screen == Screen::Game) {
+            const int16_t mode = rt.mem.at<int16_t>(game::A::G::game_mode);
+            if (mode == 6 || mode == 7)
+                attractRanked = true;
+            else if (attractRanked) {
+                SDL_Log("front end: the boot's attract went round once: the main menu");
+                feAttract = false;
+                attractKind = 0;
+                leaveGame();
+                screen = backToMenu();
+                continue;
+            }
+        }
+        if (feAttract && attractExitAt >= 0 && ++attractFrames == attractExitAt) {   // HOTD_ATTRACT_EXIT (developer)
+            SDL_Event ev{};
+            ev.type = SDL_EVENT_KEY_DOWN;
+            ev.key.key = SDLK_RETURN;
+            ev.key.scancode = SDL_SCANCODE_RETURN;
+            ev.key.down = true;
+            ev.key.windowID = SDL_GetWindowID(window);
+            SDL_PushEvent(&ev);
+        }
+        // the cut-scene viewer (game/scene_view.h): its keys, pad buttons and mouse buttons instead of the game's
+        bool sceneBack = false;
+        const auto sceneEvent = [&](const SDL_Event& ev) -> bool {
+            int a = -1;   // 0 pause, 1 replay, 2 slow motion, 3 back, 4 Clean View on / off, 5 subtitles, 6 Free Cam
+            // Free Cam: its keys are read held every frame (W A S D / arrows / Q E / Shift / Ctrl: no action of their
+            // own then, S's slow motion is M), the right button drags the look, the wheel zooms
+            if (gScene.freeCam) {
+                if (ev.type == SDL_EVENT_KEY_DOWN || ev.type == SDL_EVENT_KEY_UP) {
+                    switch (ev.key.key) {
+                    case SDLK_W: case SDLK_A: case SDLK_S: case SDLK_D: case SDLK_Q: case SDLK_E: case SDLK_UP:
+                    case SDLK_DOWN: case SDLK_LEFT: case SDLK_RIGHT: case SDLK_LSHIFT: case SDLK_RSHIFT: case SDLK_LCTRL:
+                    case SDLK_RCTRL:
+                        return true;
+                    default: break;
+                    }
+                } else if ((ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN || ev.type == SDL_EVENT_MOUSE_BUTTON_UP) &&
+                           ev.button.button == SDL_BUTTON_RIGHT) {
+                    gFreeDrag = ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+                    return true;
+                } else if (ev.type == SDL_EVENT_MOUSE_MOTION && gFreeDrag) {
+                    gFreeLook[0] += ev.motion.xrel;
+                    gFreeLook[1] += ev.motion.yrel;
+                    return true;
+                } else if (ev.type == SDL_EVENT_MOUSE_WHEEL) {
+                    gFreeZoom += ev.wheel.y;
+                    return true;
+                }
+            }
+            // padpass: the keys' line names the pad's buttons once a pad is used, the keys once a key is
+            // (padglyphs: the pad's family / model; Controls > Button Prompts other than Auto: always that)
+            if (ev.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN)
+                gScene.padType = game::padStyleOf(ev.gbutton.which);
+            else if (ev.type == SDL_EVENT_KEY_DOWN && !isSystemKey(ev))
+                gScene.padType = -1;
+            if (const int forced = game::promptChoiceStyle(menu.cfg.padPrompts))
+                gScene.padType = forced < 0 ? -1 : forced;
+            // actorswap: the Actors panel (A, a pad's left shoulder): Up / Down the role, Left / Right its actor
+            if (gScene.castOpen && (ev.type == SDL_EVENT_KEY_DOWN || ev.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN)) {
+                int dx = 0, dy = 0;
+                if (ev.type == SDL_EVENT_KEY_DOWN) {
+                    switch (ev.key.key) {
+                    case SDLK_UP: dy = -1; break;
+                    case SDLK_DOWN: dy = 1; break;
+                    case SDLK_LEFT: dx = -1; break;
+                    case SDLK_RIGHT: dx = 1; break;
+                    default: break;
+                    }
+                } else {
+                    switch (ev.gbutton.button) {
+                    case SDL_GAMEPAD_BUTTON_DPAD_UP: dy = -1; break;
+                    case SDL_GAMEPAD_BUTTON_DPAD_DOWN: dy = 1; break;
+                    case SDL_GAMEPAD_BUTTON_DPAD_LEFT: dx = -1; break;
+                    case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: dx = 1; break;
+                    default: break;
+                    }
+                }
+                if (dx || dy) {
+                    if (dy)
+                        gScene.castRow = (gScene.castRow + dy + game::SceneView::kRoles) % game::SceneView::kRoles;
+                    else {
+                        gScene.castStep(gScene.castRow, dx);
+                        if (gSaveCast)
+                            gSaveCast();   // actors2: kept in launcher.ini
+                    }
+                    gScene.poke(SDL_GetTicks());
+                    return true;
+                }
+            }
+            if (ev.type == SDL_EVENT_KEY_DOWN) {
+                if (ev.key.repeat)
+                    return true;
+                switch (ev.key.key) {
+                case SDLK_A: a = 7; break;   // actorswap: the Actors panel
+                case SDLK_SPACE: case SDLK_P: a = 0; break;
+                case SDLK_R: case SDLK_RETURN: case SDLK_KP_ENTER: a = 1; break;
+                case SDLK_S: case SDLK_M: a = 2; break;
+                case SDLK_F: a = 6; break;
+                case SDLK_ESCAPE: case SDLK_BACKSPACE: a = 3; break;
+                case SDLK_C: a = 4; break;
+                case SDLK_T: a = 5; break;   // trailer: Subtitles on / off
+                default:   // (F12 screenshot, fullscreen keys, ...; any other key shows Clean View's hint again)
+                    if (!(ev.key.key >= SDLK_F1 && ev.key.key <= SDLK_F12))
+                        gScene.poke(SDL_GetTicks());
+                    return false;
+                }
+            } else if (ev.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+                switch (ev.gbutton.button) {
+                case SDL_GAMEPAD_BUTTON_START: case SDL_GAMEPAD_BUTTON_SOUTH: a = 0; break;
+                case SDL_GAMEPAD_BUTTON_WEST: a = 1; break;
+                case SDL_GAMEPAD_BUTTON_NORTH: a = 2; break;
+                case SDL_GAMEPAD_BUTTON_EAST: case SDL_GAMEPAD_BUTTON_BACK: a = 3; break;
+                // ipolish: in Free Cam the left stick's click is the speed (x4 on / off; the right stick's: Free Cam
+                // off) and the shoulders move down / up (held: read each frame below)
+                case SDL_GAMEPAD_BUTTON_LEFT_STICK:
+                    if (gScene.freeCam)
+                        gScene.freeFast = !gScene.freeFast;
+                    else
+                        a = 6;
+                    break;
+                case SDL_GAMEPAD_BUTTON_RIGHT_STICK: a = 6; break;
+                case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: if (!gScene.freeCam) a = 7; break;   // actorswap: the Actors panel
+                // padpass: Clean View and the subtitles by a pad too (the keys C / T only before)
+                case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: if (!gScene.freeCam) a = 4; break;
+                case SDL_GAMEPAD_BUTTON_DPAD_DOWN: a = 5; break;   // (the Actors panel open: its rows, above)
+                default: break;
+                }
+            } else if (ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+                a = ev.button.button == SDL_BUTTON_LEFT ? 0 : ev.button.button == SDL_BUTTON_RIGHT ? 1 : -1;
+            } else if (ev.type != SDL_EVENT_KEY_UP && ev.type != SDL_EVENT_GAMEPAD_BUTTON_UP && ev.type != SDL_EVENT_MOUSE_BUTTON_UP) {
+                return false;   // (motion, window events, the quit: as in a game)
+            }
+            if (ev.type == SDL_EVENT_KEY_DOWN || ev.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN)
+                gScene.poke(SDL_GetTicks());   // Clean View: the keys' hint for a moment
+            if (a == 4)
+                gScene.clean = !gScene.clean;
+            if (a == 5)
+                gScene.subtitles = !gScene.subtitles;
+            if (a == 7)
+                gScene.castOpen = !gScene.castOpen;
+            if (a == 6 && view && (gScene.phase == game::SceneView::Phase::Watching || gScene.phase == game::SceneView::Phase::Over)) {
+                gScene.freeCamToggle(view->cam);   // (from the scene's camera as last drawn)
+                gFreeDrag = false;
+                gFreeLook[0] = gFreeLook[1] = gFreeZoom = 0;
+            }
+            if (a == 0 && gScene.phase == game::SceneView::Phase::Over)
+                a = 1;   // over: pause = replay
+            if (a == 0 && gScene.phase == game::SceneView::Phase::Watching) {
+                // pause: the music and every sound held where they are (the arcade board too), as the game's own
+                // pause does (Audio::pause); unpaused they go on from that point (user 2026-10-22: the audio went on)
+                gScene.paused = !gScene.paused;
+                audio.pause(gScene.paused);
+            } else if (a == 1 && gScene.phase != game::SceneView::Phase::Seeking && gScene.replay(host.runtime())) {
+                audio.pause(false);   // (a replay while paused: nothing stays held)
+                audio.silence();
+                prevFrame.valid = false;
+                next = SDL_GetTicksNS();
+            } else if (a == 2)
+                gScene.slow = !gScene.slow;
+            else if (a == 3)
+                sceneBack = true;
+            return true;
+        };
+        if (skipLoop != loops - 1) {   // (skipfix: back in the game: nothing held from before counts)
+            skipMouse = false;
+            std::fill(skipKeys.begin(), skipKeys.end(), false);
+            skipStale = true;
+        }
+        skipLoop = loops;
+        while (SDL_PollEvent(&e)) {
+            if (gScene.active() && !feAttract && sceneEvent(e))
+                continue;
+            // the cut-scene's hold-to-skip: the buttons held (from the events: SDL's own state misses injected ones)
+            if ((e.type == SDL_EVENT_MOUSE_BUTTON_DOWN || e.type == SDL_EVENT_MOUSE_BUTTON_UP) && e.button.button == SDL_BUTTON_LEFT)
+                skipMouse = e.button.down;
+            else if ((e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP) && !e.key.repeat && e.key.scancode < SDL_SCANCODE_COUNT)
+                for (int p = 0; p < game::kInputPlayers; ++p)
+                    if (cfg.keys[p].has(game::kActFire, e.key.scancode) || cfg.keys[p].has(game::kActStart, e.key.scancode))
+                        skipKeys[size_t(e.key.scancode)] = e.key.down;
+            // pads: the gamepads' events (the attract: a button = a key, to the main menu)
+            if (SDL_Event k; feAttract && pads.menuKey(e, k)) e = k;
+            else if (pads.event(e)) continue;
+            if (gNet && gNet->dropAsk() && e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat &&
+                (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER)) {
+                gNet->dropContinue();   // (a player left: Enter = the host goes on without them)
+                continue;
+            }
+            if (e.type == SDL_EVENT_QUIT) running = false;
+            else if (feAttract && ((e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && !isFullscreenKey(e) && !isSystemKey(e) && e.key.key != SDLK_F12 &&
+                                    !(e.key.mod & SDL_KMOD_ALT) && e.key.key != SDLK_LALT && e.key.key != SDLK_RALT) ||
+                                   e.type == SDL_EVENT_MOUSE_BUTTON_DOWN)) {
+                // pc_main_loop 0x419168 (UNVERIFIED (teaser)): in the title / demo modes (2, 3, 8, 9) a mouse button
+                // (0x12FDB84 bits 0 / 1) or an Escape / Enter / keypad Enter / Space edge -> frontend_state 7 (the
+                // menus). Ours: any key or button (the start keys too: this attract does not start a game)
+                feAttract = false;
+                leaveGame();
+                screen = backToMenu();
+                if (attractKind == 2 && screen == Screen::Menu) {   // (liveattract: the Gallery's Attract Demo: its page,
+                    fe.mainMenuGroup(2);                            // its Exit back to Extras)
+                    fe.screenScenes();
+                }
+                attractKind = 0;
+                break;
+            } else if (feAttract && isFullscreenKey(e))
+                toggleFullscreen(window);
+            else if ((e.type == SDL_EVENT_FINGER_DOWN || e.type == SDL_EVENT_FINGER_UP || e.type == SDL_EVENT_FINGER_CANCELED) &&
+                     e.tfinger.touchID != SDL_PEN_TOUCHID && e.tfinger.touchID != SDL_MOUSE_TOUCHID) {
+                // edgereload: a touch screen has no off-screen to point at: a second finger put down while one is on
+                // the screen = the touch's player reloads (the first finger is the gun: SDL's touch mouse events)
+                fingersDown = std::max(0, fingersDown + (e.type == SDL_EVENT_FINGER_DOWN ? 1 : -1));
+                if (e.type == SDL_EVENT_FINGER_DOWN && fingersDown >= 2 && !paused)
+                    guns[playerOf(SDL_TOUCH_MOUSEID)].reload = true;
+            } else if (e.type == SDL_EVENT_MOUSE_MOTION) {
+                const SDL_MouseID id = e.motion.which;
+                if (paused) {
+                    pauseIn.mouseDy += e.motion.yrel;   // the pause menu (0x41ADF0: 0x12FDB9C)
+                    pauseIn.pointerMoved = true;
+                }
+                const bool pointer = id == SDL_TOUCH_MOUSEID || id == SDL_PEN_MOUSEID;   // absolute positions
+                if (relMice && id == 0)
+                    continue;   // relative mode: the desktop cursor's own events (warps), not a mouse
+                if (lightGuns.active() && !pointer)
+                    continue;   // pads: light guns on: every mouse through raw input (the desktop cursor is everyone's)
+                const int p = playerOf(id);
+                if ((p == 0 || id == 0 || pointer) && (!relMice || pointer)) { guns[p].x = e.motion.x; guns[p].y = e.motion.y; }
+                else moveGun(guns[p], e.motion.xrel, e.motion.yrel);   // x / y: SDL's one cursor, moved by every mouse
+                guns[p].pointer = pointer;   // edgereload: a touch / pen's edge pixel is on the picture (gunAtEdge)
+            } else if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+                if (relMice && e.button.which == 0)
+                    continue;
+                if (paused) {   // the pause menu: a mouse button activates the selected item (0x41ADF0: 0x12FDB84)
+                    pauseIn.activate = true;
+                    continue;
+                }
+                if (lightGuns.active() && e.button.which != SDL_TOUCH_MOUSEID && e.button.which != SDL_PEN_MOUSEID)
+                    continue;   // pads: light guns on: the buttons through raw input
+                const int p = playerOf(e.button.which);
+                Gun& g = guns[p];
+                if (e.button.button == SDL_BUTTON_LEFT) g.trigger = true;
+                else if (e.button.button == SDL_BUTTON_RIGHT) g.reload = true;
+                else if (e.button.button == SDL_BUTTON_MIDDLE && e.button.which == SDL_PEN_MOUSEID)
+                    g.reload = true;   // edgereload: the pen's barrel button (SDL: button 2) = reload, as its eraser (3)
+                else if (e.button.button == SDL_BUTTON_MIDDLE) { if (gNet) netStart = true; else rt.player_join(p); }   // that mouse's start button
+            } else if (e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP) {
+                // the players' aim keys, held (from the events: SDL_GetKeyboardState misses injected events);
+                // keybind: each player's own keys (cfg.keys, game/keybinds.h)
+                const SDL_Scancode sc = e.key.scancode;
+                for (int p = 0; p < 4; ++p)
+                    for (int d = 0; d < 4; ++d)
+                        if (cfg.keys[p].has(game::kActUp + d, sc))
+                            keyAim[p][d] = e.key.down;
+                if (!e.key.down || e.key.repeat)
+                    continue;
+                // keybind: the players whose keys work here (players 3 / 4: the 4P mode in a local game), the pause keys
+                const int keyPlayers = !gNet && rt.coop4_on() ? 4 : 2;
+                bool pauseKey = false;
+                for (int p = 0; p < 4; ++p)
+                    pauseKey = pauseKey || cfg.keys[p].has(game::kActPause, sc);
+                // the PC's pause (0x41ADF0): Escape / P open and close it in play; while paused the arrows / keypad 8 2
+                // pick the item, Enter / keypad Enter / Space activate it (the players' keys are not read meanwhile)
+                if (lightGuns.calibrating() && sc == SDL_SCANCODE_ESCAPE)   // pads: Esc ends the light-gun calibration
+                    lightGuns.cancelCalibration();
+                else if (sc == SDL_SCANCODE_F9 && lightGuns.active() && !paused)   // pads: the light-gun calibration
+                    lightGuns.startCalibration();
+                else if (sc == SDL_SCANCODE_ESCAPE || (pauseKey && !rt.name_entry_active()))   // (the name entry types P)
+                    pauseIn.toggle = true;
+                else if (paused && (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_KP_8))
+                    pauseIn.up = true;
+                else if (paused && (sc == SDL_SCANCODE_DOWN || sc == SDL_SCANCODE_KP_2))
+                    pauseIn.down = true;
+                else if (paused && (sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_KP_ENTER || sc == SDL_SCANCODE_SPACE) &&
+                         !(e.key.mod & SDL_KMOD_ALT))
+                    pauseIn.activate = true;
+                // (online: not from the keyboard: a letter typed would reach only this PC's game, out of the lockstep;
+                // the letters are shot as in the arcade)
+                else if (!gNet && rt.name_entry_active() && !(e.key.mod & SDL_KMOD_ALT) &&
+                         ((e.key.key >= SDLK_A && e.key.key <= SDLK_Z) || e.key.key == SDLK_PERIOD || e.key.key == SDLK_MINUS ||
+                          e.key.key == SDLK_SLASH || e.key.key == SDLK_BACKSPACE || e.key.key == SDLK_TAB ||
+                          e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER)) {
+                    // title-2: the name entry from the keyboard (a letter = a shot at it; '/' = '?', Shift+1 = '!')
+                    const SDL_Keycode k = e.key.key;
+                    rt.name_entry_key(k >= SDLK_A && k <= SDLK_Z ? int('A' + (k - SDLK_A)) : k == SDLK_PERIOD ? '.'
+                                      : k == SDLK_MINUS ? '-' : k == SDLK_SLASH ? '?' : k == SDLK_BACKSPACE ? 8
+                                      : k == SDLK_TAB ? 9 : 13);
+                }
+                else if (!gNet && rt.name_entry_active() && e.key.key == SDLK_1 && (e.key.mod & SDL_KMOD_SHIFT))
+                    rt.name_entry_key('!');
+                else if (isFullscreenKey(e))   // fullscreen on / off
+                    toggleFullscreen(window);
+                else if (e.key.key == SDLK_N && devLines) step = true;   // developer: one game frame while paused
+                else if (e.key.key == SDLK_F7 && !e.key.repeat) {   // trailer: Trailer Mode on / off (this run only)
+                    gTrailer = !gTrailer;
+                    gTrailerNote = std::max<uint64_t>(SDL_GetTicks(), 1);
+                }
+                else if (paused && !isFullscreenKey(e) && e.key.key != SDLK_F12 && e.key.key != SDLK_F1) {}   // paused: no player keys
+                else if (e.key.key == SDLK_F3 && gNet) {   // online co-op's info: Small (the ping) -> Detailed -> Off (kept)
+                    netInfo = netInfo == 1 ? 2 : netInfo == 2 ? 0 : 1;
+                    if (online.saveSettings && launcher) online.saveSettings();
+                }
+                else if (e.key.key == SDLK_F12) shot = true;
+                else if (e.key.key == SDLK_F1 && (devLines || devKeys || !playerRun)) debugLines = !debugLines;   // (remakefix: a player run: only with --dev-lines / --dev-keys)
+                else if ((e.key.key == SDLK_1 || e.key.key == SDLK_2) && (e.key.mod & SDL_KMOD_CTRL) && fe.cheatsOn() && !gNet) {
+                    // the PC's SKIDMARX cheat (pc_main_loop 0x419168: Ctrl + 1 / 2 toggle bit 1 / 2 of 0x5CCEF8, then
+                    // pc_gun_input refills that player's rounds and lives; docs/teaser_status/pc_cheats.md)
+                    const int p = e.key.key == SDLK_1 ? 0 : 1;
+                    rt.cheatInfinite ^= 1 << p;
+                    rt.cheatRounds[p] = rt.cheatLives[p] = 0;
+                    SDL_Log("cheat: player %d infinite rounds / lives %s", p + 1, (rt.cheatInfinite >> p) & 1 ? "on" : "off");
+                }
+                else {
+                    // keybind: the players' start (join / continue: player_start_check; netplay: this PC's player's
+                    // start, through the lockstep; player 2's: this PC's second seat in the 4P game on two PCs), fire and
+                    // reload keys (a key bound twice does both)
+                    for (int p = 0; p < keyPlayers; ++p) {
+                        if (cfg.keys[p].has(game::kActStart, sc)) {
+                            if (gNet && p == 1 && rt.coop4_on() && gNet->seatsHere() == 2) netStart2 = true;
+                            else if (gNet) netStart = true;
+                            else rt.player_join(p);
+                        }
+                        if (cfg.keys[p].has(game::kActFire, sc)) guns[p].trigger = true;
+                        if (cfg.keys[p].has(game::kActReload, sc)) guns[p].reload = true;
+                    }
+                }
+            } else if (e.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
+                std::fill(&keyAim[0][0], &keyAim[0][0] + 16, false);
+                // the PC (window procedure 0x5660C0 on WM_ACTIVATEAPP -> 0x5633D0 -> message 0xF -> 0x4185BC): the game
+                // pauses when its window goes inactive (Continue selected) and goes on when it is active again.
+                // Not in automated runs (their windows are never focused)
+                // only in play (game mode 4, as Escape / P): never on the splash, attract or title (user 2026-10-17:
+                // the pause came up before the main menu)
+                // galfix4 (user 2026-10-30: "alt tabbing during a gallery cutscene pauses like it is a game. I can not
+                // resume"): the cut-scene viewer reads its own keys (sceneEvent), so the game's pause menu could never
+                // be closed there; its own pause instead (Space / the pad's A / a click goes on, as its hint says)
+                if (gScene.active()) {
+                    if (gScene.phase == game::SceneView::Phase::Watching && !gScene.paused) {   // (HOTD_SCENE_TEST sends one)
+                        gScene.paused = true;
+                        audio.pause(true);
+                    }
+                } else if (!automated && !gNet && host.runtime().mem.at<int16_t>(game::A::G::game_mode) == 4 && !pause.paused())
+                    pause.focus(false);
+            }
+            // focus back (Alt+Tab): the pause stays until Continue (user 2026-10-17; the PC resumes by itself here,
+            // 0x4185BC message 0xF -> 0x41ACF0)
+        }
+        // HOTD_SCENE_TEST=<dir> with --scene-view (testing, hidden window): pictures 40 / 100 frames into the scene,
+        // Space pauses (the frame must hold), Space + S (slow), at the end R (replay), at the second end Escape (the page)
+        if (static const char* stDir = std::getenv("HOTD_SCENE_TEST"); stDir && gScene.active() && screen == Screen::Game) {
+            int& stage = gSceneTestStage;
+            static uint64_t mark = 0;
+            static int loops = 0;
+            const auto key = [&](SDL_Keycode k) {
+                SDL_Event ev{};
+                ev.type = SDL_EVENT_KEY_DOWN;
+                ev.key.key = k;
+                ev.key.down = true;
+                ev.key.windowID = SDL_GetWindowID(window);
+                SDL_PushEvent(&ev);
+            };
+            const bool watching = gScene.phase == game::SceneView::Phase::Watching && !gScene.leadIn();
+            const auto pic = [&](const char* n) {
+                shotDir = stDir;
+                shotName = std::string("scene_") + n;
+                shot = true;
+            };
+            static bool hintShot = false;   // Clean View: the keys' hint 20 frames into the first watch
+            if (!hintShot && gScene.phase == game::SceneView::Phase::Watching && rt.frameCount >= gScene.watchFrom + 20) {
+                hintShot = true;
+                pic("hint");
+            } else if (stage == 0 && watching) {
+                // galfix4: Alt+Tab while watching: the viewer's own pause (the frame holds), Space goes on
+                SDL_Event ev{};
+                ev.type = SDL_EVENT_WINDOW_FOCUS_LOST;
+                ev.window.windowID = SDL_GetWindowID(window);
+                SDL_PushEvent(&ev);
+                stage = 20;
+                loops = 0;
+                mark = rt.frameCount;
+            } else if (stage == 20 && ++loops == 20) {
+                SDL_Log("scene test: focus lost: viewer %s, game pause %s, frame %s", gScene.paused ? "paused" : "NOT PAUSED",
+                        pause.paused() ? "OPEN (dead end)" : "closed", rt.frameCount <= mark + 1 ? "held" : "NOT HELD");
+                key(SDLK_SPACE);
+                stage = 21;
+                loops = 0;
+                mark = rt.frameCount;
+            } else if (stage == 21 && ++loops == 20) {
+                SDL_Log("scene test: after focus loss, Space: %s", !gScene.paused && rt.frameCount > mark + 5 ? "goes on" : "STILL PAUSED");
+                stage = 1;
+                mark = rt.frameCount;
+            }
+            else if (stage == 1 && rt.frameCount >= mark + 40) { pic("a"); key(SDLK_SPACE); stage = 2; loops = 0; mark = rt.frameCount; }
+            else if (stage == 2 && ++loops == 30) {
+                SDL_Log("scene test: paused %s (frame %llu -> %llu)", rt.frameCount <= mark + 1 ? "holds" : "DID NOT HOLD",
+                        (unsigned long long)mark, (unsigned long long)rt.frameCount);
+                // actorswap: still paused, the Actors panel (A), Rogan's part the next actor (Right): its picture
+                key(SDLK_A);
+                key(SDLK_RIGHT);
+                stage = 8;
+                loops = 0;
+            } else if (stage == 8 && ++loops == 5) {
+                SDL_Log("scene test: actors: Rogan's part %s, panel %s, frame %s", gScene.castLabel(0).c_str(),
+                        gScene.castOpen ? "open" : "CLOSED", rt.frameCount <= mark + 1 ? "held" : "NOT HELD");
+                pic("actors");
+                key(SDLK_LEFT);   // (the cast back, the panel closed)
+                key(SDLK_A);
+                key(SDLK_SPACE);
+                key(SDLK_S);
+                stage = 3;
+                mark = rt.frameCount;
+            } else if (stage == 3 && rt.frameCount >= mark + 60) {
+                pic("b");
+                key(SDLK_S);
+                // Free Cam: F on, a right-drag 200 pixels right, two wheel notches in, then (stage 7) its picture, F off
+                key(SDLK_F);
+                SDL_Event ev{};
+                ev.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+                ev.button.button = SDL_BUTTON_RIGHT;
+                ev.button.down = true;
+                ev.button.windowID = SDL_GetWindowID(window);
+                SDL_PushEvent(&ev);
+                ev = {};
+                ev.type = SDL_EVENT_MOUSE_MOTION;
+                ev.motion.xrel = 200;
+                ev.motion.windowID = SDL_GetWindowID(window);
+                SDL_PushEvent(&ev);
+                ev = {};
+                ev.type = SDL_EVENT_MOUSE_BUTTON_UP;
+                ev.button.button = SDL_BUTTON_RIGHT;
+                ev.button.windowID = SDL_GetWindowID(window);
+                SDL_PushEvent(&ev);
+                ev = {};
+                ev.type = SDL_EVENT_MOUSE_WHEEL;
+                ev.wheel.y = 2;
+                ev.wheel.windowID = SDL_GetWindowID(window);
+                SDL_PushEvent(&ev);
+                stage = 7;
+                loops = 0;
+            } else if (stage == 7 && ++loops == 10) {
+                const auto* fc = gScene.freeCamNow();
+                SDL_Log("scene test: free cam %s, yaw %+.2f rad, fov x%.2f from the scene's camera%s", fc ? "on" : "OFF",
+                        fc && view ? double(fc->yaw - view->cam.yaw) : 0.0, fc && view ? double(fc->fovY / view->cam.fovY) : 0.0,
+                        view && view->camOverride == fc ? "" : " (NOT DRAWN)");
+                pic("freecam");
+                stage = 9;   // ipolish: then a pad's Free Cam (below)
+                key(SDLK_SPACE);   // (paused meanwhile: a photo mode; the scene does not end)
+                loops = 0;
+            } else if (stage == 9) {
+                // ipolish: Free Cam by a (virtual) pad: left stick forward, RB up, the left stick's click (fast); the
+                // camera's move along its forward / up axes, the keys' line in the pad's names (HOTD_SCENE_PAD=ps: a
+                // DualSense, else an Xbox pad), its picture; then F off
+                static SDL_JoystickID vid = 0;
+                static SDL_Joystick* vj = nullptr;
+                static float at0[3] = {};
+                const bool ps = std::getenv("HOTD_SCENE_PAD") && std::string(std::getenv("HOTD_SCENE_PAD")) == "ps";
+                const auto press = [&](SDL_GamepadButton b, bool down) {
+                    if (vj) SDL_SetJoystickVirtualButton(vj, b, down);
+                };
+                ++loops;
+                if (loops == 1) {
+                    SDL_VirtualJoystickDesc d;
+                    SDL_INIT_INTERFACE(&d);
+                    d.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+                    d.naxes = SDL_GAMEPAD_AXIS_COUNT;
+                    d.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+                    d.vendor_id = ps ? 0x054C : 0x045E;
+                    d.product_id = ps ? 0x0CE6 : 0x0B12;
+                    d.name = ps ? "Test DualSense" : "Test Xbox pad";
+                    vid = SDL_AttachVirtualJoystick(&d);
+                    vj = vid ? SDL_OpenJoystick(vid) : nullptr;
+                } else if (loops == 8) {
+                    std::copy(gScene.freeCamera.pos, gScene.freeCamera.pos + 3, at0);
+                    press(SDL_GAMEPAD_BUTTON_LEFT_STICK, true);
+                    press(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, true);
+                    if (vj) SDL_SetJoystickVirtualAxis(vj, SDL_GAMEPAD_AXIS_LEFTY, -32767);
+                } else if (loops == 9) {
+                    press(SDL_GAMEPAD_BUTTON_LEFT_STICK, false);
+                    press(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, false);
+                    if (vj) SDL_SetJoystickVirtualAxis(vj, SDL_GAMEPAD_AXIS_LEFTY, 0);
+                } else if (loops == 30) {
+                    gScene.poke(SDL_GetTicks());   // (Clean View: the keys' line shown)
+                } else if (loops == 32) {
+                    float r[3], u[3], f[3], d[3];
+                    gScene.freeCamera.basis(r, u, f);
+                    for (int k = 0; k < 3; ++k) d[k] = gScene.freeCamera.pos[k] - at0[k];
+                    SDL_Log("scene test: free cam by a pad: forward %+.1f, up %+.1f, fast %s, pad prompts %s", double(d[0] * f[0] + d[1] * f[1] + d[2] * f[2]),
+                            double(d[0] * u[0] + d[1] * u[1] + d[2] * u[2]), gScene.freeFast ? "on" : "OFF",
+                            gScene.padType >= 0 ? "on" : "OFF");
+                    pic("freecam_pad");
+                } else if (loops == 45) {
+                    if (vj) SDL_CloseJoystick(vj);
+                    if (vid) SDL_DetachVirtualJoystick(vid);
+                    vj = nullptr, vid = 0;
+                    key(SDLK_F);
+                    key(SDLK_SPACE);
+                    stage = 4;
+                }
+            }
+            else if (stage == 4 && gScene.phase == game::SceneView::Phase::Over) {
+                SDL_Log("scene test: over at frame %llu, replay", (unsigned long long)rt.frameCount);
+                pic("over");
+                key(SDLK_R);
+                stage = 5;
+            } else if (stage == 5 && gScene.phase == game::SceneView::Phase::Over) {
+                SDL_Log("scene test: over again at frame %llu, back to the page", (unsigned long long)rt.frameCount);
+                key(SDLK_ESCAPE);
+                stage = 6;
+            }
+        }
+        // the cut-scene viewer: Back (Esc), or its seek failed: the Cut-scenes page again (no menu: the end)
+        if ((sceneBack || gScene.failed) && screen == Screen::Game && running) {
+            gScene.failed = false;
+            gScene.stop();
+            leaveGame();
+            if (launcher && feLoaded) {
+                screen = backToMenu();
+                if (screen == Screen::Menu)
+                    fe.screenScenes();
+            } else
+                running = false;
+            continue;
+        }
+        // pads: the gamepads' and light guns' buttons / positions into the guns, the start buttons, the pause
+        if (screen == Screen::Game && running && !feAttract && !gScene.active()) {
+            pads.apply(rt, guns, pause, pauseIn, lw, lh);
+            lightGuns.apply(rt, guns, paused, lw, lh);
+            if (lightGuns.calibrated) {   // a light gun calibrated (F9): kept in launcher.ini
+                lightGuns.calibrated = false;
+                for (int p = 0; p < game::kInputPlayers; ++p)   // (players 3 / 4 too: gun3cal / gun4cal)
+                    std::copy(lightGuns.cal[p], lightGuns.cal[p] + 4, cfg.gunCal[p]);
+                if (inputTestFile.empty()) {   // (the input test's calibration is not kept)
+                    std::copy(&cfg.gunCal[0][0], &cfg.gunCal[0][0] + 4 * game::kInputPlayers, &menu.cfg.gunCal[0][0]);
+                    if (launcher) menu.cfg.save(cache + "launcher.ini");   // (the launcher's choices + the calibration)
+                }
+            }
+        }
+        if (screen == Screen::Game && running) {
+            // HOTD_PAUSE_AT=F:N in a window (developer, pause): the pause opens at the first game frame from F where it
+            // can (Escape), stays N loops, then a screenshot of the pause screen (F12's) and P closes it
+            static long long winPauseAt = -1, winPauseFor = 0, winPaused = -1;
+            if (static bool parsed = false; !parsed) {
+                parsed = true;
+                unsigned long long f = 0;
+                int n = 0;
+                if (const char* ev = std::getenv("HOTD_PAUSE_AT"); ev && std::sscanf(ev, "%llu:%d", &f, &n) == 2 && n > 0) {
+                    winPauseAt = (long long)f;
+                    winPauseFor = n;
+                }
+            }
+            if (winPauseAt >= 0 && (long long)rt.frameCount >= winPauseAt && winPaused < 0 && !paused)
+                pauseIn.toggle = true;
+            else if (winPaused >= 0 && paused && ++winPaused == winPauseFor)
+                shot = true;
+            else if (winPaused > winPauseFor && paused) {
+                pauseIn.toggle = true;
+                winPauseAt = -1;
+            }
+            const bool wasPaused = paused;
+            if (paused && lh > 0) {
+                // ours: which pause item player 1's pointer is on. The items (Hud::drawPause) are centred on the PC's
+                // 640 x 480 screen fitted to the window's height: "Continue" at y 248, "Exit" at y 272, ~20 high
+                const float s = float(lh) / 480.0f, px = (guns[0].x - (float(lw) / 2.0f - 320.0f * s)) / s,
+                            py = guns[0].y / s;
+                if (std::abs(px - 320.0f) <= 90.0f)
+                    pauseIn.hover = py >= 244.0f && py < 270.0f ? 0 : py >= 270.0f && py < 296.0f ? 1 : -1;
+            }
+            pause.cutScenes = !gNet;   // (bossbug: the pause in cut-scenes too, local games)
+            if (gScene.active() && pause.paused())
+                pause.reset();   // galfix4: never the game's pause in the cut-scene viewer (its keys never reach it)
+            pause.frame(rt, pauseIn);   // 0x41ADF0
+            if (winPauseAt >= 0 && !wasPaused && pause.paused() && winPaused < 0)
+                winPaused = 0;
+            pauseIn = {};
+            paused = pause.paused();
+            if (gNet) {   // online: every PC shows who paused (P<n> PAUSED); paused, this PC keeps the link alive
+                gNet->setPaused(paused);
+                if (paused) gNet->idle();
+            }
+            if (pauseExit) {   // Exit (0x41AD34): the main menu (no launcher: the game ends)
+                pauseExit = false;
+                if (launcher) { leaveGame(); screen = backToMenu(); }
+                else running = false;
+            }
+            // the cut-scene's hold-to-skip (kSkipHold above): the time held, by real time (the input test: 1/60 s a
+            // loop); paused: kept where it was
+            const Uint64 skipNow = SDL_GetTicksNS();
+            const double skipDt = inputTest ? 1.0 / 60.0 : skipAt ? double(skipNow - skipAt) * 1e-9 : 0.0;
+            skipAt = skipNow;
+            if (!paused && screen == Screen::Game) {
+                // (skipfix: the buttons tracked here only while this loop runs: one let go in the menus (their own
+                // event loops) stayed "held" and the next cut-scene skipped by itself; a real mouse / keyboard: SDL's
+                // own state too)
+                const SDL_MouseButtonFlags mouseNow = SDL_GetMouseState(nullptr, nullptr);
+                const bool* keysNow = SDL_GetKeyboardState(nullptr);
+                bool held = skipMouse && (inputTest || (mouseNow & SDL_BUTTON_LMASK) != 0);
+                for (size_t k = 0; k < skipKeys.size() && !held; ++k)
+                    held = skipKeys[k] && (inputTest || (keysNow && keysNow[k]));
+                for (int p = 0; p < game::kInputPlayers && !held; ++p)
+                    if (SDL_Gamepad* g = pads.padOf(p) ? SDL_GetGamepadFromID(pads.padOf(p)) : nullptr)
+                        held = SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_SOUTH) ||
+                               SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 16000 || pads.fireHeld(p);   // (padpass: its own fire too)
+                const bool scene = cutSceneNow(rt);
+                // (fix28: from the rescue (5) on, through the gift's bars (3 / 4 / 1), until the play is back (2))
+                skipReward = (skipReward || rewardScene(rt)) && rt.mem.at<uint8_t>(game::A::G::scene_state) != 2 &&
+                             rt.mem.at<int16_t>(game::A::G::game_mode) == 4;
+                if (!scene) {
+                    if (skipFast) {
+                        skipFast = false;
+                        audio.quietEffects(false);
+                        SDL_Log("cut-scene skip: done at frame %llu", (unsigned long long)rt.frameCount);
+                    }
+                    skipHeldS = 0;
+                    skipStale = held;   // (skipfix: held when such a scene begins: let go first)
+                } else if (!skipFast && !holdSkipScene(rt)) {   // (skipfix: the card, an arcade-skippable part, Off)
+                    skipHeldS = 0;
+                    skipStale = held;
+                } else if (!skipFast) {
+                    if (!held)   // (skipfix: a fresh press only: whatever was held when the scene began is let go first)
+                        skipStale = false;
+                    skipHeldS = held && !skipStale ? skipHeldS + std::min(skipDt, 0.25) : 0.0;
+                    if (skipHeldS >= kSkipHold) {
+                        skipFast = true;
+                        audio.quietEffects(true);
+                        SDL_Log("cut-scene skip: held %.1f s, from frame %llu", skipHeldS, (unsigned long long)rt.frameCount);
+                    }
+                }
+            } else if (screen != Screen::Game) {
+                skipHeldS = 0;
+                skipStale = true;
+            }
+        }
+        if (screen != Screen::Game || !running)
+            continue;
+        if (paused && !step)   // a click while paused does not fire when the game goes on (N: it fires on that frame)
+            for (Gun& g : guns)
+                g.trigger = g.reload = false;
+        // the game logic at exactly the game speed's rate (rate: arcade 57.524 Hz, or 60), whatever the display / render
+        // rate: a fixed time step with an accumulator (`next` = when the next tick is due, advanced by one period per
+        // tick), never one tick per rendered frame. A render may run 0, 1 or (catching up) up to 4 ticks; a longer
+        // stall drops the time instead of speeding up afterwards. Slack: a tick due within a quarter period runs now
+        // (no 0 / 2 tick beats when the render rate is the tick rate too); the long-run rate stays exact. The input
+        // test: one game frame per loop.
+        const Uint64 now = SDL_GetTicksNS();
+        if (inputTest && !paused)
+            next = now;
+        // pads (worker "padfeel"): the sticks' / gyro's / trackpad's aim every loop, i.e. every rendered frame, by real
+        // time (frame-rate independent; the input test: 1/60 s a loop), before the ticks: the crosshair drawn below and
+        // a shot in the ticks are the newest input's (netplay: this PC's guns too)
+        {
+            static Uint64 aimAt = 0;
+            const bool aimOn = !paused && !lightGuns.calibrating();
+            const float adt = inputTest ? 1.0f / 60.0f : aimAt ? float(double(now - aimAt) * 1e-9) : 0.0f;
+            aimAt = aimOn ? now : 0;
+            if (aimOn)
+                pads.aim(guns, lw, lh, adt);
+        }
+        // the cut-scene viewer's Free Cam (game/scene_view.h): moved every rendered frame by real time (paused too: a
+        // photo mode); keys W A S D / arrows, Q / E down / up, Shift / Ctrl; the mouse's right-drag and wheel (sceneEvent);
+        // player 1's pad: left stick move, right stick look, triggers down / up
+        {
+            static Uint64 camAt = 0;
+            const float cdt = camAt ? float(double(now - camAt) * 1e-9) : 0.0f;
+            camAt = gScene.freeCam ? now : 0;
+            if (gScene.freeCam) {
+                game::SceneView::FreeCamInput in;
+                const bool* ks = SDL_GetKeyboardState(nullptr);
+                const auto key = [&](SDL_Scancode s) { return ks && ks[s] ? 1.0f : 0.0f; };
+                in.move[0] = key(SDL_SCANCODE_D) + key(SDL_SCANCODE_RIGHT) - key(SDL_SCANCODE_A) - key(SDL_SCANCODE_LEFT);
+                in.move[1] = key(SDL_SCANCODE_E) - key(SDL_SCANCODE_Q);
+                in.move[2] = key(SDL_SCANCODE_W) + key(SDL_SCANCODE_UP) - key(SDL_SCANCODE_S) - key(SDL_SCANCODE_DOWN);
+                in.fast = key(SDL_SCANCODE_LSHIFT) + key(SDL_SCANCODE_RSHIFT) > 0;
+                in.fine = key(SDL_SCANCODE_LCTRL) + key(SDL_SCANCODE_RCTRL) > 0;
+                constexpr float kMouseTurn = 0.004f;   // radians a pixel of the right-drag
+                in.look[0] = gFreeLook[0] * kMouseTurn;
+                in.look[1] = -gFreeLook[1] * kMouseTurn;
+                in.zoom = gFreeZoom;
+                gFreeLook[0] = gFreeLook[1] = gFreeZoom = 0;
+                // ipolish: every open pad (before: player 1's only, none while player 1 aims with the mouse); the
+                // shoulders LB / RB down / up too, the left stick's click the speed (SceneView::freeFast)
+                int npads = 0;
+                SDL_JoystickID* ids = SDL_GetGamepads(&npads);
+                for (int k = 0; ids && k < npads; ++k) {
+                    SDL_Gamepad* g = SDL_GetGamepadFromID(ids[k]);
+                    if (!g)
+                        continue;
+                    const auto axis = [&](SDL_GamepadAxis a) {
+                        const float v = float(SDL_GetGamepadAxis(g, a)) / 32767.0f;
+                        return std::abs(v) < 0.2f ? 0.0f : std::clamp(v, -1.0f, 1.0f);   // (the dead zone)
+                    };
+                    const auto held = [&](SDL_GamepadButton b) { return SDL_GetGamepadButton(g, b) ? 1.0f : 0.0f; };
+                    in.move[0] += axis(SDL_GAMEPAD_AXIS_LEFTX);
+                    in.move[2] -= axis(SDL_GAMEPAD_AXIS_LEFTY);
+                    in.move[1] += axis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) - axis(SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
+                    in.move[1] += held(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER) - held(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
+                    constexpr float kStickTurn = 2.0f;   // radians a second at full tilt
+                    in.look[0] += axis(SDL_GAMEPAD_AXIS_RIGHTX) * kStickTurn * cdt;
+                    in.look[1] -= axis(SDL_GAMEPAD_AXIS_RIGHTY) * kStickTurn * cdt;
+                }
+                SDL_free(ids);
+                in.fast = in.fast || gScene.freeFast;
+                for (float& m : in.move)
+                    m = std::clamp(m, -1.0f, 1.0f);
+                gScene.freeCamStep(in, cdt);
+            }
+            if (view)
+                view->camOverride = gScene.freeCamNow();
+        }
+        // the players' keyboard aim (keybind: their own keys; player 2's arrows by default), about a screen width in 1.5 s
+        // a game tick (only while held: a second mouse's gun pushed past the window stays there)
+        const auto keyAimMove = [&](Gun& g, const bool* k) {   // up, down, left, right
+            if (!(k[0] || k[1] || k[2] || k[3]))
+                return;
+            const float v = lw / 90.0f;
+            g.x = std::clamp(g.x + v * ((k[3] ? 1 : 0) - (k[2] ? 1 : 0)), 0.0f, float(lw));
+            g.y = std::clamp(g.y + v * ((k[1] ? 1 : 0) - (k[0] ? 1 : 0)), 0.0f, float(lh));
+            g.pointer = false;
+        };
+        gScene.applyCast(rt);   // actorswap: the viewer's Actors (draws only; every role its own outside the viewer)
+        // the cut-scene viewer: the seek runs ahead headless (a slice of time per loop); the ticks wait while it does,
+        // while it is paused and once the scene is over
+        if (gScene.phase == game::SceneView::Phase::Seeking) {
+            gAutofireQuiet = true;
+            gScene.seek(rt, 12.0, [](game::Runtime& r) { autofire(r, int(r.frameCount)); });
+            gAutofireQuiet = false;
+            prevFrame.valid = false;
+        }
+        const bool sceneHold = gScene.active() && (gScene.phase != game::SceneView::Phase::Watching || gScene.paused);
+        int runs = 0;
+        // (the cut-scene's hold-to-skip: up to kSkipTicks frames a loop, whatever the clock, until the scene ends)
+        while ((!paused || step) && !sceneHold && !lightGuns.calibrating() && (skipFast || now + frameNs / 4 >= next) &&
+               runs < (skipFast ? kSkipTicks : inputTest ? 1 : gSonic.preset ? 8 : 4)) {
+            if (gNet) {   // netplay (docs/netplay.md): this PC's mouse (and keys) = its player's gun; the frame runs when both are in
+                if (gNet->dropAsk() && netStart) {   // a player left: the host's start (pad / key) = go on without them
+                    netStart = false;
+                    gNet->dropContinue();
+                }
+                if (gNetQuitAt > 0 && rt.frameCount >= uint64_t(gNetQuitAt)) {   // HOTD_NET_QUIT_AT (testing): the window closed
+                    gNetQuitAt = 0;
+                    std::printf("frame %llu: HOTD_NET_QUIT_AT: the window is closed\n", (unsigned long long)rt.frameCount);
+                    SDL_Event q{};
+                    q.type = SDL_EVENT_QUIT;
+                    SDL_PushEvent(&q);
+                }
+                auto sample = [&]() {
+                    if (fire)   // --autofire (testing): the headless runs' player
+                        return netAutofireSeats(rt, fire, startAt, gNet->localPlayer(), gNet->frame() + gNet->session().delay());
+                    net::Input in;
+                    // the keyboard aim, once per input frame (the lockstep's: the aim it gives is sent like the mouse's):
+                    // player 1's keys move this PC's player; player 2's its second seat in the 4P game on two PCs, else
+                    // this PC's player too with Player 2 input = keyboard (as the fire / reload keys)
+                    const bool twoHere = rt.coop4_on() && gNet->seatsHere() == 2;
+                    bool k0[4];
+                    for (int d = 0; d < 4; ++d)
+                        k0[d] = keyAim[0][d] || (!twoHere && cfg.p2Input == 1 && keyAim[1][d]);
+                    keyAimMove(guns[0], k0);
+                    if (twoHere)
+                        keyAimMove(guns[1], keyAim[1]);
+                    if (twoHere) {   // the 4-seat game on two PCs: this PC's input slot 1 (guns[1]) plays its second seat
+                        float bx, by, gx2 = guns[1].x, gy2 = guns[1].y;
+                        gCrt.toSource(gx2, gy2, lw, lh);
+                        view->toArcade(gx2, gy2, lw, lh, bx, by);
+                        const bool edge2 = guns[1].x < 1.0f || guns[1].x > float(lw) - 2.0f || guns[1].y < 1.0f || guns[1].y > float(lh) - 2.0f;
+                        if (!guns[1].reload && !edge2 && std::abs(by) < 192.0f)
+                            in.flags2 |= net::Input::kOnScreen;
+                        if (guns[1].trigger || guns[1].reload)
+                            in.flags2 |= net::Input::kTrigger;
+                        in.x2 = std::clamp(bx, -4000.0f, 4000.0f);
+                        in.y2 = std::clamp(by, -4000.0f, 4000.0f);
+                        if (netStart2)
+                            in.flags2 |= net::Input::kStart;
+                        guns[1].trigger = guns[1].reload = false;
+                    }
+                    netStart2 = false;
+                    float ax, ay;
+                    float gx, gy;
+                    gunPoint(guns[0], lw, lh, gx, gy);
+                    gCrt.toSource(gx, gy, lw, lh);   // crt: the point the curved screen shows under the pointer
+                    view->toArcade(gx, gy, lw, lh, ax, ay);
+                    const float halfW = gameHalfW(cfg.aspect, lw, lh);
+                    const bool atEdge = gunAtEdge(guns[0], lw, lh);
+                    // the keyboard's trigger / reload keys count too (player 2 on the keyboard); a second mouse / pad / gun
+                    // configured as player 2 on this PC is not this PC's player
+                    const bool keys = cfg.p2Input == 1;
+                    const bool reload = guns[0].reload || (keys && guns[1].reload);
+                    if (!reload && !atEdge && std::abs(ax) < halfW - 1e-3f && std::abs(ay) < 192.0f)
+                        in.flags |= net::Input::kOnScreen;
+                    if (guns[0].trigger || (keys && guns[1].trigger) || reload)
+                        in.flags |= net::Input::kTrigger;
+                    in.x = std::clamp(ax, -4000.0f, 4000.0f);
+                    in.y = std::clamp(ay, -4000.0f, 4000.0f);
+                    guns[0].trigger = guns[0].reload = guns[1].trigger = guns[1].reload = false;
+                    if (netStart)
+                        in.flags |= net::Input::kStart;
+                    netStart = false;
+                    // launcher "Auto reload" (online the host's setting: netApply) for this PC's seats: its player, and
+                    // its second seat in the 4P game on two PCs (below for a local game)
+                    rt.pm_auto_reload = cfg.autoReload;
+                    if (cfg.autoReload && autoReloadWanted(rt, gNet->localPlayer()))
+                        in.flags = uint8_t((in.flags & ~net::Input::kOnScreen) | net::Input::kTrigger);
+                    if (cfg.autoReload && twoHere && autoReloadWanted(rt, gNet->secondSeat()))
+                        in.flags2 = uint8_t((in.flags2 & ~net::Input::kOnScreen) | net::Input::kTrigger);
+                    netTeamSeats(rt, in);   // this PC's second seat played by a computer teammate
+                    // a joiner's trigger in a cut-scene: no skip (only the host's counts: NetGame::applyInputs), a note
+                    if (!gNet->session().isHost() && ((in.flags | in.flags2) & net::Input::kTrigger) && net::NetGame::onlyHostSkips(rt))
+                        netSkipNoteUntil = SDL_GetTicks() + 2000;
+                    return in;
+                };
+                if (gNet->step(rt, sample, 0) != net::NetGame::Step::Run)
+                    break;
+                if (netKeyAimTest()) {   // HOTD_NET_KEYAIM_TEST (testing): the key held, the guns printed, the end
+                    netKeyAimPrint(rt);
+                    const long long f = gNet->frame();
+                    if (f == gKeyAimAt || f == gKeyAimAt + 60) {
+                        SDL_Event ev{};
+                        ev.type = f == gKeyAimAt ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+                        ev.key.scancode = cfg.keys[1].k[game::kActLeft][0];
+                        ev.key.down = f == gKeyAimAt;
+                        ev.key.windowID = SDL_GetWindowID(window);
+                        SDL_PushEvent(&ev);
+                    }
+                    if (f >= gKeyAimEnd) {
+                        gNet->settle(rt, 3000);
+                        running = false;
+                        break;
+                    }
+                }
+            }
+            if (!gNet) {   // a local game's input (netplay: above); not re-indented
+            // the players' keyboard aim (keyAimMove); players 3 / 4 in the 4P mode (not during the name entry)
+            for (int p = 0; p < (rt.coop4_on() && !rt.name_entry_active() ? 4 : 2); ++p)
+                keyAimMove(guns[p], keyAim[p]);
+            // into the gun-input layer (Runtime::gun -> input_task: the player records player_shoot reads); on the
+            // screen strictly inside the Model 2 screen (496 x 384): a gun at the window's top / bottom edge (always
+            // exactly +-192) aims off it, so a shot there reloads as the original's off-screen shot. Across: the game
+            // area (display): widescreen = the whole window (hor+: |x| < the window's half width in arcade units, so the
+            // left / right edge is off it too), original 4:3 = the 496 x 384 screen (the bars are off it); outside the
+            // window (a mouse pushed past it) is off it in both
+            const float halfW = gameHalfW(cfg.aspect, lw, lh);
+            for (int p = 0; p < rt.seat_count(); ++p) {   // 4P: players 3 / 4 too
+                float ax, ay;
+                float gx, gy;
+                gunPoint(guns[p], lw, lh, gx, gy);
+                gCrt.toSource(gx, gy, lw, lh);   // crt: the point the curved screen shows under the pointer
+                view->toArcade(gx, gy, lw, lh, ax, ay);
+                game::Runtime::GunInput& g = rt.gun[p];
+                // a gun on the window's outermost pixel row / column is off screen too: the cursor is kept inside the
+                // window during play (two monitors: it slid onto the other one, user 2026-10-16), so pushing it against
+                // an edge is the off-screen shot (reload), in widescreen and 4:3 alike (a touch / pen: gunAtEdge)
+                const bool atEdge = gunAtEdge(guns[p], lw, lh);
+                g.onScreen = !guns[p].reload && !atEdge && std::abs(ax) < halfW - 1e-3f && std::abs(ay) < 192.0f;
+                g.x = ax;
+                g.y = ay;
+                g.trigger = guns[p].trigger || guns[p].reload;
+                guns[p].trigger = guns[p].reload = false;
+            }
+            // --autofire (T1): the same gun input as the headless runs (no mouse events), so a window run with
+            // screenshots replays the headless play-through
+            if (gBot)   // --bot <seed> in the window (polish: checkpoint runs that die)
+                gBot->frame(rt, cpFrames);
+            else if (fire)
+                autofire(rt, int(rt.frameCount));
+            if (gTeam)   // computer teammates (their seats only; the human's input above stays)
+                gTeam->frame(rt, rt.frameCount);
+            livesOut(rt, livesOutAt);
+            autoReloadSeats(rt, cfg.autoReload);   // launcher "Auto reload", every seat (autoReloadSeats)
+            rt.scoreDisplay = cfg.scoreDisplay;   // scoredisp: Gameplay "Score Display" (a local game: this branch)
+            for (uint64_t s : startAt)   // --start-at P:F
+                if ((s & 0xFFFFFFFF) == rt.frameCount)
+                    rt.player_join(int(s >> 32));
+            }   // (!gNet)
+            if (uint32_t music = 0; gScene.active() && gScene.takeStart(music)) {
+                // the cut-scene viewer's start (the save-state put back; the first watch or a replay): the music and
+                // sounds before it end (the menu's track, the last watch's), then the scene's own music again from the
+                // start (the seek ran silent: its cue was not heard)
+                audio.silence();
+                if (rt.audio) {
+                    rt.audio->cue(0xBE5000);   // the board's setting, as every game's first frame sends it
+                    if (music)
+                        rt.audio->cue(music);
+                }
+                gScene.poke(SDL_GetTicks());   // Clean View: the keys' hint for the first 2 s
+                SDL_Log("cut-scene viewer: watching from frame %llu, music 0x%06X", (unsigned long long)rt.frameCount, music);
+            }
+            if (gScene.active()) {   // the cut-scene viewer: the seek's player in the lead-in, then no input at all
+                if (gScene.leadIn()) {
+                    gAutofireQuiet = true;
+                    autofire(rt, int(rt.frameCount));
+                    gAutofireQuiet = false;
+                } else
+                    for (auto& g : rt.gun) g = {};
+            }
+            if (rt.audio) rt.audio->frameNo = rt.frameCount;
+            if (cfg.smooth)
+                prevFrame.take(rt);   // rate: the frame drawn so far becomes the one to blend from
+            const uint64_t sonicCost = gSonic.account(rt);   // Sonic Mode: this tick's share of a display frame
+            if (static int sonicWas = -1; std::getenv("HOTD_TRACE_SONIC") && gSonic.lastPhase != sonicWas) {   // the phase changes, real time
+                sonicWas = gSonic.lastPhase;
+                SDL_Log("sonic: frame %llu phase %s at %.3f s", (unsigned long long)rt.frameCount,
+                        sonicWas == 0 ? "normal" : sonicWas == 1 ? "play" : sonicWas == 2 ? "boss" : "magician", double(SDL_GetTicksNS()) / 1e9);
+            }
+            {   // padpass: the arcade's shot flash cycle (draw-only: the host's counter, the picture white after it)
+                bool pulled = false;
+                for (int p = 0; p < rt.seat_count(); ++p)
+                    pulled = pulled || (rt.gun[p].trigger && cfg.seatBot[p & 3] == 0);   // (people only, not a CPU teammate)
+                gunFlash.tick(pulled, game::gunFlashOn(cfg) && rt.mem.at<int16_t>(game::A::G::game_mode) == 4);
+            }
+            if (!gNet)   // Boss Mode's clock: the tick's real time (Sonic Mode: its share); online fixed at the start
+                rt.boss.tickMs = 1000.0 / gameTickHz(cfg.gameSpeed) * double(sonicCost ? sonicCost : 42) / 42.0;
+            rt.frame();
+            if (gNet)
+                gNet->after(rt);
+            if (gScene.active()) {   // the cut-scene viewer: the scene's end (the ticks stop there)
+                gScene.afterFrame(rt);
+                if (gScene.phase == game::SceneView::Phase::Over) {
+                    SDL_Log("cut-scene viewer: the scene is over (frame %llu)", (unsigned long long)rt.frameCount);
+                    gScene.hintFrom = 0;   // Clean View: the end's line only after a key (the last frame stays clean)
+                }
+            }
+            // Boss Mode (its flow runs in rt.frame()): the end -> the table. Online the end is acted on once confirmed
+            // (the bossEnded handler settles first; each PC then files the time in its own table)
+            if (rt.boss.active() && !gNet && rt.boss.justFinished) {
+                bossModeFinish(rt);
+                bossEnded = true;
+            } else if (rt.boss.active() && gNet && rt.boss.phase == game::BossMode::Done)
+                bossEnded = true;
+            if (rt.audio) rt.audio->renderFrame();
+            // select: a clear went on into the next chapter (a game over restarts that one); the view loads the
+            // chapter's world when the game (mode 4) is in another chapter than the view (also the title's start after
+            // a game that reached a later chapter)
+            if (rt.chapterChanged >= 0) {
+                runChapter = rt.chapterChanged;
+                rt.chapterChanged = -1;
+            }
+            // perf: the chapter clear prepares the next chapter's view on a worker (ViewPrefetch)
+            if (const int c = rt.mem.at<int8_t>(game::A::G::chapter); view && rt.clear.active && c >= 0 && c < 3)
+                gViewPrefetch.start(regions, dumps, texsets, c + 1, cfg.models == 1 && pcFilesOk ? cfg.pc : std::string(), viewBlood());
+            if (const int c = rt.mem.at<int8_t>(game::A::G::chapter);
+                view && rt.mem.at<int16_t>(game::A::G::game_mode) == 4 && c != viewChapter && c >= 0 && c < 4) {
+                auto fresh = std::make_unique<game::GameView>();
+                const uint64_t l0 = SDL_GetTicksNS();
+                const std::string pcDir = cfg.models == 1 && pcFilesOk ? cfg.pc : std::string();
+                std::unique_ptr<game::GameView::Prepared> ready = gViewPrefetch.take(c, pcDir, viewBlood());
+                const bool ahead = ready != nullptr;
+                if (ahead ? fresh->finish(std::move(ready), err) : fresh->init(regions, dumps, texsets, c, err, pcDir, viewBlood())) {
+                    view->shutdown();
+                    view = std::move(fresh);
+                    prevFrame.valid = false;   // rate: nothing to blend from in another world
+                    SDL_Log("chapter %d: the view loaded its world (%s, %.0f ms in this frame)", c + 1, ahead ? "prepared ahead" : "here",
+                            double(SDL_GetTicksNS() - l0) / 1e6);
+                } else {
+                    SDL_Log("chapter %d: %s", c + 1, err.c_str());
+                }
+                viewChapter = c;
+            }
+            for (uint64_t f : shotAt)
+                if (f == rt.frameCount)
+                    (std::getenv("HOTD_SHOT_LATE") ? gLateShot = 2 : (shot = true, 0));
+            if (!checkpoints.empty()) {
+                const int ev = rt.mem.at<int8_t>(game::A::G::event_index);
+                if (ev != cpEvent) {
+                    cpEvent = ev;
+                    cpEventStart = rt.frameCount;
+                    SDL_Log("checkpoint: frame %llu event %d", (unsigned long long)rt.frameCount, ev);
+                }
+                if (rt.clear.active && cpClearStart == 0)
+                    cpClearStart = rt.frameCount;
+                const int ms = (int(rt.mem.at<int16_t>(game::A::G::game_mode)) << 8) | int(rt.mem.u32(game::A::G::game_submode) & 0xFF);
+                if (!cpModeStart.count(ms)) {
+                    cpModeStart[ms] = cpFrames;
+                    SDL_Log("checkpoint: frame %llu mode %d sub-mode %d", (unsigned long long)rt.frameCount, ms >> 8, ms & 0xFF);
+                }
+                for (Checkpoint& c : checkpoints)
+                    if (!c.done && shotName.empty() &&
+                        ((c.event >= 0 && c.event == cpEvent && rt.frameCount - cpEventStart >= c.after) ||
+                         (c.event == -2 && cpClearStart && rt.frameCount - cpClearStart >= c.after) ||
+                         (c.event == -3 && cpModeStart.count((c.mode << 8) | c.sub) &&
+                          cpFrames - cpModeStart[(c.mode << 8) | c.sub] >= c.after))) {
+                        c.done = true;
+                        shotName = c.name;
+                        shot = true;
+                    }
+            }
+            ++cpFrames;
+            ++timing.ticks;
+            step = false;
+            // the game speed's period num / den ns (rate); Sonic Mode: a play tick is due sooner (off: exactly num / den,
+            // the remainder carried)
+            lastTickNs = gSonic.advanceNs(tick.num, tick.den, sonicCost);
+            next += lastTickNs;
+            if (gScene.active() && gScene.slow)   // the cut-scene viewer's slow motion: half speed
+                next += lastTickNs;
+            ++runs;
+            if (stopAt && rt.frameCount >= stopAt)
+                running = false;
+            if (rt.chapterDone || (shot && !checkpoints.empty()) || (gScene.active() && gScene.phase != game::SceneView::Phase::Watching))
+                break;
+            if (skipFast && !cutSceneNow(rt))   // the skipped scene is over: the game's pace again from here
+                break;
+        }
+        if (paused || sceneHold || lightGuns.calibrating() || now > next + 4 * frameNs || skipFast)
+            next = now;
+        if (inputTest)
+            inputTest(1, rt, lw, lh);   // --input-test: this frame's checks
+        // rate: Smooth motion off: a picture only when there is a new game frame (a high-refresh / VRR display shows
+        // each game frame once; a fixed 60 Hz one repeats one now and then); meanwhile the loop waits for the next tick.
+        // Not while paused / calibrating / with a message (those are drawn as before), nor with "unlimited"
+        if (!cfg.smooth && runs == 0 && !paused && !step && !inputTest && !shot && !lightGuns.calibrating() &&
+            renderFps < 0 && cfg.frameRate >= 0 && timing.renders > 0 && !(gNet && !gNet->status.empty())) {
+            const Uint64 t = SDL_GetTicksNS();
+            if (next > t + 500000)
+                SDL_DelayPrecise(std::min<Uint64>(next - t - 250000, frameNs));
+            continue;
+        }
+        float aim[4][2] = {};   // players 3 / 4: the 4P mode
+        for (int p = 0; p < 4; ++p) {
+            aim[p][0] = guns[p].x * ww / std::max(lw, 1);
+            aim[p][1] = guns[p].y * wh / std::max(lh, 1);
+        }
+        for (int p = 0; p < 4; ++p) {   // computer teammates: their own crosshair (the bot's aim), a CPU tag
+            hud.cpu[p] = teamSeatShown(p);
+            if (hud.cpu[p] && view) {
+                float ax, ay, x, y;
+                gTeam->aim(p, ax, ay);
+                view->fromArcade(ax, ay, lw, lh, x, y);
+                aim[p][0] = x * ww / std::max(lw, 1);
+                aim[p][1] = y * wh / std::max(lh, 1);
+            }
+        }
+        if (gNet) {   // netplay: this PC's mouse is its player's sight; the other player's from the frame's input
+            // this PC's seats (its first: guns[0], its second in the 4-seat game: guns[1]); every other seat from the
+            // frame's inputs (up to four PCs: any seat may be another PC's)
+            const int lp = gNet->localPlayer(), s2 = rt.coop4_on() ? gNet->secondSeat() : -1;
+            for (int p = 0; p < (rt.coop4_on() ? 4 : 2); ++p) {
+                if (p == lp || p == s2) {
+                    const int g = p == lp ? 0 : 1;
+                    aim[p][0] = guns[g].x * ww / std::max(lw, 1);
+                    aim[p][1] = guns[g].y * wh / std::max(lh, 1);
+                    continue;
+                }
+                float x, y;
+                view->fromArcade(rt.gun[p].x, rt.gun[p].y, lw, lh, x, y);
+                aim[p][0] = x * ww / std::max(lw, 1);
+                aim[p][1] = y * wh / std::max(lh, 1);
+            }
+        }
+        // crt (render/crt.h): this frame's filter (the menu may have changed it); aim = the pointers on the window,
+        // aimSrc = the picture's point the curved screen shows there (the netplay partner's: the other way round)
+        gCrt.configure(cfg.crt, cfg.models == 1 ? 480 : 384, cfg.models == 1 ? 640 : 496);
+        float aimSrc[4][2];
+        for (int p = 0; p < 4; ++p) {
+            aimSrc[p][0] = aim[p][0], aimSrc[p][1] = aim[p][1];
+            if (gNet && !gNet->mySeat(p) && (gNet->multi() || p % 2 == 1 - gNet->localPlayer())) gCrt.toScreen(aim[p][0], aim[p][1], ww, wh);
+            else gCrt.toSource(aimSrc[p][0], aimSrc[p][1], ww, wh);
+        }
+        const bool crtShot = gCrt.active() && cfg.crt.shotFiltered;   // F12: the filtered picture as seen
+        rt.teammateFlash = cfg.teamFlash;   // (Options can change it in the game)
+        rt.hideMarks = gTrailer && !gScene.active();   // trailer: Trailer Mode (draws only)
+        // backdrop: game over (mode 5: fallen body, route map, GAME OVER) clears to black as in MAME (snaps 0087-0094);
+        // elsewhere the old dark navy. UNVERIFIED (teaser): the arcade's other modes not compared.
+        {
+            const bool black = rt.mem.at<int16_t>(game::A::G::game_mode) == 5;
+            const float c[3] = {black ? 0.0f : 0.02f, black ? 0.0f : 0.02f, black ? 0.0f : 0.04f};
+            std::copy(c, c + 3, view->opt.clear);
+        }
+        // the crosshairs (display): the gun marks, models 0x660 (P1) / 0x661 (P2) with their own colours: the arcade's
+        // test_gun_mark_check (0xB0C0) draws them from table 0xA94D0, the PC's shot effect (0x4B3xxx) uses 0x660 + player
+        // too. Launcher "Crosshair": auto = the model source's; the other source's models are not loaded (no mixing),
+        // so a forced other choice keeps the drawn crosshair. Placed at depth 0.5 (nearer than the near plane 1: depth
+        // clamp keeps it in front of everything) at the gun's point of the arcade screen, scaled so that it has its
+        // size about 24 lines of the 384-line screen (the test screen's scale not decoded). UNVERIFIED (teaser): the original's
+        // in-game look (the arcade draws no crosshair in play: the light gun; the PC's sight option not compared).
+        view->overlay.clear();
+        // the sights are 2D, drawn by the HUD (the PC's sprites 0x45E / 0x45F or the arcade-style one): the gun mark
+        // models drawn here before were 0x660 `tamahi`, the shot spark (user 2026-10-16: "an image of a gunshot")
+        std::copy(cfg.sights, cfg.sights + 4, hud.sights);   // (firing range: each player's own)
+        hud.customDirs = xhairDirs;
+        hud.widescreen = cfg.aspect != 1;
+        hud.anchorEdges = cfg.aspect != 1;   // display2: widescreen (16:10: its edges): the per-player HUD at the window's edges
+        hud.maxAspect = cfg.aspect == 2 ? 1.6f : 0.0f;   // aspect1610
+        // rate: the blend between the previous game frame and the newest (Smooth motion): how far the time is past the
+        // newest tick's due time, in periods (the picture is one tick behind; the sights are the live input's)
+        const bool blend = cfg.smooth && !paused && !inputTest && prevFrame.valid;
+        float alpha = 1.0f;
+        if (blend) {
+            const double since = double(int64_t(SDL_GetTicksNS() - (next - lastTickNs)));
+            alpha = float(std::clamp(since / double(std::max<Uint64>(lastTickNs, 1)), 0.0, 1.0));
+        }
+        const game::FrameSnapshot* blendFrom = blend ? &prevFrame : nullptr;
+        std::vector<uint8_t> shotPixels;
+        // --interp-dump <dir> <F> (rate): every picture of game frames F..F+2 from an offscreen framebuffer, the
+        // blend's alpha and items in the file name
+        if (!interpDumpDir.empty() && rt.frameCount >= interpDumpAt && rt.frameCount < interpDumpAt + 3 && !shot) {
+            gl::GLuint fbo = 0, color = 0, depth = 0;
+            gl::GenFramebuffers(1, &fbo);
+            gl::BindFramebuffer(gl::FRAMEBUFFER, fbo);
+            gl::GenTextures(1, &color);
+            gl::BindTexture(gl::TEXTURE_2D, color);
+            gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, ww, wh, 0, gl::RGBA, gl::UNSIGNED_BYTE, nullptr);
+            gl::FramebufferTexture2D(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, color, 0);
+            gl::GenRenderbuffers(1, &depth);
+            gl::BindRenderbuffer(gl::RENDERBUFFER, depth);
+            gl::RenderbufferStorage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT24, ww, wh);
+            gl::FramebufferRenderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, depth);
+            if (gl::CheckFramebufferStatus(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE) {
+                view->opt.clearColor = !hud.drawUnder(rt, ww, wh, view->opt.clear);
+                view->draw(rt, ww, wh, blendFrom, alpha);
+                const auto st = view->interpStats;
+                char name[160];
+                std::snprintf(name, sizeof name, "/f%llu_r%04llu_a%.3f.png", (unsigned long long)rt.frameCount,
+                              (unsigned long long)interpDumped++, double(alpha));
+                interpPics.push_back({interpDumpDir + name, ww, wh, view->renderer.readBack(ww, wh)});   // written at the end
+                SDL_Log("interp dump: frame %llu alpha %.3f camera %s, items %d blended, %d unmatched, %d jumped -> %s",
+                        (unsigned long long)rt.frameCount, double(alpha), st.cut ? "cut" : st.camera ? "blended" : "newest",
+                        st.blended, st.unmatched, st.jumped, name + 1);
+            }
+            gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
+            gl::DeleteRenderbuffers(1, &depth);
+            gl::DeleteTextures(1, &color);
+            gl::DeleteFramebuffers(1, &fbo);
+        }
+        // the messages / info over the picture (drawn into the screenshot's framebuffer too: F12 and --shot-at show them)
+        // the cut-scene viewer's Clean View (game/scene_view.h): no HUD, sights, cursor or viewer lines while watching
+        const bool sceneClean = gScene.cleanNow();
+        // trailer: Trailer Mode in play (not in the viewer, which has its own Clean View / Subtitles): no HUD, captions,
+        // sights, cursor, developer lines or online info; F7's note for 1 s. Options' change sets it (F7: the run only)
+        if (int(cfg.trailer) != gTrailerCfg) {
+            if (gTrailerCfg >= 0 || cfg.trailer)
+                gTrailer = cfg.trailer;
+            gTrailerCfg = int(cfg.trailer);
+        }
+        const bool trailerNow = gTrailer && !gScene.active();
+        hud.clean = sceneClean || trailerNow;
+        hud.noText = gScene.noTextNow() || trailerNow;
+        auto drawOverlays = [&]() {
+            if (gTrailerNote && SDL_GetTicks() < gTrailerNote + 1000) {
+                static Overlay trailerTag;
+                static bool trailerInit = false;
+                if (!trailerInit) { std::string e2; trailerInit = trailerTag.init(e2); }
+                if (trailerInit) {
+                    trailerTag.setText({gTrailer ? "Trailer Mode On (F7)" : "Trailer Mode Off (F7)"}, wh >= 720 ? 2 : 1);
+                    trailerTag.drawAnchored(ww, wh, ww * 0.5f, float(wh) - 6.0f, 0.5f, 1.0f);
+                }
+            } else {
+                gTrailerNote = 0;
+            }
+            // Clean View: the keys' small hint at the bottom's middle, for 2 s after the start or a key, then fading out
+            // (the panel thins and the letters dim, 8 steps)
+            if (sceneClean) {
+                static Overlay hintTag;
+                static bool hintInit = false;
+                static int hintLevel = -1;
+                if (!hintInit) { std::string e2; hintInit = hintTag.init(e2); }
+                const int level = int(gScene.hint(SDL_GetTicks()) * 8.0f + 0.5f);
+                if (hintInit && level > 0) {
+                    if (level != hintLevel) {
+                        hintLevel = level;
+                        const int c = 215 * level / 8;
+                        hintTag.setStyle(130 * level / 8, uint8_t(c), uint8_t(c), uint8_t(c * 92 / 100));
+                    }
+                    hintTag.setText(gScene.hintLines(), wh >= 1080 ? 2 : 1);
+                    hintTag.drawAnchored(ww, wh, ww * 0.5f, float(wh) - 6.0f, 0.5f, 1.0f);
+                }
+            }
+            // pads: a lost controller's message; the light-gun calibration's text and target
+            {
+                std::vector<std::string> note = pads.notice();
+                float tu, tv;
+                if (lightGuns.calibrationTarget(tu, tv)) {
+                    note = lightGuns.calibrationLines();
+                    padTarget.setText({"\\ | /", "- + -", "/ | \\"}, wh >= 720 ? 4 : 3);
+                    padTarget.drawAt(ww, wh, tu * ww, tv * wh);
+                }
+                if (!note.empty()) {
+                    padNote.setText(note, wh >= 720 ? 3 : 2);
+                    padNote.drawAt(ww, wh, ww * 0.5f, wh * (paused ? 0.25f : 0.5f));
+                }
+            }
+            // netplay's text (8 x 8 font): about 1/45 of the window's height a line, smaller when a line would not fit
+            // the width it may use (maxW pixels)
+            auto netScale = [&](const std::vector<std::string>& lines, int want, int maxW) {
+                size_t n = 1;
+                for (const std::string& s : lines) n = std::max(n, s.size());
+                return std::max(1, std::min(want, maxW / int(8 * n + 8)));
+            };
+            const int infoScale = std::clamp((wh + 240) / 360, 1, 6);   // (480: 2, 720: 2, 1080: 3, 2160: 6)
+            if ((skipHeldS > 0.15 || skipFast) && view && !trailerNow) {   // the cut-scene's hold-to-skip: its ring in a bar
+                static SkipRing ring;
+                static int ringInit = 0;
+                if (!ringInit) { std::string e2; ringInit = ring.init(e2) ? 1 : -1; if (ringInit < 0) SDL_Log("%s", e2.c_str()); }
+                float rx, ry, rsize, pl, pr, py;
+                view->fromArcade(-248.0f, 0, lw, lh, pl, py);
+                view->fromArcade(248.0f, 0, lw, lh, pr, py);
+                const float psx = float(ww) / float(std::max(lw, 1));
+                if (ringInit > 0 && skipRingSpot(rt, ww, wh, pl * psx, (pr - pl) * psx, rx, ry, rsize))
+                    ring.draw(ww, wh, rx, ry, rsize, skipFast ? 1.0f : float(skipHeldS / kSkipHold));
+            }
+            if (gNet && SDL_GetTicks() < netSkipNoteUntil) {   // a joiner tried to skip a cut-scene: only the host can
+                static Overlay skipNote;
+                static bool skipInit = false;
+                if (!skipInit) { std::string e2; skipInit = skipNote.init(e2); skipNote.setStyle(150, 255, 255, 255); }
+                if (skipInit) {
+                    const std::string t = "Only the host can skip";
+                    skipNote.setText({t}, netScale({t}, infoScale, ww / 2));
+                    skipNote.drawAnchored(ww, wh, ww * 0.5f, float(wh) * 0.82f, 0.5f, 1.0f);
+                }
+            }
+            if (gNet && !gNet->status.empty()) {   // netplay: waiting / connection lost / desync
+                netMsg.setText({gNet->status}, netScale({gNet->status}, wh >= 720 ? 3 : 2, ww - 16));
+                netMsg.drawAnchored(ww, wh, ww * 0.5f, wh * 0.5f, 0.5f, 0.5f);
+            }
+            // the in-game info sits at the bottom's middle, between players 1 / 2's HUD corners (players 3 / 4 have the
+            // top corners, the boss's life bar the top; the cut-scenes' captions are left / right)
+            if (gNet && netInfo == 2 && !trailerNow) {   // F3 Detailed: ping, input delay, rollbacks, waits, sync (a few short lines)
+                static Overlay statsLine;
+                static bool statsInit = false;
+                if (!statsInit) { std::string e2; statsInit = statsLine.init(e2); statsLine.setStyle(150, 200, 255, 200); }
+                if (statsInit) {
+                    std::vector<std::string> lines;
+                    const std::string st = gNet->stats();
+                    for (size_t a = 0, b; a <= st.size(); a = b + 1) {
+                        b = st.find('\n', a);
+                        if (b == std::string::npos) b = st.size();
+                        lines.push_back(st.substr(a, b - a));
+                    }
+                    // (the size from a 30-letter line, not the text: it does not jump as the counts grow)
+                    statsLine.setText(lines, std::max(1, std::min(infoScale, (ww / 2) / (8 * 30 + 8))));
+                    statsLine.drawAnchored(ww, wh, ww * 0.5f, float(wh) - 6.0f, 0.5f, 1.0f);
+                }
+            }
+            if (gNet && netInfo == 1 && !trailerNow) {   // Small: the ping, green / yellow / red; "LAG" when the corrections or waits
+                static Overlay pingTag;   // pile up (the menu's "In-game Info" / F3 turn it off)
+                static bool pingInit = false;
+                static int pingLevel = -1;
+                if (!pingInit) { std::string e2; pingInit = pingTag.init(e2); }
+                const net::NetGame::Link l = gNet->link();
+                if (pingInit && !l.alone) {
+                    if (l.level != pingLevel) {   // (setStyle rebuilds the texture: only on a change)
+                        pingLevel = l.level;
+                        static const uint8_t kCol[3][3] = {{120, 230, 120}, {240, 210, 90}, {255, 110, 90}};
+                        pingTag.setStyle(110, kCol[l.level][0], kCol[l.level][1], kCol[l.level][2]);
+                    }
+                    const std::string t = std::to_string(l.pingMs) + " ms" + (l.lag ? "  LAG" : "");
+                    pingTag.setText({t}, netScale({t}, infoScale, ww / 3));
+                    pingTag.drawAnchored(ww, wh, ww * 0.5f, float(wh) - 6.0f, 0.5f, 1.0f);
+                }
+            }
+        };
+        if (shot && !crtShot) {
+            // screenshots from an offscreen framebuffer: the window's own pixels are undefined where another window
+            // covers it (unattended checkpoint runs came out black)
+            gl::GLuint fbo = 0, color = 0, depth = 0;
+            gl::GenFramebuffers(1, &fbo);
+            gl::BindFramebuffer(gl::FRAMEBUFFER, fbo);
+            gl::GenTextures(1, &color);
+            gl::BindTexture(gl::TEXTURE_2D, color);
+            gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, ww, wh, 0, gl::RGBA, gl::UNSIGNED_BYTE, nullptr);
+            gl::FramebufferTexture2D(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, color, 0);
+            gl::GenRenderbuffers(1, &depth);
+            gl::BindRenderbuffer(gl::RENDERBUFFER, depth);
+            gl::RenderbufferStorage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT24, ww, wh);
+            gl::FramebufferRenderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, depth);
+            if (gl::CheckFramebufferStatus(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE) {
+                view->opt.clearColor = !hud.drawUnder(rt, ww, wh, view->opt.clear);
+                view->draw(rt, ww, wh);
+                pillarbox(ww, wh);
+                hud.pauseSelection = paused ? pause.selection() : -1;
+                hud.draw(rt, ww, wh, aimSrc, (debugLines && !trailerNow) || (gScene.active() && !sceneClean), gScene.active() && !sceneClean ? gScene.lines(rt) : hudLines(rt, paused));
+                drawOverlays();
+                drawGunAids(cfg, ww, wh, gunFlash.now && !paused);
+                shotPixels = view->renderer.readBack(ww, wh);
+            }
+            gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
+            gl::DeleteRenderbuffers(1, &depth);
+            gl::DeleteTextures(1, &color);
+            gl::DeleteFramebuffers(1, &fbo);
+        }
+        const bool crtOn = gCrt.begin(ww, wh);   // crt: the frame into the filter's target
+        const bool crtCrisp = crtOn && cfg.crt.crispSights;
+        if (gScene.phase == game::SceneView::Phase::Seeking) {   // the cut-scene viewer's fast-forward: nothing drawn
+            gl::Viewport(0, 0, ww, wh);
+            gl::ClearColor(0, 0, 0, 1);
+            gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+            hud.drawLines(ww, wh, gScene.lines(rt));
+        } else {
+        view->opt.clearColor = !hud.drawUnder(rt, ww, wh, view->opt.clear);
+        view->draw(rt, ww, wh, blendFrom, alpha);   // rate: the 3D picture blended; the HUD / sights below are not
+        pillarbox(ww, wh);
+        hud.pauseSelection = paused ? pause.selection() : -1;
+        hud.deferSights = crtCrisp;
+        hud.draw(rt, ww, wh, aimSrc, (debugLines && !trailerNow) || (gScene.active() && !sceneClean), gScene.active() && !sceneClean ? gScene.lines(rt) : hudLines(rt, paused));
+        hud.deferSights = false;
+        }
+        if (crtOn) {   // crt: through the filter to the window; the crisp sights and the messages below over it
+            if (shot && crtShot)
+                shotPixels = gCrt.presentToImage(ww, wh, [&] { if (crtCrisp) hud.drawSights(rt, ww, wh, aim); });
+            gCrt.present(ww, wh, 0);
+            if (crtCrisp) hud.drawSights(rt, ww, wh, aim);
+        }
+        drawOverlays();
+        drawGunAids(cfg, ww, wh, gunFlash.now && !paused);   // padpass: the shot flash / the light gun border
+        // the desktop cursor (player 1's mouse) only where no sight is drawn for player 1 (title, continue, name
+        // entry): over the sight it showed as a grey plus (user 2026-10-16)
+        // (the cut-scene viewer's Clean View, Trailer Mode: none at all; Trailer Mode's pause: the cursor for its menu)
+        if (const bool hideCursor = hud.drewSight[0] || sceneClean || (trailerNow && !paused);hideCursor == SDL_CursorVisible()) {
+            if (hideCursor) SDL_HideCursor();
+            else SDL_ShowCursor();
+        }
+        if (gLateShot > 0 && --gLateShot == 0)   // pmfix2 (testing, HOTD_SHOT_LATE): the loop after the tick
+            shot = true;
+        if (shot) {
+            if (shotPixels.empty())
+                shotPixels = view->renderer.readBack(ww, wh);
+            const std::string dir = shotDir.empty() ? shotsRoot : shotDir;
+            std::filesystem::create_directories(dir);
+            const std::string path = dir + (shotName.empty() ? "/hotd_" + timestamp() + "_f" + std::to_string(rt.frameCount)
+                                                             : "/" + shotName) + ".png";
+            if (writePng(path, ww, wh, shotPixels))
+                SDL_Log("screenshot: %s (frame %llu, event %d)", path.c_str(), (unsigned long long)rt.frameCount,
+                        int(rt.mem.at<int8_t>(game::A::G::event_index)));
+            shot = false;
+            shotName.clear();
+            if (!shotAt.empty() && rt.frameCount >= *std::max_element(shotAt.begin(), shotAt.end()))
+                running = false;
+            if (!checkpoints.empty() && std::all_of(checkpoints.begin(), checkpoints.end(), [](const Checkpoint& c) { return c.done; }))
+                running = false;
+        }
+        if (!checkpoints.empty() && (rt.chapterDone || rt.frameCount > 100000)) {   // a checkpoint never came
+            for (const Checkpoint& c : checkpoints)
+                if (!c.done) SDL_Log("checkpoint not reached: %s", c.name.c_str());
+            running = false;
+        }
+        SDL_GL_SwapWindow(window);
+        ++timing.renders;
+        if (timing.renders == 1 && std::getenv("HOTD_STARTUP_TIME")) {   // perf: the game's first frame (--auto-start), then the end
+            std::printf("startup: the game's first frame at %.0f ms\n", sinceStartMs());
+            running = false;
+        }
+        const Uint64 spent = SDL_GetTicksNS() - now;
+        if (spent < renderNs) SDL_DelayPrecise(renderNs - spent);   // the frame limiter (default 60 fps)
+        const Uint64 after = SDL_GetTicksNS();
+        if (!timing.start) timing.start = now;
+        timing.ns = after - timing.start;   // wall-clock time since the first game frame
+        if (static Uint64 sonicLast = 0; sonicLast && !paused)   // Sonic Mode's report: real time by the last tick's phase
+            gSonic.wallNs[gSonic.lastPhase] += after - sonicLast, sonicLast = after;
+        else
+            sonicLast = after;
+        if (((renderFps >= 0 && renderFps != 60) || std::getenv("HOTD_TIMING")) && after - timing.lastLog >= 5000000000ull) {   // --render-fps / HOTD_TIMING: the rates every 5 s
+            if (timing.lastLog)
+                SDL_Log("timing: %.2f ticks/s, %.1f renders/s", double(timing.ticks - timing.ticksAtLog) * 1e9 / double(after - timing.lastLog),
+                        double(timing.renders - timing.rendersAtLog) * 1e9 / double(after - timing.lastLog));
+            timing.lastLog = after;
+            timing.ticksAtLog = timing.ticks;
+            timing.rendersAtLog = timing.renders;
+        }
+    }
+    if (timing.ns > 0)
+        std::printf("timing: %llu game ticks, %llu renders in %.2f s: %.2f ticks/s, %.1f renders/s (render limit %d, vsync %d, "
+                    "game speed %s %.4f Hz, smooth %s)\n",
+                    (unsigned long long)timing.ticks, (unsigned long long)timing.renders, double(timing.ns) / 1e9,
+                    double(timing.ticks) * 1e9 / double(timing.ns), double(timing.renders) * 1e9 / double(timing.ns), renderLimit,
+                    vsyncNow, gameSpeedNow(cfg.gameSpeed) == 1 ? "60" : "arcade", gameTickHz(cfg.gameSpeed), cfg.smooth ? "on" : "off");
+    for (int ph = 0; ph < 4 && timing.ns > 0 && gSonic.preset != 0; ++ph)   // Sonic Mode: the logic's rate by phase (normal rate / play / boss)
+        if (gSonic.wallNs[ph] > 0)
+            std::printf("sonic timing (%s): %s %llu ticks in %.2f s = %.2f ticks/s\n", game::sonicName(gSonic.preset),
+                        ph == 0 ? "normal-rate" : ph == 1 ? "play" : ph == 2 ? "boss" : "magician", (unsigned long long)gSonic.ticks[ph],
+                        double(gSonic.wallNs[ph]) / 1e9, double(gSonic.ticks[ph]) * 1e9 / double(gSonic.wallNs[ph]));
+    if (!interpPics.empty())
+        std::filesystem::create_directories(interpDumpDir);
+    for (const InterpPic& p : interpPics)
+        writePng(p.path, p.w, p.h, p.px);
+    if (inputTest)
+        inputTest(5, host.runtime(), 0, 0);   // --input-test: closes the results if the loop ended elsewhere
+    if (view)
+        report(host.runtime());
+    // netplay: the end told to the other PC, both final states compared (--stop-at reached); the window closed mid-game:
+    // this PC leaves (the host keeps its seat for a rejoin; 2026-10-30, was a BYE that stopped the host's game)
+    if (gNet && stopAt && host.runtime().frameCount >= stopAt)
+        std::printf("%s\n", gNet->finish(host.runtime(), 1500).c_str());
+    else if (gNet)
+        gNet->leave(300);
+    if (audioOn)
+        audio.shutdown();
+    leaveGame();
+    if (util::fullscreenLive() >= 0 && !automated) {   // the game opens the way it was left (F11 in play)
+        game::LaunchConfig keep;
+        keep.base = cfg.base;
+        keep.load(cache + "launcher.ini");
+        keep.save(cache + "launcher.ini");   // save() writes fullscreenLive()
+    }
+    gl::debugSummary();   // compat: HOTD_GL_DEBUG=1
+    SDL_GL_DestroyContext(ctx);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+    return 0;
+}

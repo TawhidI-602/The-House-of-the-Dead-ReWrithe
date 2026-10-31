@@ -1,0 +1,245 @@
+# Making mods
+
+A mod is a folder with a small text file in it. You switch mods on and off, set their order and change their settings
+in the game: **Options > Mods** (both menu styles). No programming, no rebuild. This page explains the folder, the
+`mod.ini` file, the two kinds of mod there are today (texture packs and the built-in Ragdoll mod), how to make your own
+and how to share it.
+
+Mods only change **how the game looks**. They never change how it plays: the scores, the high scores, online co-op and
+the game's own checks are the same with any mod on or off, and in online co-op each PC can use its own mods.
+
+## Quick start
+
+1. Copy the example: `data\mods\example\` to `data\mods\my-mod\`.
+2. Open `data\mods\my-mod\mod.ini` in any text editor (Notepad is fine) and change `name`, `author`, `description`.
+3. Start the game: Options > **Mods**. Your mod is in the list (Off: the example says `default = off`). Switch it On.
+4. Start a chapter. A texture pack is used from the next chapter start.
+
+## Where mods go
+
+- `data\mods\<mod>\` in the game's folder, or
+- `mods\<mod>\` in the settings folder (next to `launcher.ini`), or
+- a folder you name with `--mods-dir <folder>`.
+
+The folder's name is the mod's ID (what `launcher.ini` and `--mod` use). When two folders have the same name, the
+first one in the list above wins.
+
+```
+data\mods\my-mod\
+    mod.ini                 the manifest (below)
+    textures\               PNGs, named by texture ID (texture packs, docs/mods.md)
+    models\                 OBJ + MTL + PNG, named by object ID (custom models, docs/mods.md)
+```
+
+## mod.ini
+
+A plain text file (UTF-8). `;` or `#` starts a comment line. Every line is optional.
+
+```ini
+[mod]
+name = My Mod                 ; the name in the Mods list (up to ~22 letters show)
+author = you
+version = 1
+description = One line: what it does (the help line under the list)
+type = textures               ; textures (a texture pack: the default) or ragdoll (the built-in Ragdoll mod)
+default = on                  ; on / off: whether a new mod starts switched on (until the player switches it)
+models = both                 ; texture packs: arcade / pc / both, the model source the pictures are for
+depth = auto                  ; auto / sort / buffer: how this mod's models and pictures hide each other (below)
+
+[settings]
+; key = label | default | choice, choice, ... | help line
+strength = Strength | Normal | Low, Normal, High | How strong it is
+
+[recolour]
+; texture packs: colour rules (docs/mods.md "Recolour rules")
+blood = #30C040
+```
+
+A `;` after a value (with a space before it) starts a comment too.
+
+| Key | Meaning |
+|---|---|
+| `name`, `author`, `version` | Shown in the Mods list and its help line |
+| `description` | The help line when the mod's row is lit |
+| `type` | `textures`: a texture pack (pictures, models, colour rules). `ragdoll`: the built-in Ragdoll mod (its code is in the game; the folder gives it its texts and settings) |
+| `default` | `off`: the mod starts switched off (good for a mod that changes a lot). Default `on` |
+| `models` | Texture packs: which model source the pictures are for |
+| `depth` | How the models this mod draws hide each other and the rest. `auto` (default): your custom models (OBJ) per pixel, models that only get your pictures as the game draws them (Arcade Sort). `sort`: the arcade's polygon sort (whole polygons in order; good for flat, layered arcade-style art). `buffer`: a per-pixel depth buffer (good for new, detailed shapes that cross other polygons). Only the models your mod changes are affected |
+| `[settings]` | The mod's own settings, shown on its **Settings** page (below) |
+
+### Settings
+
+Each line of `[settings]` is one setting: `key = label | default | choices | help`.
+
+- `key`: a short name (letters, digits, `_`). The value chosen is saved per PC in `launcher.ini` as
+  `modset.<mod>.<key>=<value>`.
+- `label`: the row's name on the mod's Settings page.
+- `default`: one of the choices (the first one if it is not in the list).
+- `choices`: the values, comma-separated, in order. Left / Right (or a click) steps through them; the Remake menu style
+  also opens them as a list.
+- `help`: the help line.
+
+A texture pack has no code to read settings today, so settings matter for the built-in mods (Ragdoll). They are kept
+here so a mod's settings page needs no programming once more built-in mod types arrive.
+
+## The Mods page
+
+Options > **Mods** (the Mods tab of both menu styles):
+
+- One row per mod: its name, **On / Off** (a click or Enter switches it). Under it, grey: what it is (texture pack or
+  built-in mod), who made it and its version. The help line shows its description.
+- **Settings** (under a mod that has any): its own page: the mod On / Off again at the top, then its settings;
+  **Defaults** puts them back.
+- **Move Up** (texture packs, when there are two or more): the load order. Mods that are On come first, by priority; when two texture packs replace the same
+  picture, the higher one wins.
+- Everything is saved in `launcher.ini` (`mods=` the On mods in order, `modsoff=` the Off ones, `modset.` the
+  settings). Mods are per PC: nothing is sent online.
+
+Command line: `--mod <mod>` (repeatable) uses only those mods for this run (`--mod ragdoll`); `--mod-set
+<mod>.<key>=<value>` sets one setting for this run (`--mod-set ragdoll.friction=Rough`); `--no-mods` uses none.
+
+### Depth (advanced)
+
+The arcade board has no depth buffer: it sorts whole polygons. The game draws the arcade models the same way
+(**Arcade Sort**), which is what the arcade shows; a per-pixel depth buffer only adds small glitches there (clothes or a
+door showing through), so there is no menu row for it. PC models always use a depth buffer, and so does the cut-scene
+viewer's Free Cam. For testing, the whole game can still be switched: `drawdepth=sort` / `drawdepth=buffer` in
+launcher.ini, or `--draw-depth sort|buffer` on the command line (default `sort`).
+
+A mod's own items follow its `depth =` instead, whatever that setting says (not in the Free Cam: per pixel there). A
+"buffer" item drawn among Arcade Sort models takes its depth from its own shape, in the same order as the arcade
+polygons around it; a "sort" item among Depth Buffer models takes its polygons' arcade sort keys whole. Custom models have
+no arcade sort keys, so `sort` makes no difference to them: their depth always comes from their shape.
+
+## Texture packs
+
+A texture pack (`type = textures`, the default) replaces pictures and models and recolours textures: the full guide is
+[docs/mods.md](mods.md) (exporting your own textures, texture IDs, HD pictures, colour rules, custom OBJ models).
+
+## The Ragdoll mod (built in)
+
+Like the HOTD Remake: when a creature dies, its body falls as a **ragdoll** instead of playing its death motion, and you
+can keep shooting the body to push it along the floor until it comes to rest. Off by default:
+Options > Mods > **Ragdoll: On**.
+
+### What it does, step by step
+
+1. **A death.** When any creature starts dying, its drawn body becomes a ragdoll built from its own body parts:
+   - the zombies (plain, axe, kit / drum, iron-ball, chainsaw, the ones that drop or jump down, `Zombie_Dead`'s
+     second death style), the dogs (Kenfis, 20 parts), Ebitan (ceiling / sliding, 10 parts), the frogs (Bouere),
+     the agile ones (kind 70: the monkeys, kage, Rubin, Drake, Moody, kageta), Taran, the small 11-part creatures
+     (types 41-43), the axe zombie of the researcher scenes;
+   - creatures the game draws without a body, from their own models: the **Murrers** (16-18 models, each one a
+     part hanging off the nearest one drawn before it), the **bats** (also the Hangedman's swarm when it falls),
+     rats, the slugs, the insects, the falling frogs (props) and the **severed heads** the game throws: small ones (up
+     to 3 models) are one rigid body that tumbles.
+   The bosses keep their own deaths; the players, Sophie and the researchers / hostages are never ragdolls.
+   A creature that dies in the air, on a wall or a ceiling (bats, Moody, Ebitan, Taran) lands where the game's own
+   falling body lands (the lowest the game draws it), or on the room's floor if the game removes it in mid-fall.
+2. **The body.** Each body part (about 17: hips, chest, head, upper and lower arms and legs, hands, feet) becomes four
+   small points: its joint and three points along its own axes. The four keep their distances (the part stays rigid).
+   A part's joint keeps its place on its parent part (a ball joint), and a limb cannot fold back onto its parent
+   further than a 50 degree bend (a simple angle limit).
+3. **Moving.** Each frame every point keeps its speed (Verlet integration), falls by the arcade's own gravity, then
+   the distances are put right 12 times over (position-based dynamics). It starts with the speed of the death motion
+   at that moment, so a zombie shot while lunging falls forward.
+4. **The floor.** The floor is the world's floor, step or slope under each point (with a window; else the
+   creature's own height, where the game keeps it; never more than 8 units below that). A point on the floor stops
+   falling and loses a little of its sliding speed each frame (the **Friction** setting); a slow one stops (no
+   creeping), and while most of the body lies, its other points slow down with it.
+   **Walls:** the scene's standing surfaces (walls, pillars, railings, kerbs: the world's triangles that are more
+   upright than about 37 degrees, of the place the game draws now) stop the body's points a little off them; the
+   speed into the wall stops, along it is kept, so a body pushed against a wall slides along it instead of into it
+   (with a window: the view keeps them; the headless runs have none). `HOTD_RAGDOLL_NO_WALLS=1`: as before (testing).
+   **Moving props:** the door-sized models the game draws outside any creature (doors, gates, the opening's car ...)
+   are walls and ground too, where they are drawn each frame (an opening door pushes a body along). The walls are
+   built at every chapter's load whether the mod is on or not, so switching it on mid-game works at once.
+   **Other bodies:** each bone (a part's joint to its parent's) is a capsule as thick as the body's size gives; two
+   dead bodies that meet are pushed apart (half each, at most 0.4 units a frame; a resting body stays put and the
+   other one lies on it), so bodies pile up instead of sinking into each other.
+5. **Shots.** Each shot is a line from your eye through the crosshair. The nearest dead body's bone on that line is
+   pushed along the shot: the whole body a little, the bone hit more, and a little upward so it slides instead of
+   digging in. Keep shooting and it keeps sliding.
+6. **Resting.** A body that has (nearly) stopped moving for half a second rests (no creeping, no jitter) until a
+   shot wakes it.
+7. **Going.** The game removes a dead body after its death motion and 40 frames of blinking. The ragdoll draws the
+   body all the time (no blinking) and stays for **Bodies Stay** after that, then fades out over half a second.
+8. **Drawing.** Each part's place is rebuilt from its four points, and every model the game drew for that part (and its
+   shadow, and the arcade's generated belly skins) is drawn there instead.
+
+**Visual only.** The ragdoll runs after the game's frame and changes only what is drawn. The dead creature's own logic
+goes on exactly as before (its death motion, blood, score, the hit test), so the scores, the high scores, the game's
+checks and online co-op are the same with the mod on or off. A body you push is not "really" there for the game: a
+shot at it does to the game exactly what it did without the mod.
+
+### Its settings
+
+| Setting | Choices | What it does |
+|---|---|---|
+| Friction | Rough, Normal, Smooth | How quickly a pushed body stops sliding (Rough: soon, Smooth: further) |
+| Bodies Stay | Arcade, 4 s, 8 s, 15 s, 30 s | How long a body stays after the game would remove it (Arcade: gone with the game's own) |
+| Gravity | Low, Normal, Heavy | How fast bodies fall (Normal: the arcade's own) |
+| Dismemberment | On, Off | On: as the arcade (heads / limbs come off). Off: the pieces the game throws are not drawn and the severed parts stay on the body (dead or alive), so the whole ragdoll shows. A mod setting: only what is drawn changes (the game still counts the hit as before) |
+
+Since 10-28 (ragrevert, the user's choice) the mod is v2 again (the 10-27 night's version): the v3 tuning, the round /
+soft shadows, the cut-scene freeze / fade, the researcher ragdolls, the joint limits / self-collision and the
+ragdolls' own per-pixel depth are gone. Only the Dismemberment setting stayed. A mod folder from an older version
+(its mod.ini without Dismemberment) gets the built-in's newer settings.
+
+The mod's texts and settings come from `data\mods\ragdoll\mod.ini`; you may reword them, change the defaults or leave
+choices out. Without that folder the game uses the same built-in values.
+
+## Custom crosshairs
+
+Your own crosshair pictures: put PNG files in the **crosshairs** folder in the settings folder (next to `launcher.ini`;
+the portable copy: `settings\crosshairs\`), or in `data\crosshairs\` in the game's folder. Options > Video >
+Crosshairs (the Firing Range): the **Crosshair** row's help line shows the settings folder's one (made on the first visit).
+Then pick yours on the Crosshair row ("Custom: <name>").
+
+- A loose PNG (`skull.png`): one choice named after the file, tinted with the player's colour.
+- A folder with `crosshair.png`: one tinted choice named after the folder; with `p1.png` (and `p2.png`) instead: drawn
+  as they are (`p2.png` for player 2).
+- White on transparent works best for the tinted ones.
+
+## Limits (today)
+
+- **No code mods yet.** A mod is pictures, models, colour rules and the settings of the built-in mods. You cannot add
+  new behaviour with a script.
+- **Visual only.** Nothing a mod does may change the game's logic, so mods never need to match between online players.
+- The Ragdoll mod: every creature that dies except the bosses (the Chariot, the Hangedman, the Hermit, the Magician)
+  and the gold frog (it leaps away, it does not die); the loose creatures (bats, Murrers ...) have no joints from the
+  game, so their parts are joined to the nearest model (a Murrer can look a little stiff); bodies do not push living creatures (or the players' partners); a prop
+  counts when it is door-sized (10+ units high, 6+ wide); the floor is
+  the drawn world's (a body sliding off a ledge drops at most 8 units; without a window: flat at the creature's
+  height).
+- Texture packs: see the limits in [docs/mods.md](mods.md) (2D sprites not covered, the atlas size).
+
+## Sharing a mod
+
+A mod is its folder. Zip it with its folder (`my-mod\mod.ini`, `my-mod\textures\...`) and tell players to unzip it into
+the game's `data\mods\` (or the settings folder's `mods\`). **Share only what you made**: never pictures exported from
+the game's files (`--export-textures`) as they are, nor the game's files themselves.
+
+## For developers
+
+- `src/assets/mods.*`: `findModPacks` reads every folder's `mod.ini` (`type`, `default`, `depth` with
+  `parseModDepth`, `[settings]` with `parseModSetting`); `findMods` adds the built-in Ragdoll manifest when no folder
+  has `type = ragdoll`. `TexturePacks::build` fills `StageReplacements::modelDepth` (model key -> depth mode, by
+  `modDepthFor`: a custom model's pack, or the pack whose picture / colour rule a model's polygons draw); the renderer
+  copies it to `GpuStage::modelDepth` and `Renderer::draw` sets each such item's `uKeyless` / `uHybrid` (render/renderer.cpp).
+  `hotd --mods-test` checks it (`modDepthTest`: a small stage with a custom model, depth auto / buffer / sort).
+- `src/main.cpp` `applyMods`: the On list (launcher.ini / `--mod`), texture packs to the renderer (`texturePacks()`), the
+  Ragdoll mod's on / off and settings to `game::ragdollConfigure`. `modsRows` / `modSettingsPage` build the Mods page
+  and each mod's Settings page (`game::Frontend::Extra` rows: both menu styles draw them, text through the lang lookup).
+- `src/game/ragdoll.*`: the Ragdoll mod. `Runtime::ragdoll_frame` runs at the end of `Runtime::frame` (after the
+  camera is known) and only reads the address space; it changes `drawList` / `skinDraws`. `DrawModel::part` (set by
+  `body_part_draw_hook` and kept for the part's shadow) tells it which part drew each model. A netplay rollback's
+  re-run of frames already stepped only draws (no second step). `HOTD_RAGDOLL_TRACE=1` logs the ragdolls and the
+  shots that hit them; `HOTD_RAGDOLL_AIM=N` (pictures only: it changes the play) makes `--autofire` shoot the dead
+  bodies on the screen. ragall: `HOTD_RAGDOLL_KINDS=1` logs every drawn creature's routine / state changes (type,
+  routine, parts) to find a kind's death; `Ragdolls::dying` lists the death routines and the death states (kind 70,
+  frogs, bats, kind 65 through their state tables), `looseCreature` the routines of the creatures drawn by their task.
+- ipolish: `GameView` (game/view.cpp) builds `RagdollWalls` at every chapter load (the world's placements) and keeps
+  the door-sized models' triangles (`propWalls_`); each drawn frame those the game drew with `body == 0` are added past
+  the world's objects (`staticWalls_`) as active walls. `Ragdolls::collideBodies` pushes bodies apart before the steps;
+  the trace's `bodies N` counts the frames a ragdoll was pushed.

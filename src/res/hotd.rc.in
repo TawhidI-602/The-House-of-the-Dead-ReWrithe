@@ -1,0 +1,34 @@
+// Resources of hotd.exe / hotd_viewer.exe (CMake fills the @...@ parts): icon, version information, manifest (asInvoker).
+#include <winver.h>
+
+LANGUAGE 0, 0
+1 ICON "@HOTD_RC_ICON@"
+1 24 "@HOTD_RC_MANIFEST@"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION @HOTD_VER_COMMA@
+ PRODUCTVERSION @HOTD_VER_COMMA@
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "The House of the Dead: ReWrithe project\0"
+            VALUE "FileDescription", "@HOTD_RC_DESC@\0"
+            VALUE "FileVersion", "@HOTD_VER_DOT@\0"
+            VALUE "InternalName", "@HOTD_RC_NAME@\0"
+            VALUE "OriginalFilename", "@HOTD_RC_NAME@.exe\0"
+            VALUE "ProductName", "The House of the Dead: ReWrithe\0"
+            VALUE "ProductVersion", "@HOTD_VER_DOT@\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

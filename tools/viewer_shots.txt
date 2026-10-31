@@ -1,0 +1,17 @@
+# hotd_viewer --shots tools\viewer_shots.txt : <name> <chapter> <pc|arcade> <x> <y> <z> <yaw deg> <pitch deg> [options]
+ch1_start_arcade 1 arcade -39.69 4.59 -426.06 6.46 -0.09
+ch1_start_pc     1 pc     -39.69 4.59 -426.06 6.46 -0.09
+ch1_top_arcade   1 arcade -200 900 -400 0 -80
+ch2_start_arcade 2 arcade -8.37 -3.34 0.15 -89.68 8.93
+ch2_start_pc     2 pc     -8.37 -3.34 0.15 -89.68 8.93
+ch3_start_arcade 3 arcade 64.22 8.25 -2.81 -90.01 0
+ch3_start_pc     3 pc     64.22 8.25 -2.81 -90.01 0
+ch4_start_arcade 4 arcade 8.48 15.0 -52.70 -4.13 0
+ch4_start_pc     4 pc     8.48 15.0 -52.70 -4.13 0
+# per-model mixing: PC mansion (0x9E3, 0x9E4) in the arcade world, and arcade bridge parts (0x906, 0x913) in the PC world
+ch1_mix_pc_mansion_in_arcade 1 arcade -39.69 4.59 -426.06 6.46 -0.09 9e3=pc 9e4=pc
+ch1_mix_arcade_bridge_in_pc  1 pc     -39.69 4.59 -426.06 6.46 -0.09 906=arcade 913=arcade 90a=arcade
+# per category: world from PC, everything else arcade (only world models are loaded so far)
+ch1_cat_world_pc 1 arcade -39.69 4.59 -426.06 6.46 -0.09 cat:world=pc
+# lighting / filtering off for comparison
+ch1_start_arcade_flat 1 arcade -39.69 4.59 -426.06 6.46 -0.09 nolight nofilter

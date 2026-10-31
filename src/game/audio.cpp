@@ -1,0 +1,1079 @@
+// Sound and music from the PC port's files (audio.h). UNVERIFIED (teaser): the cue table is read as the PC's
+// sound_cue (0x412000) reads it; the mixing (voice count, volume curve, no panning) is our own.
+#include "game/audio.h"
+
+#include "assets/archive.h"
+#include "assets/pc_files.h"
+#ifdef HOTD_HAVE_ARCADE_SOUND
+#include "audio/sound_board.h"
+#else
+namespace hotd::audio { class SoundBoard {}; }   // never made: complete for Audio's unique_ptr (a build without it)
+#endif
+
+#include <SDL3/SDL.h>
+
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+
+#ifdef HOTD_HAVE_STB_VORBIS
+#define STB_VORBIS_HEADER_ONLY
+#include "stb_vorbis.c"
+#endif
+#ifdef HOTD_HAVE_DR_MP3
+#include "dr_mp3.h"
+#endif
+#if defined(HOTD_HAVE_STB_VORBIS) || defined(HOTD_HAVE_DR_MP3)
+#define HOTD_HAVE_MUSIC
+#endif
+
+namespace hotd::game {
+
+namespace {
+
+constexpr int kRate = 44100;
+// the voices' start / stop ramp (our own: the PC's DirectSound buffers start and stop at once, which clicks when a sample
+// begins or ends away from its centre 128, e.g. GAMESNDS sample 13 = the reload / bony-hand click): 3 ms, also over a
+// one-shot's last 3 ms
+constexpr float kFade = kRate * 0.003f;
+constexpr float kSfxGain = 0.5f;     // the PC effects' level (x the sample's volume and the effects setting)
+// the PC sound's master level (effects and music; 2026-10-19): about the arcade board's loudness on the same Chapter 1
+// run (autofire, 6000 frames, docs/teaser_status/audio_fixes.md), the soft limiter above 0.7 rarely reached
+constexpr float kPcLevel = 0.66f;
+constexpr uint32_t kCueTable = 0x5CBDA8;   // THOTD.EXE: 12 bytes per cue (type, name pointer, value)
+constexpr int kCues = 269;                 // cue 269 is the next table ("Main Menu")
+
+const std::pair<uint32_t, int> kCueMap[] = {
+#include "game/cue_map.inc"
+};
+
+bool readFile(const std::string& path, std::vector<uint8_t>& out)
+{
+    return pcfs::readFile(path, out);   // a file of the PC folder, or inside the PC zip
+}
+
+uint32_t le32(const uint8_t* p) { return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24; }
+
+// the BODY chunks of a PIFF / RBHF file ("PIFF" size "RBHF", then chunks: 4-byte tag, little-endian size, data)
+std::vector<std::pair<size_t, size_t>> rbhBodies(const std::vector<uint8_t>& d)
+{
+    std::vector<std::pair<size_t, size_t>> out;
+    if (d.size() < 12 || std::memcmp(d.data(), "PIFF", 4) != 0 || std::memcmp(d.data() + 8, "RBHF", 4) != 0)
+        return out;
+    for (size_t i = 12; i + 8 <= d.size();) {
+        const size_t n = le32(&d[i + 4]);
+        if (i + 8 + n > d.size())
+            break;
+        if (std::memcmp(&d[i], "BODY", 4) == 0)
+            out.push_back({i + 8, n});
+        i += 8 + n;
+    }
+    return out;
+}
+
+// a file in the PC folder, whatever the case of its name (the PC files come from a CD: upper case, but copies vary)
+std::string findPath(const std::string& root, const std::string& rel)
+{
+    // the launcher's files check: the checked file (also when renamed / moved, or a patch's .orig copy)
+    if (std::string m = pcFileMapped(rel); !m.empty())
+        return m;
+    // a zipped PC install: the zip reader matches names whatever their case
+    if (pcfs::isZip(root) || pcfs::inZip(root + "/x"))
+        return root + "/" + rel;
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::path p = root;
+    size_t s = 0;
+    while (s <= rel.size()) {
+        const size_t e = std::min(rel.find_first_of("/\\", s), rel.size());
+        const std::string part = rel.substr(s, e - s);
+        fs::path next = p / part;
+        if (!fs::exists(next, ec)) {
+            bool found = false;
+            for (const auto& entry : fs::directory_iterator(p, ec)) {
+                const std::string n = entry.path().filename().string();
+                if (n.size() == part.size() && SDL_strcasecmp(n.c_str(), part.c_str()) == 0) {
+                    next = entry.path();
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                return (fs::path(root) / rel).string();
+        }
+        p = next;
+        s = e + 1;
+    }
+    return p.string();
+}
+
+} // namespace
+
+// the music track being played: an .ogg (stb_vorbis) or an .mp3 (dr_mp3), whichever the build has; the whole file is
+// read into memory first (a loose file or one inside a zip alike) and decoded from there
+struct Audio::Music {
+#ifdef HOTD_HAVE_MUSIC
+    std::vector<uint8_t> data;
+#ifdef HOTD_HAVE_STB_VORBIS
+    stb_vorbis* v = nullptr;
+#endif
+#ifdef HOTD_HAVE_DR_MP3
+    drmp3 mp3{};
+    bool mp3Open = false;
+#endif
+    int channels = 2, rate = kRate;
+    bool loop = true;
+    uint64_t played = 0, total = 0;   // frames since the start (or the last loop) / in the file (0: not known)
+    int loops = 0;
+    std::vector<float> buf;    // decoded frames (stereo), at the track's rate
+    size_t bufPos = 0;
+    double frac = 1;
+    float cur[2] = {};
+    ~Music()
+    {
+#ifdef HOTD_HAVE_STB_VORBIS
+        if (v) stb_vorbis_close(v);
+#endif
+#ifdef HOTD_HAVE_DR_MP3
+        if (mp3Open) drmp3_uninit(&mp3);
+#endif
+    }
+    // up to 2048 frames, stereo, into tmp (4096 floats); 0 at the end
+    int decode(float* tmp)
+    {
+#ifdef HOTD_HAVE_STB_VORBIS
+        if (v)
+            return stb_vorbis_get_samples_float_interleaved(v, 2, tmp, 4096);
+#endif
+#ifdef HOTD_HAVE_DR_MP3
+        if (mp3Open) {
+            const int ch = std::max(1, int(mp3.channels));
+            std::vector<float> raw(size_t(2048) * ch);
+            const int n = int(drmp3_read_pcm_frames_f32(&mp3, 2048, raw.data()));
+            for (int i = 0; i < n; ++i) {
+                tmp[i * 2] = raw[size_t(i) * ch];
+                tmp[i * 2 + 1] = raw[size_t(i) * ch + (ch > 1 ? 1 : 0)];
+            }
+            return n;
+        }
+#endif
+        return 0;
+    }
+    void rewind()
+    {
+#ifdef HOTD_HAVE_STB_VORBIS
+        if (v) stb_vorbis_seek_start(v);
+#endif
+#ifdef HOTD_HAVE_DR_MP3
+        if (mp3Open) drmp3_seek_to_pcm_frame(&mp3, 0);
+#endif
+    }
+    // the next frame (stereo) at the track's rate into cur; false at the end
+    bool next()
+    {
+        if (bufPos >= buf.size() / 2) {
+            float tmp[4096];
+            int n = decode(tmp);
+            if (n == 0 && loop) {
+                rewind();
+                n = decode(tmp);
+                played = 0;
+                ++loops;
+            }
+            if (n == 0)
+                return false;
+            buf.assign(tmp, tmp + n * 2);
+            bufPos = 0;
+        }
+        cur[0] = buf[bufPos * 2];
+        cur[1] = buf[bufPos * 2 + 1];
+        ++bufPos;
+        ++played;
+        return true;
+    }
+    // the Jukebox: to frame f (the next() after it reads from there)
+    void seek(uint64_t f)
+    {
+#ifdef HOTD_HAVE_STB_VORBIS
+        if (v) stb_vorbis_seek(v, unsigned(f));
+#endif
+#ifdef HOTD_HAVE_DR_MP3
+        if (mp3Open) drmp3_seek_to_pcm_frame(&mp3, f);
+#endif
+        buf.clear();
+        bufPos = 0;
+        played = f;
+    }
+#endif
+};
+
+Audio::Audio() = default;
+Audio::~Audio() { shutdown(); }
+
+bool Audio::startBoard(const std::vector<uint8_t>& program, const std::vector<uint8_t>& samples, std::string& err)
+{
+#ifdef HOTD_HAVE_ARCADE_SOUND
+    std::lock_guard<std::recursive_mutex> g(lock_);
+    if (!board_)
+        board_ = std::make_unique<audio::SoundBoard>();
+    if (!board_->load(program, samples, err)) {
+        boardOn_ = false;
+        return false;
+    }
+    boardOn_ = true;
+    boardHeld_ = false;
+    return true;
+#else
+    (void)program;
+    (void)samples;
+    err = "the arcade sound board is not built in (CMake HOTD_ARCADE_SOUND)";
+    return false;
+#endif
+}
+
+void Audio::resetBoard()
+{
+#ifdef HOTD_HAVE_ARCADE_SOUND
+    std::lock_guard<std::recursive_mutex> g(lock_);
+    if (boardOn_ && board_)
+        board_->reset();   // the 68000 and the SCSP start over: no voice plays
+    boardHeld_ = false;
+#endif
+}
+
+uint64_t Audio::boardSamples() const
+{
+#ifdef HOTD_HAVE_ARCADE_SOUND
+    std::lock_guard<std::recursive_mutex> g(lock_);
+    return boardOn_ && board_ ? board_->samplesRun() : 0;
+#else
+    return 0;
+#endif
+}
+
+void Audio::boardSkip(int frames)
+{
+#ifdef HOTD_HAVE_ARCADE_SOUND
+    std::lock_guard<std::recursive_mutex> g(lock_);
+    if (!boardOn_ || !board_ || frames <= 0)
+        return;
+    std::vector<float> scratch(size_t(std::min(frames, 4410)) * 2);
+    while (frames > 0) {
+        const int n = std::min(frames, 4410);
+        std::fill(scratch.begin(), scratch.end(), 0.0f);
+        board_->render(scratch.data(), n, 0.0f);
+        frames -= n;
+    }
+#else
+    (void)frames;
+#endif
+}
+
+void Audio::stopBoard()
+{
+    std::lock_guard<std::recursive_mutex> g(lock_);
+    boardOn_ = false;
+}
+
+bool Audio::musicAvailable() const
+{
+#ifdef HOTD_HAVE_MUSIC
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool Audio::init(const std::string& pcRoot, bool device, std::string& err)
+{
+    root_ = pcRoot;
+    tracksIndexed_ = false;
+    for (const auto& [code, cue] : kCueMap)
+        cueMap_[code] = cue;
+    if (!loadCueTable(findPath(pcRoot, "THOTD.EXE"), err) || !loadBank(findPath(pcRoot, "SOUND/GAMESNDS.RBH"), err))
+        return false;
+    if (!device)
+        return true;
+    if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
+        err = std::string("audio: ") + SDL_GetError();
+        return false;
+    }
+    const SDL_AudioSpec spec{SDL_AUDIO_F32, 2, kRate};
+    stream_ = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, &Audio::callback, this);
+    if (!stream_) {
+        err = std::string("audio device: ") + SDL_GetError();
+        return false;
+    }
+    SDL_ResumeAudioStreamDevice(stream_);
+    return true;
+}
+
+bool Audio::openWav(const std::string& path, std::string& err)
+{
+    closeWav();
+    wav_ = std::fopen(path.c_str(), "wb");
+    if (!wav_) {
+        err = "cannot write " + path;
+        return false;
+    }
+    uint8_t header[44] = {};
+    std::fwrite(header, 1, sizeof header, wav_);   // written again by closeWav with the sizes
+    wavFrames_ = 0;
+    wavFrac_ = 0;
+    return true;
+}
+
+void Audio::renderFrame()
+{
+    if (!wav_)
+        return;
+    // one game frame of output: 1 / tickHz_ s (60 Hz: 735 frames at 44.1 kHz; arcade 57.524 Hz: 766.6)
+    wavFrac_ += kRate / tickHz_;
+    const int frames = int(wavFrac_);
+    wavFrac_ -= frames;
+    if (mixBuf_.size() < size_t(frames) * 2)
+        mixBuf_.resize(size_t(frames) * 2);
+    mix(mixBuf_.data(), frames);
+    std::vector<int16_t> pcm(size_t(frames) * 2);
+    for (size_t i = 0; i < pcm.size(); ++i)
+        pcm[i] = int16_t(std::lround(std::clamp(mixBuf_[i], -1.0f, 1.0f) * 32767.0f));
+    std::fwrite(pcm.data(), sizeof(int16_t), pcm.size(), wav_);
+    wavFrames_ += uint64_t(frames);
+}
+
+void Audio::closeWav()
+{
+    if (!wav_)
+        return;
+    auto put32 = [](uint8_t* p, uint32_t v) { p[0] = uint8_t(v); p[1] = uint8_t(v >> 8); p[2] = uint8_t(v >> 16); p[3] = uint8_t(v >> 24); };
+    const uint32_t data = uint32_t(wavFrames_ * 4);
+    uint8_t h[44] = {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ', 16, 0, 0, 0, 1, 0, 2, 0};
+    put32(h + 4, 36 + data);
+    put32(h + 24, kRate);
+    put32(h + 28, kRate * 4);
+    h[32] = 4;
+    h[34] = 16;
+    std::memcpy(h + 36, "data", 4);
+    put32(h + 40, data);
+    std::fseek(wav_, 0, SEEK_SET);
+    std::fwrite(h, 1, sizeof h, wav_);
+    std::fclose(wav_);
+    wav_ = nullptr;
+}
+
+void Audio::shutdown()
+{
+    closeWav();
+    if (stream_) {
+        SDL_DestroyAudioStream(stream_);
+        stream_ = nullptr;
+    }
+    music_.reset();
+}
+
+// the cue table in THOTD.EXE's data (the file offset from the PE section headers)
+bool Audio::loadCueTable(const std::string& exePath, std::string& err)
+{
+    std::vector<uint8_t> e;
+    if (!readFile(exePath, e) || e.size() < 0x400) {
+        err = "PC files: cannot read " + exePath;
+        return false;
+    }
+    const uint32_t pe = le32(&e[0x3C]);
+    if (pe + 0x18 > e.size() || std::memcmp(&e[pe], "PE\0\0", 4) != 0) {
+        err = exePath + ": not a PE file";
+        return false;
+    }
+    const uint32_t sections = e[pe + 6] | e[pe + 7] << 8, optSize = e[pe + 0x14] | e[pe + 0x15] << 8;
+    const uint32_t base = le32(&e[pe + 0x18 + 28]);
+    auto fileOf = [&](uint32_t va) -> int64_t {
+        for (uint32_t s = 0; s < sections; ++s) {
+            const uint8_t* h = &e[pe + 0x18 + optSize + s * 40];
+            const uint32_t vsize = le32(h + 8), vaddr = le32(h + 12) + base, rsize = le32(h + 16), raw = le32(h + 20);
+            if (va >= vaddr && va < vaddr + std::max(vsize, rsize) && va - vaddr < rsize)
+                return int64_t(raw) + (va - vaddr);
+        }
+        return -1;
+    };
+    const int64_t t = fileOf(kCueTable);
+    if (t < 0 || size_t(t) + kCues * 12 > e.size()) {
+        err = exePath + ": no cue table at 0x5CBDA8 (not the 1998 THOTD.EXE?)";
+        return false;
+    }
+    cues_.resize(kCues);
+    for (int i = 0; i < kCues; ++i) {
+        const uint8_t* c = &e[size_t(t) + size_t(i) * 12];
+        cues_[i].type = int32_t(le32(c));
+        cues_[i].value = int32_t(le32(c + 8));
+        const int64_t n = cues_[i].type == 4 ? fileOf(le32(c + 4)) : -1;
+        if (n >= 0)
+            cues_[i].name = reinterpret_cast<const char*>(&e[size_t(n)]);
+    }
+    return true;
+}
+
+// GAMESNDS.RBH: BODY 0 = the sample entries (40 bytes each), BODY 1 = the bank's 8-bit data (and, at its end, the
+// area the PC loads O_ files into)
+bool Audio::loadBank(const std::string& path, std::string& err)
+{
+    std::vector<uint8_t> d;
+    if (!readFile(path, d)) {
+        err = "PC files: cannot read " + path;
+        return false;
+    }
+    const auto bodies = rbhBodies(d);
+    if (bodies.size() < 2 || bodies[0].second % sizeof(SampleInfo) != 0) {
+        err = path + ": not the sound bank layout";
+        return false;
+    }
+    samples_.resize(bodies[0].second / sizeof(SampleInfo));
+    std::memcpy(samples_.data(), &d[bodies[0].first], bodies[0].second);
+    bank_.assign(d.begin() + std::ptrdiff_t(bodies[1].first), d.begin() + std::ptrdiff_t(bodies[1].first + bodies[1].second));
+    return true;
+}
+
+// SOUND\O_<name>.RBH: one BODY = {u32 load offset, u16 source 2, u16 file number} + the 8-bit data
+const std::vector<uint8_t>* Audio::loadOneShot(const std::string& name)
+{
+    auto it = oneShots_.find(name);
+    if (it != oneShots_.end())
+        return it->second.empty() ? nullptr : &it->second;
+    std::vector<uint8_t> d, data;
+    const std::string path = findPath(root_, "SOUND/O_" + name + ".RBH");
+    if (readFile(path, d)) {
+        const auto bodies = rbhBodies(d);
+        if (!bodies.empty() && bodies[0].second > 8)
+            data.assign(d.begin() + std::ptrdiff_t(bodies[0].first + 8), d.begin() + std::ptrdiff_t(bodies[0].first + bodies[0].second));
+    }
+    if (data.empty())
+        note("sound: cannot read " + path);
+    auto& slot = oneShots_[name] = std::move(data);
+    return slot.empty() ? nullptr : &slot;
+}
+
+int Audio::pcCueOf(uint32_t arcadeCode) const
+{
+    auto it = cueMap_.find(arcadeCode);
+    return it == cueMap_.end() ? -1 : it->second;
+}
+
+bool Audio::isMusicCode(uint32_t arcadeCode) const
+{
+    const int n = pcCueOf(arcadeCode);
+    if (n < 0 || n >= int(cues_.size()))
+        return false;
+    const Cue& c = cues_[size_t(n)];
+    return c.type == 3 || (c.type == 5 && c.value == 1);
+}
+
+std::string Audio::describe(int n) const
+{
+    if (n < 0 || n >= int(cues_.size()))
+        return "?";
+    const Cue& c = cues_[size_t(n)];
+    static const char* const kTypes[] = {"none", "sample", "stop", "track", "file", "command"};
+    char buf[96];
+    if (c.type == 4)
+        std::snprintf(buf, sizeof buf, "file O_%s (slot %d)", c.name.c_str(), c.value & 0xFFFF);
+    else
+        std::snprintf(buf, sizeof buf, "%s %d", c.type >= 0 && c.type <= 5 ? kTypes[c.type] : "type?", c.value);
+    return buf;
+}
+
+void Audio::cue(uint32_t arcadeCode)
+{
+    // (testing / trailer: HOTD_MUTE_CODE=0xA01472 leaves that one code out, e.g. the attract's white flash)
+    static const uint32_t muted = std::getenv("HOTD_MUTE_CODE") ? uint32_t(std::strtoul(std::getenv("HOTD_MUTE_CODE"), nullptr, 0)) : 0u;
+    if (muted && arcadeCode == muted) return;
+    ++codeCount[arcadeCode];
+    auto it = cueMap_.find(arcadeCode);
+    if (traceCues) {
+        std::printf("[sound %llu] 0x%06X -> %s\n", (unsigned long long)frameNo, arcadeCode,
+                    it == cueMap_.end() ? "no PC cue" : ("cue " + std::to_string(it->second) + " " + describe(it->second)).c_str());
+    }
+#ifdef HOTD_HAVE_ARCADE_SOUND
+    if (boardOn_) {   // the arcade board plays every code itself (0xBExxxx too)
+        board_->command(arcadeCode);
+        return;
+    }
+#endif
+    // THOTD's own calls where the arcade sends these (PC harness, sound_cue 0x412000 on Chapter 1, 2026-10-19):
+    // 0xBE5000 (the board's setting, after 0xA00002) = cue 7, every sample off (0x43E6E4: cues 2 + 7 in title_start,
+    // mode9_story_start, ranking_start, game_over_start; kind17_researcher_frame: 7); the clear music 0xA01005 comes
+    // after cue 1, every sample off (kind176_chapter_clear 0x51A7AC: cues 1 + 13)
+    if (arcadeCode == 0xBE5000 || arcadeCode == 0xA01005) {
+        const int extra = arcadeCode == 0xBE5000 ? 7 : 1;
+        if (traceCues)
+            std::printf("[sound %llu] 0x%06X -> cue %d %s (THOTD's own)\n", (unsigned long long)frameNo, arcadeCode, extra,
+                        describe(extra).c_str());
+        pcCue(extra);
+        if (arcadeCode == 0xBE5000)
+            return;
+    }
+    if (it == cueMap_.end()) {
+        // 0xBExxxx: a sound-board setting (event.cpp / hangedman_flyby: 0xBE5000), no sound; the PC has none
+        // 0xA00000: the arcade data's "no sound" entry (sent from a sound table at Chapter 3's start, with 0xA01249 /
+        // 0xA0135D in the same frame; the voice messages skip it themselves, scene_objects.cpp): sound 0, no PC cue
+        if ((arcadeCode >> 16) != 0xA0 || arcadeCode == 0xA00000)
+            return;
+        if (unmapped.insert(arcadeCode).second) {
+            char buf[64];
+            std::snprintf(buf, sizeof buf, "sound: arcade code 0x%06X has no PC cue", arcadeCode);
+            note(buf);
+        }
+        return;
+    }
+    pcCue(it->second);
+}
+
+// the PC's sound_cue (0x412000)
+void Audio::pcCue(int n)
+{
+    if (n < 0 || n >= int(cues_.size()))
+        return;
+    ++cueCount[n];
+    const Cue& c = cues_[size_t(n)];
+    switch (c.type) {
+    case 1:
+        if (!play(c.value & 0xFFFF, nullptr, 0))
+            silent.insert(n);
+        break;
+    case 2:
+        stopSample(c.value);
+        break;
+    case 3:
+        if (c.value != -1)
+            playTrack(c.value, n != 11 && n != 13);
+        break;
+    case 4:
+        if (const auto* data = loadOneShot(c.name)) {
+            stopSample(c.value);
+            if (!play(c.value & 0xFFFF, data->data(), uint32_t(data->size())))
+                silent.insert(n);
+        } else {
+            silent.insert(n);
+        }
+        break;
+    case 5:
+        if (c.value == 1)
+            stopMusic();
+        else if (c.value == 2 || c.value == 3 || c.value == 7)
+            stopAll();
+        break;
+    default:
+        break;
+    }
+}
+
+bool Audio::play(int sample, const uint8_t* data, uint32_t size)
+{
+    if (sample < 0 || sample >= int(samples_.size()))
+        return false;
+    const SampleInfo& s = samples_[size_t(sample)];
+    if (!data) {
+        if (s.source != 1 || s.offset + s.length > bank_.size())
+            return false;
+        data = bank_.data() + s.offset;
+        size = s.length;
+    }
+    std::lock_guard<std::recursive_mutex> g(lock_);
+    // the same sample started again within 1/15 s (a cue sent every frame, e.g. the reload while the trigger is held
+    // off screen): that voice restarts instead of stacking copies (our own rule)
+    const double recent = double(s.rate ? s.rate : 11025) / 15.0;
+    Voice* v = nullptr;
+    for (Voice& x : voices_)
+        if (x.data == data && x.sample == sample && x.pos < recent && !x.held)
+            v = &x;
+    if (!v) {
+        // a free voice, else the one furthest through its sample
+        v = &voices_[0];
+        for (Voice& x : voices_) {
+            if (!x.data) { v = &x; break; }
+            if (x.pos / std::max<uint32_t>(x.length, 1) > v->pos / std::max<uint32_t>(v->length, 1))
+                v = &x;
+        }
+    }
+    cut(*v);   // a restart or a stolen voice: the old sound ramps down in a tail
+    v->data = data;
+    v->length = std::min(s.length, size);
+    v->loopStart = s.loopStart < s.length ? s.loopStart : 0;
+    v->loop = s.loopStart != 0 || (s.flags & 0x1000000) != 0;
+    v->pos = 0;
+    v->step = double(s.rate ? s.rate : 11025) / kRate;
+    v->volume = s.volume / 255.0f;
+    v->sample = sample;
+    v->held = false;   // a sound started while the game is paused (the pause menu's own cues) plays
+    v->quiet = quietEffects_ && !v->loop;   // (a cut-scene's skip: its voices and one-shots unheard; loops play on)
+    return v->length > 0 && s.volume > 0;
+}
+
+void Audio::stopSample(int sample)
+{
+    std::lock_guard<std::recursive_mutex> g(lock_);
+    for (Voice& v : voices_)
+        if (v.data && v.sample == (sample & 0xFFFF))
+            cut(v);
+}
+
+void Audio::stopAll()
+{
+    std::lock_guard<std::recursive_mutex> g(lock_);
+    for (Voice& v : voices_)
+        cut(v);
+}
+
+// (lock_ held) a voice that sounds goes on as a tail ramping down over kFade frames (the quietest tail gives way when
+// all are busy); a held voice (the pause) or one not yet heard ends at once
+void Audio::cut(Voice& v)
+{
+    if (v.data && !v.held && v.amp > 0) {
+        Voice* t = &tails_[0];
+        for (Voice& x : tails_) {
+            if (!x.data) { t = &x; break; }
+            if (x.amp < t->amp)
+                t = &x;
+        }
+        *t = v;
+        t->release = true;
+    }
+    v = Voice{};
+}
+
+// musicdirs (user 2026-10-17): the PC release played CD audio, so a PC dump often has no Music folder and players
+// bring their own rips. The tracks are looked for, in order of place: the PC source's Music\ (folder or zip), a Music
+// folder next to the PC zip / folder, the package's data\music, the PC zip's own folder. In each place: loose files
+// and (except the last place) the files inside its .zip files; a name "TrackNN" or any name whose last number is the
+// track ("House of the Dead 02.mp3" = track 2); .ogg (stb_vorbis) and .mp3 (dr_mp3), whichever the build has. Within
+// a place TrackNN beats other names, .ogg beats .mp3, a loose file beats one in a zip. Each track's file is logged.
+//
+// Numbering (launcher "numbering", --music-numbering): the Sega Saturn disc orders the same songs differently. Saturn
+// -> PC CD (the user's C:\Games\HOTD\Music\README.txt): 02 03 04 -> same, 10 -> 05 (game over), 07 -> 06 (boss), 09 ->
+// 07 (stage clear), 11 -> 08 (credits), 05 -> 09 (Chapter 3), 08 -> 10 (final boss), 12 -> 11 (name entry /
+// ranking / menu), 06 -> 12 and 13 (Chapter 4: the PC's track 12 is cue 22 MUSIC_STG4BOSS_3, the arcade's Chapter 4
+// cue 0xA0100E; 13 is the user's optional patch 7). Saturn 12 went to 12 too before the user's patch 9 (2026-10-19). Auto: TrackNN files are the PC's; a set with other names is the Saturn's when its
+// 09 and 10 are the short jingles (each under a quarter of its 03; on the PC CD those are 05 / 07).
+void Audio::indexTracks()
+{
+    namespace fs = std::filesystem;
+    tracks_.clear();
+    tracksIndexed_ = true;
+    loggedTracks_.clear();
+    auto lower = [](std::string s) {
+        for (char& c : s) c = char(std::tolower(static_cast<unsigned char>(c)));
+        return s;
+    };
+    struct Cand { std::string path, where; int number, rank; bool named; uint64_t size; };
+    std::vector<Cand> cands;
+    // a candidate: rank = place * 16 + (TrackNN ? 0 : 4) + (in a zip ? 2 : 0) + (.ogg ? 0 : 1)
+    auto add = [&](const std::string& path, std::string name, int place, bool inZip, const std::string& where, uint64_t size) {
+        name = lower(name);
+        const size_t dot = name.rfind('.');
+        if (dot == std::string::npos)
+            return;
+        const std::string ext = name.substr(dot + 1), base = name.substr(0, dot);
+        bool ok = false;
+#ifdef HOTD_HAVE_STB_VORBIS
+        ok |= ext == "ogg";
+#endif
+#ifdef HOTD_HAVE_DR_MP3
+        ok |= ext == "mp3";
+#endif
+        if (!ok)
+            return;
+        size_t e = base.size();
+        while (e > 0 && !std::isdigit(static_cast<unsigned char>(base[e - 1]))) --e;
+        size_t b = e;
+        while (b > 0 && std::isdigit(static_cast<unsigned char>(base[b - 1]))) --b;
+        if (b == e || e - b > 2)
+            return;
+        const int number = std::atoi(base.substr(b, e - b).c_str());
+        const bool named = base.rfind("track", 0) == 0 && b == 5 && e == base.size();
+        const int rank = place * 16 + (named ? 0 : 4) + (inZip ? 2 : 0) + (ext == "ogg" ? 0 : 1);
+        cands.push_back(Cand{path, where, number, rank, named, size});
+    };
+    auto addZip = [&](const std::string& zip, int place, const std::string& where, const std::string& prefix) {
+        std::vector<pcfs::ZipItem> items;
+        std::string err;
+        if (!pcfs::listZip(zip, items, err))
+            return;
+        for (const pcfs::ZipItem& it : items) {
+            if (!prefix.empty() && it.rel.rfind(prefix, 0) != 0)
+                continue;
+            const size_t slash = it.rel.find_last_of('/');
+            add(it.path, slash == std::string::npos ? it.rel : it.rel.substr(slash + 1), place, true, where, it.size);
+        }
+    };
+    auto addDir = [&](const std::string& dir, int place, const std::string& where, bool zips) {
+        std::error_code ec;
+        if (dir.empty() || !fs::is_directory(dir, ec))
+            return;
+        for (const auto& entry : fs::directory_iterator(dir, ec)) {
+            if (!entry.is_regular_file(ec))
+                continue;
+            const std::string path = entry.path().string(), name = entry.path().filename().string();
+            if (zips && pcfs::isZip(path))
+                addZip(path, place, where, "");
+            else
+                add(path, name, place, false, where, uint64_t(entry.file_size(ec)));
+        }
+    };
+    // the folder the PC zip / folder sits in (for "<zip>/<folder inside>": the zip's)
+    fs::path src = fs::path(root_).lexically_normal();
+    if (!src.has_filename())
+        src = src.parent_path();   // a trailing separator
+    while (!src.empty() && !pcfs::isZip(src.string()) && pcfs::inZip(src.string() + "/x"))
+        src = src.parent_path();
+    const bool zipped = pcfs::isZip(src.string());
+    const std::string parent = src.parent_path().string();
+    if (zipped)
+        addZip(src.string(), 0, "the PC zip's Music folder", "music/");
+    else
+        addDir(findPath(root_, "Music"), 0, "the PC files' Music folder", true);
+    addDir(findPath(parent, "Music"), 1, "the Music folder next to the PC files", true);
+    if (!packageRoot.empty())
+        addDir(findPath(packageRoot, "data/music"), 2, "data\\music", true);
+    if (zipped)
+        addDir(parent, 3, "the PC zip's folder", false);
+
+    // the numbering: explicit, or auto (the other-named files' 09 / 10 against their 03)
+    bool saturn = musicNumbering == 2;
+    if (musicNumbering == 0) {
+        std::map<int, const Cand*> other;   // the best other-named file per number
+        for (const Cand& c : cands)
+            if (!c.named && (!other.count(c.number) || c.rank < other[c.number]->rank))
+                other[c.number] = &c;
+        if (other.count(3) && other.count(9) && other.count(10)) {
+            const uint64_t ref = other[3]->size;
+            saturn = other[9]->size * 4 < ref && other[10]->size * 4 < ref;
+            note(std::string("music: numbering auto: the other-named set is ") +
+                 (saturn ? "the Saturn disc's (its 09 / 10 are the short jingles)" : "the PC CD's"));
+        }
+    }
+    static const std::pair<int, int> kSaturnToPc[] = {{2, 2}, {3, 3}, {4, 4}, {10, 5}, {7, 6}, {9, 7}, {11, 8},
+                                                      {5, 9}, {8, 10}, {12, 11}, {6, 12}, {6, 13}};
+    auto put = [&](int track, const Cand& c, const std::string& where) {
+        auto it = tracks_.find(track);
+        if (it == tracks_.end() || c.rank < it->second.rank)
+            tracks_[track] = TrackFile{c.path, where, c.rank};
+    };
+    for (const Cand& c : cands) {
+        // explicit Saturn: every file; auto: the other-named ones (TrackNN stays the PC's)
+        if (!(saturn && (musicNumbering == 2 || !c.named))) {
+            put(c.number, c, c.where);
+            continue;
+        }
+        for (const auto& [from, to] : kSaturnToPc)
+            if (from == c.number)
+                put(to, c, c.where + " (Saturn " + std::to_string(c.number) + ")");
+    }
+    note("music: " + std::to_string(tracks_.size()) + " track(s) found");
+}
+
+void Audio::playTrack(int track, bool loop)
+{
+    char name[32];
+    std::snprintf(name, sizeof name, "Music/Track%02d", track);
+#ifdef HOTD_HAVE_MUSIC
+    if (!tracksIndexed_)
+        indexTracks();
+    const auto found = tracks_.find(track);
+    if (found == tracks_.end()) {
+        note(std::string("music: no file for track ") + std::to_string(track) + " (" + name +
+             ".ogg / .mp3 or a name ending in the number; see README)");
+        return;
+    }
+    const TrackFile& tf = found->second;
+    if (loggedTracks_.insert(track).second)
+        note("music: track " + std::to_string(track) + " from " + tf.where + ": " + tf.path);
+    auto m = std::make_unique<Music>();
+    if (!pcfs::readFile(tf.path, m->data) || m->data.empty()) {
+        note("music: cannot read " + tf.path);
+        return;
+    }
+    const bool mp3 = tf.path.size() > 4 && SDL_strcasecmp(tf.path.c_str() + tf.path.size() - 4, ".mp3") == 0;
+    bool ok = false;
+    if (!mp3) {
+#ifdef HOTD_HAVE_STB_VORBIS
+        int error = 0;
+        m->v = stb_vorbis_open_memory(m->data.data(), int(m->data.size()), &error, nullptr);
+        if (m->v) {
+            const stb_vorbis_info info = stb_vorbis_get_info(m->v);
+            m->channels = info.channels;
+            m->rate = int(info.sample_rate);
+            ok = true;
+        }
+#endif
+    } else {
+#ifdef HOTD_HAVE_DR_MP3
+        if (drmp3_init_memory(&m->mp3, m->data.data(), m->data.size(), nullptr)) {
+            m->mp3Open = true;
+            m->channels = int(m->mp3.channels);
+            m->rate = int(m->mp3.sampleRate);
+            ok = m->rate > 0;
+        }
+#endif
+    }
+    if (!ok) {
+        note("music: cannot open " + tf.path);
+        return;
+    }
+    m->loop = loop;
+#ifdef HOTD_HAVE_STB_VORBIS
+    if (m->v) m->total = stb_vorbis_stream_length_in_samples(m->v);
+#endif
+#ifdef HOTD_HAVE_DR_MP3
+    if (m->mp3Open) {   // (counting decodes the file once; then back to its start)
+        m->total = drmp3_get_pcm_frame_count(&m->mp3);
+        drmp3_seek_to_pcm_frame(&m->mp3, 0);
+    }
+#endif
+    std::lock_guard<std::recursive_mutex> g(lock_);
+    music_ = std::move(m);
+    musicHeld_ = false;
+#else
+    (void)loop;
+    note(std::string("music: ") + name + " (built without stb_vorbis / dr_mp3: no music)");
+#endif
+}
+
+bool Audio::playMusicTrack(int track, bool loop)
+{
+    {
+        std::lock_guard<std::recursive_mutex> g(lock_);
+        music_.reset();
+    }
+    playTrack(track, loop);
+    return musicPlaying();
+}
+
+bool Audio::hasMusicTrack(int track)
+{
+#ifdef HOTD_HAVE_MUSIC
+    if (!tracksIndexed_)
+        indexTracks();
+    return tracks_.count(track) != 0;
+#else
+    (void)track;
+    return false;
+#endif
+}
+
+bool Audio::musicPlaying() const
+{
+    return music_ != nullptr;
+}
+
+bool Audio::musicTime(double& pos, double& len, int& loops) const
+{
+    pos = len = 0;
+    loops = 0;
+#ifdef HOTD_HAVE_MUSIC
+    std::lock_guard<std::recursive_mutex> g(lock_);
+    if (!music_)
+        return false;
+    const double rate = music_->rate > 0 ? music_->rate : kRate;
+    pos = double(music_->played) / rate;
+    len = double(music_->total) / rate;
+    loops = music_->loops;
+    return true;
+#else
+    return false;
+#endif
+}
+
+void Audio::seekMusic(double seconds)
+{
+#ifdef HOTD_HAVE_MUSIC
+    std::lock_guard<std::recursive_mutex> g(lock_);
+    if (!music_)
+        return;
+    uint64_t f = uint64_t(std::max(0.0, seconds) * (music_->rate > 0 ? music_->rate : kRate));
+    if (music_->total && f >= music_->total)
+        f = music_->total - 1;
+    music_->seek(f);
+#else
+    (void)seconds;
+#endif
+}
+
+double Audio::cueLength(int cue)
+{
+    const int t = cueType(cue);
+    if (t != 1 && t != 4)
+        return 0;
+    const int s = cues_[size_t(cue)].value & 0xFFFF;
+    if (s < 0 || s >= int(samples_.size()))
+        return 0;
+    const SampleInfo& si = samples_[size_t(s)];
+    uint32_t len = si.length;
+    if (t == 4) {
+        const auto* d = loadOneShot(cues_[size_t(cue)].name);
+        len = d ? std::min<uint32_t>(len, uint32_t(d->size())) : 0;
+    }
+    return double(len) / double(si.rate ? si.rate : 11025);
+}
+
+bool Audio::cueLoops(int cue) const
+{
+    const int t = cueType(cue);
+    if (t != 1 && t != 4)
+        return false;
+    const int s = cues_[size_t(cue)].value & 0xFFFF;
+    if (s < 0 || s >= int(samples_.size()))
+        return false;
+    return samples_[size_t(s)].loopStart != 0 || (samples_[size_t(s)].flags & 0x1000000) != 0;
+}
+
+double Audio::trackLength(int track)
+{
+    static std::map<std::pair<std::string, int>, double> known;   // (the files' place, track)
+    const auto key = std::make_pair(root_ + "|" + packageRoot + "|" + std::to_string(musicNumbering), track);
+    if (auto it = known.find(key); it != known.end())
+        return it->second;
+    double len = 0;
+    {
+        std::lock_guard<std::recursive_mutex> g(lock_);
+        std::unique_ptr<Music> keep = std::move(music_);   // (playTrack replaces music_: the one playing comes back)
+        const bool held = musicHeld_;
+        playTrack(track, false);
+        if (music_ && music_->rate > 0)
+            len = double(music_->total) / music_->rate;
+        music_ = std::move(keep);
+        musicHeld_ = held;
+    }
+    known[key] = len;
+    return len;
+}
+
+bool Audio::cueSounding(int cue)
+{
+    const int t = cueType(cue);
+    if (t != 1 && t != 4)
+        return false;
+    const int s = cues_[size_t(cue)].value & 0xFFFF;
+    std::lock_guard<std::recursive_mutex> g(lock_);
+    for (const Voice& v : voices_)
+        if (v.data && v.sample == s)
+            return true;
+    return false;
+}
+
+void Audio::stopMusic()
+{
+    std::lock_guard<std::recursive_mutex> g(lock_);
+    music_.reset();
+}
+
+void Audio::mix(float* out, int frames)
+{
+    std::fill(out, out + frames * 2, 0.0f);
+    std::lock_guard<std::recursive_mutex> g(lock_);
+    auto mixVoice = [&](Voice& v) {
+        if (!v.data || v.held)   // held by the pause: kept where it is
+            return;
+        const float gain = v.quiet ? 0.0f : v.volume * sfxVolume_ * kSfxGain * kPcLevel;
+        const float ramp = 1.0f / kFade;
+        for (int i = 0; i < frames; ++i) {
+            uint32_t p = uint32_t(v.pos);
+            if (p >= v.length) {
+                if (!v.loop) { v = Voice{}; break; }
+                v.pos = v.loopStart + (v.pos - v.length);
+                p = uint32_t(v.pos);
+                if (p >= v.length) { v = Voice{}; break; }
+            }
+            if (v.release) {
+                if ((v.amp -= ramp) <= 0) { v = Voice{}; break; }
+            } else if (v.amp < 1) {
+                v.amp = std::min(1.0f, v.amp + ramp);
+            }
+            float env = v.amp;
+            if (!v.loop)   // a one-shot's last kFade output frames ramp down to its end
+                env = std::min(env, float((v.length - v.pos) / v.step) * ramp);
+            // linear interpolation between 8-bit unsigned samples
+            const float a = (v.data[p] - 128) / 128.0f;
+            const float b = p + 1 < v.length ? (v.data[p + 1] - 128) / 128.0f : a;
+            const float t = float(v.pos - p);
+            const float s = (a + (b - a) * t) * gain * env;
+            out[i * 2] += s;
+            out[i * 2 + 1] += s;
+            v.pos += v.step;
+        }
+    };
+    for (Voice& v : voices_)
+        mixVoice(v);
+    for (Voice& v : tails_)
+        mixVoice(v);
+#ifdef HOTD_HAVE_MUSIC
+    if (music_ && musicOn_ && !musicHeld_) {
+        Music& m = *music_;
+        const double step = double(m.rate) / kRate;
+        for (int i = 0; i < frames; ++i) {
+            // nearest frame at the track's rate (the tracks are 44.1 kHz: one frame each)
+            bool ok = true;
+            for (m.frac += step; m.frac >= 1.0 && ok; m.frac -= 1.0)
+                ok = m.next();
+            if (!ok) { music_.reset(); break; }
+            out[i * 2] += m.cur[0] * musicVolume_ * kPcLevel;
+            out[i * 2 + 1] += m.cur[1] * musicVolume_ * kPcLevel;
+        }
+    }
+#endif
+    // a soft limiter above 0.7 on the PC sound (effects and music) instead of hard clipping when many voices add up
+    for (int i = 0; i < frames * 2; ++i) {
+        const float a = std::fabs(out[i]);
+        if (a > 0.7f)
+            out[i] = std::copysign(0.7f + 0.3f * std::tanh((a - 0.7f) / 0.3f), out[i]);
+    }
+#ifdef HOTD_HAVE_ARCADE_SOUND
+    // the board after the limiter: its output is MAME's SCSP mix with one linear gain, nothing else (TODO "Arcade =
+    // MAME" step 4). x5.5 (user 2026-10-18: as loud as the PC sound): the SCSP's own mix peaked at ~0.14 of full
+    // scale; with the gain the Chapter 1 / 2 runs peak below 1.0 (docs/teaser_status/audio_fixes.md)
+    if (boardOn_ && !boardHeld_) {   // the board runs in step with the output (held by the pause)
+        // (into its own buffer first: its level for the Jukebox; boardVolume_: the Jukebox's music volume)
+        if (boardBuf_.size() < size_t(frames) * 2)
+            boardBuf_.resize(size_t(frames) * 2);
+        std::fill(boardBuf_.begin(), boardBuf_.begin() + frames * 2, 0.0f);
+        board_->render(boardBuf_.data(), frames, 1.0f);
+        const float gain = 5.5f * (boardVolume_ >= 0 ? boardVolume_ : sfxVolume_ / 0.8f);
+        float peak = 0;
+        for (int i = 0; i < frames * 2; ++i) {
+            peak = std::max(peak, std::fabs(boardBuf_[size_t(i)]));
+            out[i] += boardBuf_[size_t(i)] * gain;
+        }
+        boardPeak_ = peak;
+    }
+#endif
+}
+
+// the pause (THOTD.EXE 0x41ACA8 / 0x41ACF0, game/pause.h): hold = the CD's pause (0x565BE0) and message 0x418 (every
+// playing DirectSound buffer Stop()s, keeping its position); go on = the CD's resume (0x565B90) and 0x419 (those
+// buffers Play() again). Here the voices that sound and the track stay where they are and go on from there: nothing is
+// cued again (the user's patched game resumes only the track that played, patches 6 / 8; ours keeps its place too).
+// Sounds started while held (the pause menu's cues) play at once.
+void Audio::pause(bool hold)
+{
+    std::lock_guard<std::recursive_mutex> g(lock_);
+    for (Voice& v : voices_)
+        if (v.data)
+            v.held = hold;
+    musicHeld_ = hold && music_ != nullptr;   // patch 6: only a track that plays is paused (and so resumed)
+    boardHeld_ = hold;
+}
+
+void Audio::callback(void* self, SDL_AudioStream* stream, int additional, int)
+{
+    Audio& a = *static_cast<Audio*>(self);
+    const int frames = additional / int(sizeof(float) * 2);
+    if (frames <= 0)
+        return;
+    if (a.mixBuf_.size() < size_t(frames) * 2)
+        a.mixBuf_.resize(size_t(frames) * 2);
+    a.mix(a.mixBuf_.data(), frames);
+    SDL_PutAudioStreamData(stream, a.mixBuf_.data(), frames * int(sizeof(float) * 2));
+}
+
+} // namespace hotd::game

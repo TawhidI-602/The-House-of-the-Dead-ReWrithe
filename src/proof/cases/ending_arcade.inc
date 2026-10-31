@@ -1,0 +1,29 @@
+// Cases of runRoutine (the arcade: routine address -> the port), included inside its switch (proof/main.cpp):
+// the ending after Chapter 4 (port/ending.cpp).
+    case 0x35160: a.game_ending_start(); return true;
+    case 0x352A0: a.game_ending(); return true;
+    case 0x34360: a.sky_task_ending_start(); return true;
+    case 0x34150: a.sky_task_ending(regs[0]); return true;
+    case 0x353E0: a.kind120_letterbox_open(regs[0]); return true;
+    case 0x361C0: a.kind120_letterbox_open_frame(regs[0]); return true;
+    case 0x35F10: a.kind121_ending_scene(regs[0]); return true;
+    case 0x35410: a.kind121_ending_scene_draw(regs[0]); return true;
+    case 0x35F30: a.kind105_ending_caption(regs[0]); return true;
+    case 0x35FF0: a.kind116_end_sprite(regs[0]); return true;
+    case 0x360D0: a.kind122_ending_score(regs[0]); return true;
+    case 0x36030: a.kind122_letterbox_close_frame(regs[0]); return true;
+    case 0x1E630: a.kind110_letterbox(regs[0]); return true;
+    case 0x1E580: a.kind110_wait(regs[0]); return true;
+    case 0x189C0: a.palette_curve_fade_in_task(regs[0]); return true;
+    case 0x1E7B0: a.kind111_texture_area(regs[0]); return true;
+    case 0x9C020: a.kind179_chapter_results(regs[0]); return true;
+    case 0x9C200: a.kind179_chapter_results_frame(regs[0]); return true;
+    case 0x58C40: a.ending_p1_a(regs[0]); return true;
+    case 0x59090: a.ending_p1_b(regs[0]); return true;
+    case 0x59660: a.ending_p2_a(regs[0]); return true;
+    case 0x59A80: a.ending_p2_b(regs[0]); return true;
+    case 0x58CC0: a.ending_p1_a_frame(regs[0]); return true;
+    case 0x59120: a.ending_p1_b_frame(regs[0]); return true;
+    case 0x596F0: a.ending_p2_a_frame(regs[0]); return true;
+    case 0x59B10: a.ending_p2_b_frame(regs[0]); return true;
+    case 0x55B0: a.player_st7_idle(regs[0]); return true;

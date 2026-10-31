@@ -1,0 +1,33 @@
+// Cases of runRoutine (the arcade: routine address -> the port), included inside its switch (proof/main.cpp): kind
+// 18 set-ups 1 / 2 (the Hangedman's fight and rematch) and kind 19 (boss_hangedman.cpp).
+    case 0x4F960: a.hangedman_fight_init(regs[0]); return true;
+    case 0x4FAA0: a.hangedman_fight_frame(regs[0]); return true;
+    case 0x4FC40: a.hangedman_hit(regs[0]); return true;
+    case 0x4FDF0: a.hangedman_hit_reaction(regs[0]); return true;
+    case 0x500E0: a.hangedman_vuln_clear(regs[0]); return true;
+    case 0x50110: a.hangedman_death_fall(regs[0]); return true;
+    case 0x503E0: a.hangedman_intro(regs[0]); return true;
+    case 0x50700: a.hangedman_flap(regs[0]); return true;
+    case 0x50930: a.hangedman_rejoin(regs[0]); return true;
+    case 0x509F0: a.hangedman_hover(regs[0]); return true;
+    case 0x50C10: a.hangedman_claw_attack(regs[0]); return true;
+    case 0x51020: a.hangedman_return(regs[0]); return true;
+    case 0x51290: a.hangedman_flee(regs[0]); return true;
+    case 0x515B0: a.hangedman_wait_reappear(regs[0]); return true;
+    case 0x51B40: a.hangedman_dive_approach(regs[0]); return true;
+    case 0x51FA0: a.hangedman_dive_attack(regs[0]); return true;
+    case 0x527A0: a.hangedman_rematch_init(regs[0]); return true;
+    case 0x528D0: a.hangedman_rematch_intro(regs[0]); return true;
+    case 0x52980: a.hangedman_hover_point(regs[0], regs[1], regs[2], regs[3]); return true;
+    case 0x52C30: a.boss_life_bar_task(regs[0]); return true;
+    case 0x52CE0: a.hangedman_death_effect(regs[0]); return true;
+    case 0x52D20: a.hangedman_turn_toward(regs[0], regs[1], int32_t(regs[2])); return true;
+    case 0x52DA0: a.hangedman_explosion(regs[0]); return true;
+    case 0x301E0: a.camera_set_direct(regs[0], regs[1], regs[2], regs[3], regs[4], regs[5]); return true;
+    case 0x305A0: a.boss_aggression_init(regs[0]); return true;
+    case 0x305D0: a.boss_aggression_update(regs[0]); return true;
+    case 0x30690: a.billboard_model(regs[0]); return true;
+    case 0x31120: a.hangedman_intro_effect_spawn(int(regs[0])); return true;
+    case 0x31160: a.hangedman_intro_effect(regs[0]); return true;
+    case 0x70190: a.hangedman_captive_frame(regs[0]); return true;
+    case 0x703B0: a.hangedman_captives(); return true;

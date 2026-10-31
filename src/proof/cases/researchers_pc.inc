@@ -1,0 +1,35 @@
+// Cases of runRoutinePc (the PC: its F:: address -> the port), included inside its switch (proof/main.cpp): kind 64,
+// the researchers (enemy_researchers.cpp).
+    case F::kind64_kenkyu_researchers: a.kind64_kenkyu_researchers(regs[0]); return true;
+    case F::kind64_researcher_init: a.kind64_researcher_init(regs[0]); return true;
+    case F::kind64_frame: a.kind64_frame(regs[0]); return true;
+    case F::kind64_set0_hanging: a.kind64_set0_hanging(regs[0]); return true;
+    case F::kind64_st03_hang: a.kind64_st03_hang(regs[0]); return true;
+    case F::kind64_st04_climb_up: a.kind64_st04_climb_up(regs[0]); return true;
+    case F::kind64_st05_remove: a.kind64_st05_remove(regs[0]); return true;
+    case F::kind64_set1_sno: a.kind64_set1_sno(regs[0]); return true;
+    case F::kind64_st13_shot: a.kind64_st13_shot(regs[0]); return true;
+    case F::kind64_st14_rescue: a.kind64_st14_rescue(regs[0]); return true;
+    case F::kind64_st15_remove: a.kind64_st15_remove(regs[0]); return true;
+    case F::kind64_set2_hanging_ladder: a.kind64_set2_hanging_ladder(regs[0]); return true;
+    case F::kind64_st17_hang: a.kind64_st17_hang(regs[0]); return true;
+    case F::kind64_st18_ladder: a.kind64_st18_ladder(regs[0]); return true;
+    case F::kind64_st19_remove: a.kind64_st19_remove(regs[0]); return true;
+    case F::kind64_set3: a.kind64_set3(regs[0]); return true;
+    case F::kind64_st07_rescue: a.kind64_st07_rescue(regs[0]); return true;
+    case F::kind64_st08_remove: a.kind64_st08_remove(regs[0]); return true;
+    case F::kind64_set4_crawl: a.kind64_set4_crawl(regs[0]); return true;
+    case F::kind64_set4_next: a.kind64_set4_next(regs[0]); return true;
+    case F::kind64_st10_run: a.kind64_st10_run(regs[0]); return true;
+    case F::kind64_st11_remove: a.kind64_st11_remove(regs[0]); return true;
+    case F::kind64_set7_cell: a.kind64_set7_cell(regs[0]); return true;
+    case F::kind64_set8_crawl: a.kind64_set8_crawl(regs[0]); return true;
+    case F::kind64_set5_hold_up: a.kind64_set5_hold_up(regs[0]); return true;
+    case F::kind64_st21_talk: a.kind64_st21_talk(regs[0]); return true;
+    case F::kind64_st22_message: a.kind64_st22_message(regs[0]); return true;
+    case F::kind64_set6_sno: a.kind64_set6_sno(regs[0]); return true;
+    case F::kind64_st24_shot: a.kind64_st24_shot(regs[0]); return true;
+    case F::kind64_st25_rescue: a.kind64_st25_rescue(regs[0]); return true;
+    case F::kind64_st26_remove: a.kind64_st26_remove(regs[0]); return true;
+    case F::kind64_st29_struck: a.kind64_st29_struck(regs[0]); return true;
+    case F::kind64_hit_check: a.kind64_hit_check(regs[0]); return true;

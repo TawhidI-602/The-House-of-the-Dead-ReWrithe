@@ -1,0 +1,400 @@
+# Intel i960KB (Sega Model 2 main CPU), written for the HOTD rewrite from the i960 KA/KB programmer's reference.
+# Formats (opcode = bits 24-31): CTRL 0x00-0x1F, COBR 0x20-0x3F, REG 0x58-0x7F (+ bits 7-10), MEM 0x80-0xFF.
+# The condition code (AC bits 0-2) is three flags: cc_l (100), cc_e (010, also the carry of addc/subc), cc_g (001).
+# Register windows: "call" keeps the caller's r0-r15 and fp (see i960.cspec), so the pcode of call is a plain call.
+
+define endian=little;
+define alignment=4;
+
+define space ram type=ram_space size=4 default;
+define space register type=register_space size=4;
+
+define register offset=0x00 size=4 [ pfp sp rip r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15
+                                     g0 g1 g2 g3 g4 g5 g6 g7 g8 g9 g10 g11 g12 g13 g14 fp ];
+define register offset=0x00 size=8 [ pfpsp riprr3 r4r5 r6r7 r8r9 r10r11 r12r13 r14r15
+                                     g0g1 g2g3 g4g5 g6g7 g8g9 g10g11 g12g13 g14fp ];
+define register offset=0x00 size=12 [ r0t ];
+define register offset=0x10 size=12 [ r4t ];
+define register offset=0x20 size=12 [ r8t ];
+define register offset=0x30 size=12 [ r12t ];
+define register offset=0x40 size=12 [ g0t ];
+define register offset=0x50 size=12 [ g4t ];
+define register offset=0x60 size=12 [ g8t ];
+define register offset=0x70 size=12 [ g12t ];
+define register offset=0x00 size=16 [ r0q r4q r8q r12q g0q g4q g8q g12q ];
+
+define register offset=0x100 size=8 [ fp0 fp1 fp2 fp3 ];
+define register offset=0x100 size=4 [ fs0 _ fs1 _ fs2 _ fs3 _ ];
+
+define register offset=0x200 size=4 [ pc ac tc ];
+define register offset=0x210 size=1 [ cc_l cc_e cc_g ];
+
+define token instr(32)
+    op       = (24,31)
+    op_hi5   = (27,31)
+    op_cond  = (24,26)
+    ctrl_disp = (2,23) signed
+    c_s1     = (19,23)
+    c_s1n    = (19,23)
+    c_s2     = (14,18)
+    c_m1     = (13,13)
+    c_disp   = (2,12) signed
+    r_dst    = (19,23)
+    r_dstn   = (19,23)
+    r_dstl   = (19,23)
+    r_dstt   = (19,23)
+    r_dstq   = (19,23)
+    r_dsthi  = (21,23)
+    r_fdst4  = (19,20)
+    r_fdst8  = (19,20)
+    r_s2     = (14,18)
+    r_s2n    = (14,18)
+    r_s2l    = (14,18)
+    r_s2hi   = (16,18)
+    r_fs2_4  = (14,15)
+    r_fs2_8  = (14,15)
+    r_m3     = (13,13)
+    r_m2     = (12,12)
+    r_m1     = (11,11)
+    r_opx    = (7,10)
+    r_s1     = (0,4)
+    r_s1n    = (0,4)
+    r_s1l    = (0,4)
+    r_s1t    = (0,4)
+    r_s1q    = (0,4)
+    r_s1hi   = (2,4)
+    r_fs1_4  = (0,1)
+    r_fs1_8  = (0,1)
+    m_reg    = (19,23)
+    m_regl   = (19,23)
+    m_regt   = (19,23)
+    m_regq   = (19,23)
+    m_abase  = (14,18)
+    m_abasen = (14,18)
+    m_bit12  = (12,12)
+    mema_mode = (13,13)
+    mema_off = (0,11)
+    memb_mode = (10,13)
+    memb_scale = (7,9)
+    memb_idx = (0,4)
+;
+
+define token disp(32)
+    d32 = (0,31)
+;
+
+attach variables [ c_s1 c_s2 r_dst r_s2 r_s1 m_reg m_abase memb_idx ]
+    [ pfp sp rip r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15
+      g0 g1 g2 g3 g4 g5 g6 g7 g8 g9 g10 g11 g12 g13 g14 fp ];
+attach variables [ r_dstl r_s2l r_s1l m_regl ]
+    [ pfpsp _ riprr3 _ r4r5 _ r6r7 _ r8r9 _ r10r11 _ r12r13 _ r14r15 _
+      g0g1 _ g2g3 _ g4g5 _ g6g7 _ g8g9 _ g10g11 _ g12g13 _ g14fp _ ];
+attach variables [ r_dstt r_s1t m_regt ]
+    [ r0t _ _ _ r4t _ _ _ r8t _ _ _ r12t _ _ _ g0t _ _ _ g4t _ _ _ g8t _ _ _ g12t _ _ _ ];
+attach variables [ r_dstq r_s1q m_regq ]
+    [ r0q _ _ _ r4q _ _ _ r8q _ _ _ r12q _ _ _ g0q _ _ _ g4q _ _ _ g8q _ _ _ g12q _ _ _ ];
+attach variables [ r_fdst4 r_fs2_4 r_fs1_4 ] [ fs0 fs1 fs2 fs3 ];
+attach variables [ r_fdst8 r_fs2_8 r_fs1_8 ] [ fp0 fp1 fp2 fp3 ];
+
+define pcodeop syscall;
+define pcodeop fault;
+define pcodeop mark;
+define pcodeop fmark;
+define pcodeop flushreg;
+define pcodeop syncf;
+define pcodeop modac;
+define pcodeop modpc;
+define pcodeop modtc;
+define pcodeop atomic_mod;
+define pcodeop atomic_add;
+define pcodeop synmov;
+define pcodeop synld;
+define pcodeop scanbyte_eq;
+define pcodeop roundr;
+define pcodeop sinr;
+define pcodeop cosr;
+define pcodeop tanr;
+define pcodeop atanr;
+define pcodeop expr;
+define pcodeop logr;
+define pcodeop logbnr;
+define pcodeop logepr;
+define pcodeop remr;
+define pcodeop scaler;
+define pcodeop classr;
+define pcodeop cpysre;
+define pcodeop cpyrsre;
+define pcodeop decimal_op;
+define pcodeop extended_op;
+
+macro setcc_u(a, b) { cc_l = a < b; cc_e = a == b; cc_g = b < a; }
+macro setcc_s(a, b) { cc_l = a s< b; cc_e = a == b; cc_g = b s< a; }
+macro setcc_f(a, b) { cc_l = a f< b; cc_e = a f== b; cc_g = b f< a; }
+
+# ---- branch conditions (low 3 opcode bits = mask over l/e/g)
+cond: "no" is op_cond=0 { tmp:1 = (cc_l | cc_e | cc_g) == 0; export tmp; }
+cond: "g"  is op_cond=1 { export cc_g; }
+cond: "e"  is op_cond=2 { export cc_e; }
+cond: "ge" is op_cond=3 { tmp:1 = cc_g | cc_e; export tmp; }
+cond: "l"  is op_cond=4 { export cc_l; }
+cond: "ne" is op_cond=5 { tmp:1 = cc_l | cc_g; export tmp; }
+cond: "le" is op_cond=6 { tmp:1 = cc_l | cc_e; export tmp; }
+cond: "o"  is op_cond=7 { tmp:1 = cc_l | cc_e | cc_g; export tmp; }
+
+ctarget: dest is ctrl_disp [ dest = inst_start + ctrl_disp * 4; ] { export *:4 dest; }
+btarget: dest is c_disp [ dest = inst_start + c_disp * 4; ] { export *:4 dest; }
+
+# ---- CTRL
+:b ctarget        is op=0x08 & ctarget { goto ctarget; }
+:call ctarget     is op=0x09 & ctarget { call ctarget; }
+:ret              is op=0x0A { return [rip]; }
+:bal ctarget      is op=0x0B & ctarget { g14 = inst_next; call ctarget; }
+:b^cond ctarget   is op_hi5=2 & cond & ctarget { if (cond) goto ctarget; }
+:fault^cond       is op_hi5=3 & cond { if (!cond) goto inst_next; fault(); }
+
+# ---- COBR
+cs1: c_s1  is c_m1=0 & c_s1  { export c_s1; }
+cs1: c_s1n is c_m1=1 & c_s1n { export *[const]:4 c_s1n; }
+
+:test^cond c_s1 is op_hi5=4 & cond & c_s1 { c_s1 = zext(cond); }
+:bbc cs1, c_s2, btarget is op=0x30 & cs1 & c_s2 & btarget {
+    bit:4 = (c_s2 >> (cs1 & 31)) & 1; cc_l = 0; cc_g = 0; cc_e = bit:1; if (bit == 0) goto btarget; }
+:bbs cs1, c_s2, btarget is op=0x37 & cs1 & c_s2 & btarget {
+    bit:4 = (c_s2 >> (cs1 & 31)) & 1; cc_l = 0; cc_g = 0; cc_e = bit:1; if (bit != 0) goto btarget; }
+
+ccond: "g"  is op_cond=1 { export cc_g; }
+ccond: "e"  is op_cond=2 { export cc_e; }
+ccond: "ge" is op_cond=3 { tmp:1 = cc_g | cc_e; export tmp; }
+ccond: "l"  is op_cond=4 { export cc_l; }
+ccond: "ne" is op_cond=5 { tmp:1 = cc_l | cc_g; export tmp; }
+ccond: "le" is op_cond=6 { tmp:1 = cc_l | cc_e; export tmp; }
+
+:cmpob^ccond cs1, c_s2, btarget is op_hi5=6 & ccond & cs1 & c_s2 & btarget { setcc_u(cs1, c_s2); build ccond; if (ccond) goto btarget; }
+:cmpib^cond cs1, c_s2, btarget  is op_hi5=7 & cond & cs1 & c_s2 & btarget  { setcc_s(cs1, c_s2); build cond; if (cond) goto btarget; }
+
+# ---- REG operands
+src1: r_s1  is r_m1=0 & r_s1  { export r_s1; }
+src1: r_s1n is r_m1=1 & r_s1n { export *[const]:4 r_s1n; }
+src2: r_s2  is r_m2=0 & r_s2  { export r_s2; }
+src2: r_s2n is r_m2=1 & r_s2n { export *[const]:4 r_s2n; }
+dst: r_dst  is r_m3=0 & r_dst { export r_dst; }
+dst: r_dst  is r_m3=1 & r_dst { export r_dst; }
+
+src1l: r_s1l is r_m1=0 & r_s1l { export r_s1l; }
+src1l: r_s1n is r_m1=1 & r_s1n { export *[const]:8 r_s1n; }
+src2l: r_s2l is r_m2=0 & r_s2l { export r_s2l; }
+
+# real (float) operands: register, fp0-fp3 (M bit set, number 0-3), or the literals 0.0 (0x10) / 1.0 (0x16)
+fsrc1: r_s1    is r_m1=0 & r_s1 { export r_s1; }
+fsrc1: r_fs1_4 is r_m1=1 & r_s1hi=0 & r_fs1_4 { export r_fs1_4; }
+fsrc1: "0.0"   is r_m1=1 & r_s1n=0x10 { tmp:4 = int2float(0:4); export tmp; }
+fsrc1: "1.0"   is r_m1=1 & r_s1n=0x16 { tmp:4 = int2float(1:4); export tmp; }
+fsrc2: r_s2    is r_m2=0 & r_s2 { export r_s2; }
+fsrc2: r_fs2_4 is r_m2=1 & r_s2hi=0 & r_fs2_4 { export r_fs2_4; }
+fsrc2: "0.0"   is r_m2=1 & r_s2n=0x10 { tmp:4 = int2float(0:4); export tmp; }
+fsrc2: "1.0"   is r_m2=1 & r_s2n=0x16 { tmp:4 = int2float(1:4); export tmp; }
+fdst: r_dst    is r_m3=0 & r_dst { export r_dst; }
+fdst: r_fdst4  is r_m3=1 & r_dsthi=0 & r_fdst4 { export r_fdst4; }
+
+lsrc1: r_s1l   is r_m1=0 & r_s1l { export r_s1l; }
+lsrc1: r_fs1_8 is r_m1=1 & r_s1hi=0 & r_fs1_8 { export r_fs1_8; }
+lsrc1: "0.0"   is r_m1=1 & r_s1n=0x10 { tmp:8 = int2float(0:4); export tmp; }
+lsrc1: "1.0"   is r_m1=1 & r_s1n=0x16 { tmp:8 = int2float(1:4); export tmp; }
+lsrc2: r_s2l   is r_m2=0 & r_s2l { export r_s2l; }
+lsrc2: r_fs2_8 is r_m2=1 & r_s2hi=0 & r_fs2_8 { export r_fs2_8; }
+lsrc2: "0.0"   is r_m2=1 & r_s2n=0x10 { tmp:8 = int2float(0:4); export tmp; }
+lsrc2: "1.0"   is r_m2=1 & r_s2n=0x16 { tmp:8 = int2float(1:4); export tmp; }
+ldst: r_dstl   is r_m3=0 & r_dstl { export r_dstl; }
+ldst: r_fdst8  is r_m3=1 & r_dsthi=0 & r_fdst8 { export r_fdst8; }
+
+# ---- REG 0x58: logic
+:notbit src1, src2, dst  is op=0x58 & r_opx=0x0 & src1 & src2 & dst { dst = src2 ^ (1 << (src1 & 31)); }
+:and src1, src2, dst     is op=0x58 & r_opx=0x1 & src1 & src2 & dst { dst = src1 & src2; }
+:andnot src1, src2, dst  is op=0x58 & r_opx=0x2 & src1 & src2 & dst { dst = src2 & ~src1; }
+:setbit src1, src2, dst  is op=0x58 & r_opx=0x3 & src1 & src2 & dst { dst = src2 | (1 << (src1 & 31)); }
+:notand src1, src2, dst  is op=0x58 & r_opx=0x4 & src1 & src2 & dst { dst = ~src2 & src1; }
+:xor src1, src2, dst     is op=0x58 & r_opx=0x6 & src1 & src2 & dst { dst = src1 ^ src2; }
+:or src1, src2, dst      is op=0x58 & r_opx=0x7 & src1 & src2 & dst { dst = src1 | src2; }
+:nor src1, src2, dst     is op=0x58 & r_opx=0x8 & src1 & src2 & dst { dst = ~(src1 | src2); }
+:xnor src1, src2, dst    is op=0x58 & r_opx=0x9 & src1 & src2 & dst { dst = ~(src1 ^ src2); }
+:not src1, dst           is op=0x58 & r_opx=0xA & src1 & dst { dst = ~src1; }
+:ornot src1, src2, dst   is op=0x58 & r_opx=0xB & src1 & src2 & dst { dst = src2 | ~src1; }
+:clrbit src1, src2, dst  is op=0x58 & r_opx=0xC & src1 & src2 & dst { dst = src2 & ~(1 << (src1 & 31)); }
+:notor src1, src2, dst   is op=0x58 & r_opx=0xD & src1 & src2 & dst { dst = ~src2 | src1; }
+:nand src1, src2, dst    is op=0x58 & r_opx=0xE & src1 & src2 & dst { dst = ~(src1 & src2); }
+:alterbit src1, src2, dst is op=0x58 & r_opx=0xF & src1 & src2 & dst {
+    b:4 = 1 << (src1 & 31); dst = (src2 & ~b) | (b * zext(cc_e)); }
+
+# ---- REG 0x59: arithmetic, shifts
+:addo src1, src2, dst    is op=0x59 & r_opx=0x0 & src1 & src2 & dst { dst = src2 + src1; }
+:addi src1, src2, dst    is op=0x59 & r_opx=0x1 & src1 & src2 & dst { dst = src2 + src1; }
+:subo src1, src2, dst    is op=0x59 & r_opx=0x2 & src1 & src2 & dst { dst = src2 - src1; }
+:subi src1, src2, dst    is op=0x59 & r_opx=0x3 & src1 & src2 & dst { dst = src2 - src1; }
+:shro src1, src2, dst    is op=0x59 & r_opx=0x8 & src1 & src2 & dst { dst = src2 >> src1; }
+:shrdi src1, src2, dst   is op=0x59 & r_opx=0xA & src1 & src2 & dst { dst = src2 s/ (1 << src1); }
+:shri src1, src2, dst    is op=0x59 & r_opx=0xB & src1 & src2 & dst { dst = src2 s>> src1; }
+:shlo src1, src2, dst    is op=0x59 & r_opx=0xC & src1 & src2 & dst { dst = src2 << src1; }
+:rotate src1, src2, dst  is op=0x59 & r_opx=0xD & src1 & src2 & dst {
+    s:4 = src1 & 31; dst = (src2 << s) | (src2 >> (32 - s)); }
+:shli src1, src2, dst    is op=0x59 & r_opx=0xE & src1 & src2 & dst { dst = src2 << src1; }
+
+# ---- REG 0x5A: compares
+:cmpo src1, src2         is op=0x5A & r_opx=0x0 & src1 & src2 { setcc_u(src1, src2); }
+:cmpi src1, src2         is op=0x5A & r_opx=0x1 & src1 & src2 { setcc_s(src1, src2); }
+:concmpo src1, src2      is op=0x5A & r_opx=0x2 & src1 & src2 {
+    if (cc_l) goto inst_next; cc_e = src1 <= src2; cc_g = src2 < src1; }
+:concmpi src1, src2      is op=0x5A & r_opx=0x3 & src1 & src2 {
+    if (cc_l) goto inst_next; cc_e = src1 s<= src2; cc_g = src2 s< src1; }
+:cmpinco src1, src2, dst is op=0x5A & r_opx=0x4 & src1 & src2 & dst { setcc_u(src1, src2); dst = src2 + 1; }
+:cmpinci src1, src2, dst is op=0x5A & r_opx=0x5 & src1 & src2 & dst { setcc_s(src1, src2); dst = src2 + 1; }
+:cmpdeco src1, src2, dst is op=0x5A & r_opx=0x6 & src1 & src2 & dst { setcc_u(src1, src2); dst = src2 - 1; }
+:cmpdeci src1, src2, dst is op=0x5A & r_opx=0x7 & src1 & src2 & dst { setcc_s(src1, src2); dst = src2 - 1; }
+:scanbyte src1, src2     is op=0x5A & r_opx=0xC & src1 & src2 { cc_l = 0; cc_g = 0; cc_e = scanbyte_eq(src1, src2); }
+:chkbit src1, src2       is op=0x5A & r_opx=0xE & src1 & src2 { cc_l = 0; cc_g = 0; b:4 = (src2 >> (src1 & 31)) & 1; cc_e = b:1; }
+
+# ---- REG 0x5B: add/sub with carry (carry = cc_e, overflow = cc_g)
+:addc src1, src2, dst    is op=0x5B & r_opx=0x0 & src1 & src2 & dst {
+    t:8 = zext(src1) + zext(src2) + zext(cc_e); dst = t:4; cc_l = 0; hi:4 = t(4); cc_e = hi != 0; cc_g = 0; }
+:subc src1, src2, dst    is op=0x5B & r_opx=0x2 & src1 & src2 & dst {
+    t:8 = zext(src2) + zext(~src1) + zext(cc_e); dst = t:4; cc_l = 0; hi:4 = t(4); cc_e = hi != 0; cc_g = 0; }
+
+# ---- REG 0x5C-0x5F: moves
+:mov src1, dst           is op=0x5C & r_opx=0xC & src1 & dst { dst = src1; }
+:movl src1l, r_dstl      is op=0x5D & r_opx=0xC & src1l & r_dstl { r_dstl = src1l; }
+:movt r_s1t, r_dstt      is op=0x5E & r_opx=0xC & r_m1=0 & r_s1t & r_dstt { r_dstt = r_s1t; }
+:movt r_s1n, r_dstt      is op=0x5E & r_opx=0xC & r_m1=1 & r_s1n & r_dstt { r_dstt = r_s1n; }
+:movq r_s1q, r_dstq      is op=0x5F & r_opx=0xC & r_m1=0 & r_s1q & r_dstq { r_dstq = r_s1q; }
+:movq r_s1n, r_dstq      is op=0x5F & r_opx=0xC & r_m1=1 & r_s1n & r_dstq { r_dstq = r_s1n; }
+
+# ---- REG 0x60-0x61: synchronous / atomic
+:synmov src1, src2       is op=0x60 & r_opx=0x0 & src1 & src2 { synmov(src1, src2); }
+:synmovl src1, src2      is op=0x60 & r_opx=0x1 & src1 & src2 { synmov(src1, src2); }
+:synmovq src1, src2      is op=0x60 & r_opx=0x2 & src1 & src2 { synmov(src1, src2); }
+:atmod src1, src2, dst   is op=0x61 & r_opx=0x0 & src1 & src2 & dst { dst = atomic_mod(src1, src2, dst); }
+:atadd src1, src2, dst   is op=0x61 & r_opx=0x2 & src1 & src2 & dst { dst = atomic_add(src1, src2); }
+:synld src1, dst         is op=0x61 & r_opx=0x5 & src1 & dst { dst = synld(src1); }
+
+# ---- REG 0x64-0x67: bit fields, system
+:spanbit src1, dst       is op=0x64 & r_opx=0x0 & src1 & dst {
+    dst = 0xFFFFFFFF; cc_l = 0; cc_g = 0; cc_e = 0; if (src1 == 0xFFFFFFFF) goto inst_next;
+    dst = 31 - lzcount(~src1); cc_e = 1; }
+:scanbit src1, dst       is op=0x64 & r_opx=0x1 & src1 & dst {
+    dst = 0xFFFFFFFF; cc_l = 0; cc_g = 0; cc_e = 0; if (src1 == 0) goto inst_next;
+    dst = 31 - lzcount(src1); cc_e = 1; }
+:daddc src1, src2, dst   is op=0x64 & r_opx=0x2 & src1 & src2 & dst { dst = decimal_op(src1, src2); }
+:dsubc src1, src2, dst   is op=0x64 & r_opx=0x3 & src1 & src2 & dst { dst = decimal_op(src1, src2); }
+:dmovt src1, dst         is op=0x64 & r_opx=0x4 & src1 & dst { dst = src1; }
+:modac src1, src2, dst   is op=0x64 & r_opx=0x5 & src1 & src2 & dst { dst = modac(src1, src2); }
+:modify src1, src2, dst  is op=0x65 & r_opx=0x0 & src1 & src2 & dst { dst = (src2 & src1) | (dst & ~src1); }
+:extract src1, src2, dst is op=0x65 & r_opx=0x1 & src1 & src2 & dst { dst = (dst >> src1) & ((1 << src2) - 1); }
+:modtc src1, src2, dst   is op=0x65 & r_opx=0x4 & src1 & src2 & dst { dst = modtc(src1, src2); }
+:modpc src1, src2, dst   is op=0x65 & r_opx=0x5 & src1 & src2 & dst { dst = modpc(src1, src2); }
+:calls src1              is op=0x66 & r_opx=0x0 & src1 { syscall(src1); }
+:mark                    is op=0x66 & r_opx=0xB { mark(); }
+:fmark                   is op=0x66 & r_opx=0xC { fmark(); }
+:flushreg                is op=0x66 & r_opx=0xD { flushreg(); }
+:syncf                   is op=0x66 & r_opx=0xF { syncf(); }
+:emul src1, src2, r_dstl is op=0x67 & r_opx=0x0 & src1 & src2 & r_dstl { r_dstl = zext(src1) * zext(src2); }
+:ediv src1, src2l, r_dstl is op=0x67 & r_opx=0x1 & src1 & src2l & r_dstl {
+    q:8 = src2l / zext(src1); r:8 = src2l % zext(src1); r_dstl = (q << 32) | (r & 0xFFFFFFFF); }
+
+# ---- REG 0x67-0x6F: real number conversions and moves
+:cvtir src1, fdst        is op=0x67 & r_opx=0x4 & src1 & fdst { fdst = int2float(src1); }
+:cvtilr src1l, ldst      is op=0x67 & r_opx=0x5 & src1l & ldst { ldst = int2float(src1l); }
+:scalerl src1, lsrc2, ldst is op=0x67 & r_opx=0x6 & src1 & lsrc2 & ldst { ldst = scaler(src1, lsrc2); }
+:scaler src1, fsrc2, fdst is op=0x67 & r_opx=0x7 & src1 & fsrc2 & fdst { fdst = scaler(src1, fsrc2); }
+:cvtri fsrc1, dst        is op=0x6C & r_opx=0x0 & fsrc1 & dst { dst = trunc(round(fsrc1)); }
+:cvtril fsrc1, r_dstl    is op=0x6C & r_opx=0x1 & fsrc1 & r_dstl { r_dstl = trunc(round(fsrc1)); }
+:cvtzri fsrc1, dst       is op=0x6C & r_opx=0x2 & fsrc1 & dst { dst = trunc(fsrc1); }
+:cvtzril fsrc1, r_dstl   is op=0x6C & r_opx=0x3 & fsrc1 & r_dstl { r_dstl = trunc(fsrc1); }
+:movr fsrc1, fdst        is op=0x6C & r_opx=0x9 & fsrc1 & fdst { fdst = fsrc1; }
+:movrl lsrc1, ldst       is op=0x6D & r_opx=0x9 & lsrc1 & ldst { ldst = lsrc1; }
+:movre src1, dst         is op=0x6E & r_opx=0x1 & src1 & dst { dst = extended_op(src1); }
+:cpysre src1, src2, dst  is op=0x6E & r_opx=0x2 & src1 & src2 & dst { dst = cpysre(src1, src2); }
+:cpyrsre src1, src2, dst is op=0x6E & r_opx=0x3 & src1 & src2 & dst { dst = cpyrsre(src1, src2); }
+
+# ---- REG 0x68-0x69: real functions (single, long)
+:atanr fsrc1, fsrc2, fdst is op=0x68 & r_opx=0x0 & fsrc1 & fsrc2 & fdst { fdst = atanr(fsrc2, fsrc1); }
+:logepr fsrc1, fsrc2, fdst is op=0x68 & r_opx=0x1 & fsrc1 & fsrc2 & fdst { fdst = logepr(fsrc1, fsrc2); }
+:logr fsrc1, fsrc2, fdst  is op=0x68 & r_opx=0x2 & fsrc1 & fsrc2 & fdst { fdst = logr(fsrc1, fsrc2); }
+:remr fsrc1, fsrc2, fdst  is op=0x68 & r_opx=0x3 & fsrc1 & fsrc2 & fdst { fdst = remr(fsrc2, fsrc1); }
+:cmpor fsrc1, fsrc2       is op=0x68 & r_opx=0x4 & fsrc1 & fsrc2 { setcc_f(fsrc1, fsrc2); }
+:cmpr fsrc1, fsrc2        is op=0x68 & r_opx=0x5 & fsrc1 & fsrc2 { setcc_f(fsrc1, fsrc2); }
+:sqrtr fsrc1, fdst        is op=0x68 & r_opx=0x8 & fsrc1 & fdst { fdst = sqrt(fsrc1); }
+:expr fsrc1, fdst         is op=0x68 & r_opx=0x9 & fsrc1 & fdst { fdst = expr(fsrc1); }
+:logbnr fsrc1, fdst       is op=0x68 & r_opx=0xA & fsrc1 & fdst { fdst = logbnr(fsrc1); }
+:roundr fsrc1, fdst       is op=0x68 & r_opx=0xB & fsrc1 & fdst { fdst = round(fsrc1); }
+:sinr fsrc1, fdst         is op=0x68 & r_opx=0xC & fsrc1 & fdst { fdst = sinr(fsrc1); }
+:cosr fsrc1, fdst         is op=0x68 & r_opx=0xD & fsrc1 & fdst { fdst = cosr(fsrc1); }
+:tanr fsrc1, fdst         is op=0x68 & r_opx=0xE & fsrc1 & fdst { fdst = tanr(fsrc1); }
+:classr fsrc1             is op=0x68 & r_opx=0xF & fsrc1 { ac = classr(fsrc1); }
+:atanrl lsrc1, lsrc2, ldst is op=0x69 & r_opx=0x0 & lsrc1 & lsrc2 & ldst { ldst = atanr(lsrc2, lsrc1); }
+:logeprl lsrc1, lsrc2, ldst is op=0x69 & r_opx=0x1 & lsrc1 & lsrc2 & ldst { ldst = logepr(lsrc1, lsrc2); }
+:logrl lsrc1, lsrc2, ldst  is op=0x69 & r_opx=0x2 & lsrc1 & lsrc2 & ldst { ldst = logr(lsrc1, lsrc2); }
+:remrl lsrc1, lsrc2, ldst  is op=0x69 & r_opx=0x3 & lsrc1 & lsrc2 & ldst { ldst = remr(lsrc2, lsrc1); }
+:cmporl lsrc1, lsrc2       is op=0x69 & r_opx=0x4 & lsrc1 & lsrc2 { setcc_f(lsrc1, lsrc2); }
+:cmprl lsrc1, lsrc2        is op=0x69 & r_opx=0x5 & lsrc1 & lsrc2 { setcc_f(lsrc1, lsrc2); }
+:sqrtrl lsrc1, ldst        is op=0x69 & r_opx=0x8 & lsrc1 & ldst { ldst = sqrt(lsrc1); }
+:exprl lsrc1, ldst         is op=0x69 & r_opx=0x9 & lsrc1 & ldst { ldst = expr(lsrc1); }
+:logbnrl lsrc1, ldst       is op=0x69 & r_opx=0xA & lsrc1 & ldst { ldst = logbnr(lsrc1); }
+:roundrl lsrc1, ldst       is op=0x69 & r_opx=0xB & lsrc1 & ldst { ldst = round(lsrc1); }
+:sinrl lsrc1, ldst         is op=0x69 & r_opx=0xC & lsrc1 & ldst { ldst = sinr(lsrc1); }
+:cosrl lsrc1, ldst         is op=0x69 & r_opx=0xD & lsrc1 & ldst { ldst = cosr(lsrc1); }
+:tanrl lsrc1, ldst         is op=0x69 & r_opx=0xE & lsrc1 & ldst { ldst = tanr(lsrc1); }
+:classrl lsrc1             is op=0x69 & r_opx=0xF & lsrc1 { ac = classr(lsrc1); }
+
+# ---- REG 0x70, 0x74: integer multiply / divide
+:mulo src1, src2, dst    is op=0x70 & r_opx=0x1 & src1 & src2 & dst { dst = src2 * src1; }
+:remo src1, src2, dst    is op=0x70 & r_opx=0x8 & src1 & src2 & dst { dst = src2 % src1; }
+:divo src1, src2, dst    is op=0x70 & r_opx=0xB & src1 & src2 & dst { dst = src2 / src1; }
+:muli src1, src2, dst    is op=0x74 & r_opx=0x1 & src1 & src2 & dst { dst = src2 * src1; }
+:remi src1, src2, dst    is op=0x74 & r_opx=0x8 & src1 & src2 & dst { dst = src2 s% src1; }
+:modi src1, src2, dst    is op=0x74 & r_opx=0x9 & src1 & src2 & dst { dst = src2 s% src1; }
+:divi src1, src2, dst    is op=0x74 & r_opx=0xB & src1 & src2 & dst { dst = src2 s/ src1; }
+
+# ---- REG 0x78-0x79: real arithmetic (single, long)
+:divr fsrc1, fsrc2, fdst is op=0x78 & r_opx=0xB & fsrc1 & fsrc2 & fdst { fdst = fsrc2 f/ fsrc1; }
+:mulr fsrc1, fsrc2, fdst is op=0x78 & r_opx=0xC & fsrc1 & fsrc2 & fdst { fdst = fsrc2 f* fsrc1; }
+:subr fsrc1, fsrc2, fdst is op=0x78 & r_opx=0xD & fsrc1 & fsrc2 & fdst { fdst = fsrc2 f- fsrc1; }
+:addr fsrc1, fsrc2, fdst is op=0x78 & r_opx=0xF & fsrc1 & fsrc2 & fdst { fdst = fsrc2 f+ fsrc1; }
+:divrl lsrc1, lsrc2, ldst is op=0x79 & r_opx=0xB & lsrc1 & lsrc2 & ldst { ldst = lsrc2 f/ lsrc1; }
+:mulrl lsrc1, lsrc2, ldst is op=0x79 & r_opx=0xC & lsrc1 & lsrc2 & ldst { ldst = lsrc2 f* lsrc1; }
+:subrl lsrc1, lsrc2, ldst is op=0x79 & r_opx=0xD & lsrc1 & lsrc2 & ldst { ldst = lsrc2 f- lsrc1; }
+:addrl lsrc1, lsrc2, ldst is op=0x79 & r_opx=0xF & lsrc1 & lsrc2 & ldst { ldst = lsrc2 f+ lsrc1; }
+
+# ---- MEM effective address
+ea: mema_off                  is m_bit12=0 & mema_mode=0 & mema_off { export *[const]:4 mema_off; }
+ea: mema_off(m_abase)         is m_bit12=0 & mema_mode=1 & mema_off & m_abase { t:4 = m_abase + mema_off; export t; }
+ea: (m_abase)                 is m_bit12=1 & memb_mode=4 & m_abase { export m_abase; }
+ea: dest^"(ip)"              is m_bit12=1 & memb_mode=5 ; d32 [ dest = inst_start + 8 + d32; ] { export *[const]:4 dest; }
+ea: (m_abase)[memb_idx*sc]    is m_bit12=1 & memb_mode=7 & m_abase & memb_idx & memb_scale [ sc = 1 << memb_scale; ] {
+    t:4 = m_abase + (memb_idx << memb_scale); export t; }
+ea: d32                       is m_bit12=1 & memb_mode=12 ; d32 { export *[const]:4 d32; }
+ea: d32(m_abase)              is m_bit12=1 & memb_mode=13 & m_abase ; d32 { t:4 = m_abase + d32; export t; }
+ea: d32[memb_idx*sc]          is m_bit12=1 & memb_mode=14 & memb_idx & memb_scale ; d32 [ sc = 1 << memb_scale; ] {
+    t:4 = (memb_idx << memb_scale) + d32; export t; }
+ea: d32(m_abase)[memb_idx*sc] is m_bit12=1 & memb_mode=15 & m_abase & memb_idx & memb_scale ; d32 [ sc = 1 << memb_scale; ] {
+    t:4 = m_abase + (memb_idx << memb_scale) + d32; export t; }
+
+# ---- MEM
+:ldob ea, m_reg   is op=0x80 ... & m_reg ... & ea { m_reg = zext(*:1 ea); }
+:stob m_reg, ea   is op=0x82 ... & m_reg ... & ea { *:1 ea = m_reg:1; }
+:bx (m_abase)     is op=0x84 & m_bit12=1 & memb_mode=4 & m_abase & m_abasen=30 { return [m_abase]; }
+:bx ea            is op=0x84 ... & ea { goto [ea]; }
+:balx ea, m_reg   is op=0x85 ... & m_reg ... & ea { m_reg = inst_next; call [ea]; }
+:callx ea         is op=0x86 ... & ea { call [ea]; }
+:ldos ea, m_reg   is op=0x88 ... & m_reg ... & ea { m_reg = zext(*:2 ea); }
+:stos m_reg, ea   is op=0x8A ... & m_reg ... & ea { *:2 ea = m_reg:2; }
+:lda ea, m_reg    is op=0x8C ... & m_reg ... & ea { m_reg = ea; }
+:ld ea, m_reg     is op=0x90 ... & m_reg ... & ea { m_reg = *:4 ea; }
+:st m_reg, ea     is op=0x92 ... & m_reg ... & ea { *:4 ea = m_reg; }
+:ldl ea, m_regl   is op=0x98 ... & m_regl ... & ea { m_regl = *:8 ea; }
+:stl m_regl, ea   is op=0x9A ... & m_regl ... & ea { *:8 ea = m_regl; }
+:ldt ea, m_regt   is op=0xA0 ... & m_regt ... & ea { m_regt = *:12 ea; }
+:stt m_regt, ea   is op=0xA2 ... & m_regt ... & ea { *:12 ea = m_regt; }
+:ldq ea, m_regq   is op=0xB0 ... & m_regq ... & ea { m_regq = *:16 ea; }
+:stq m_regq, ea   is op=0xB2 ... & m_regq ... & ea { *:16 ea = m_regq; }
+:ldib ea, m_reg   is op=0xC0 ... & m_reg ... & ea { m_reg = sext(*:1 ea); }
+:stib m_reg, ea   is op=0xC2 ... & m_reg ... & ea { *:1 ea = m_reg:1; }
+:ldis ea, m_reg   is op=0xC8 ... & m_reg ... & ea { m_reg = sext(*:2 ea); }
+:stis m_reg, ea   is op=0xCA ... & m_reg ... & ea { *:2 ea = m_reg:2; }

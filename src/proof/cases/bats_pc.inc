@@ -1,0 +1,19 @@
+// Cases of runRoutinePc (the PC: its F:: address -> the port), included inside its switch (proof/main.cpp): kinds
+// 66-68, the bats (enemy_bats.cpp).
+    case F::kind66_bat: a.kind66_bat(regs[0]); return true;
+    case F::kind67_bat_swarm: a.kind67_bat_swarm(regs[0]); return true;
+    case F::kind68_bat: a.kind68_bat(regs[0]); return true;
+    case F::bat_frame: a.bat_frame(regs[0]); return true;
+    case F::bat_st1_hanging: a.bat_st1_hanging(regs[0]); return true;
+    case F::bat_st2_take_off: a.bat_st2_take_off(regs[0]); return true;
+    case F::bat_st3_circle: a.bat_st3_circle(regs[0]); return true;
+    case F::bat_st4_dive: a.bat_st4_dive(regs[0]); return true;
+    case F::bat_st5_shot: a.bat_st5_shot(regs[0]); return true;
+    case F::bat_st6_fall: a.bat_st6_fall(regs[0]); return true;
+    case F::bat_setup_flying: a.bat_setup_flying(regs[0]); return true;
+    case F::bat_setup_flying_low: a.bat_setup_flying_low(regs[0]); return true;
+    case F::bat_swarm_frame: a.bat_swarm_frame(regs[0]); return true;
+    case F::bat_st9_swarm_circle: a.bat_st9_swarm_circle(regs[0]); return true;
+    case F::bat_st10_swarm_dive: a.bat_st10_swarm_dive(regs[0]); return true;
+    case F::bat_setup_group5: a.bat_setup_group5(); return true;
+    case F::bat_setup_hangedman_swarm: a.bat_setup_hangedman_swarm(); return true;

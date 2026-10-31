@@ -1,0 +1,19 @@
+// The PC instantiations (included by port/game.cpp; a routine is listed once its PC captures match): kinds 66-68, the
+// bats (enemy_bats.cpp).
+template void Game<Pc>::kind66_bat(uint32_t);
+template void Game<Pc>::kind67_bat_swarm(uint32_t);
+template void Game<Pc>::kind68_bat(uint32_t);
+template void Game<Pc>::bat_frame(uint32_t);
+template void Game<Pc>::bat_st1_hanging(uint32_t);
+template void Game<Pc>::bat_st2_take_off(uint32_t);
+template void Game<Pc>::bat_st3_circle(uint32_t);
+template void Game<Pc>::bat_st4_dive(uint32_t);
+template void Game<Pc>::bat_st5_shot(uint32_t);
+template void Game<Pc>::bat_st6_fall(uint32_t);
+template void Game<Pc>::bat_setup_flying(uint32_t);
+template void Game<Pc>::bat_setup_flying_low(uint32_t);
+template void Game<Pc>::bat_swarm_frame(uint32_t);
+template void Game<Pc>::bat_st9_swarm_circle(uint32_t);
+template void Game<Pc>::bat_st10_swarm_dive(uint32_t);
+template void Game<Pc>::bat_setup_group5();
+template void Game<Pc>::bat_setup_hangedman_swarm();
