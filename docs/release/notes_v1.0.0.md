@@ -1,8 +1,5 @@
 # The House of the Dead: ReWrithe v1.0.0
 
-**DRAFT (relprep, 2026-10-27). Not published.** Before publishing: fill in the SHA-256 values from the CI artifacts
-(or `SHA256SUMS*.txt`), re-read "Known issues" against the last test round, and check the date.
-
 > A fan-made rewrite, **not affiliated with, endorsed by or sponsored by SEGA**. "The House of the Dead" is SEGA's
 > trademark, used here only to say which game this rewrite works with. **No game data is included in any download.**
 
