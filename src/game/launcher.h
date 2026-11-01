@@ -267,6 +267,11 @@ struct LaunchConfig {
     // trailer: Trailer Mode (Options > Advanced; F7 in play toggles it for this run only): no HUD, captions, sights or
     // cursor in play (draw-only); launcher.ini trailer=
     bool trailer = false;
+    // Hit Sparks / Gun Muzzle Flash (Video page): off hides the spark bursts where the player's bullets hit / the cut-scene
+    // guns' muzzle flash (draw-only); launcher.ini hitsparks= / muzzleflash=
+    bool hitSparks = true;
+    bool muzzleFlash = true;
+    bool bloodParticles = true;   // Blood Particles: off hides the blood spray / bursts (draw-only); launcher.ini bloodparticles=
     // players 3 / 4 in the cut-scenes (docs/coop4.md section 16): the variation picked per scene, "00:B,09:C" (a scene
     // not named: A, the look of sections 10-12); launcher.ini scene4p=, --scene4p
     std::string scene4p;

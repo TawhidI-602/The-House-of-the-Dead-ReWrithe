@@ -117,6 +117,8 @@ public:
     // and the scene go on underneath (paused: a photo mode). Off: the scene's camera again at once
     bool freeCam = false;
     bool freeFast = false;   // ipolish: a pad's left-stick click: the speed x4 until clicked again (Free Cam off: off)
+    bool hintsOff = false;   // H: the key hints hidden (recording; kept for the session)
+    bool fx[3] = {true, true, true};   // Hit Sparks / Gun Muzzle Flash / Blood Particles (main.cpp sets them from the options)
     Camera freeCamera;   // its place, yaw / pitch (Camera::basis) and field of view
     struct FreeCamInput {
         float move[3] = {};   // right, up, forward: -1..1 each (keys WASD / QE / arrows, the left stick, the triggers)
@@ -125,10 +127,15 @@ public:
         bool fast = false, fine = false;   // Shift x4, Ctrl x0.25
     };
     static constexpr float kFreeCamSpeed = 60.0f;   // world units a second (the arcade's: a body is about 17 high)
+    bool freeSlow = false;   // C / Back: Free Cam at 1/4 speed, eased in and out (cinematic shots)
+    float slowMove_[3] = {}, slowLook_[2] = {};   // (the eased input)
     void freeCamToggle(const Camera& sceneCam)
     {
         freeCam = !freeCam;
         freeFast = false;
+        freeSlow = false;
+        for (float& f : slowMove_) f = 0;
+        for (float& f : slowLook_) f = 0;
         if (freeCam) {
             freeCamera = sceneCam;
             freeCamera.nearZ = kFreeCamNear;
@@ -172,6 +179,7 @@ private:
     std::map<std::tuple<int, int, int>, Snap> cache_;
     std::deque<Snap> ring_;   // the seek's save-states, every 30 frames (the last few)
     uint32_t startsSeen_ = 0;
+    uint32_t deathsSeen_ = 0;   // (kSceneBossDeath: the boss deaths seen)
     uint64_t seekFrom_ = 0;
     bool seen_ = false;       // Watching: the scene has started
     int tail_ = 0;            // frames since its bodies were done

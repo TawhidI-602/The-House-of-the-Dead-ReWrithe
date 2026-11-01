@@ -337,6 +337,11 @@ template <class P> void Game<P>::hangedman_death_fall(uint32_t obj)
     switch (sub) {
     case 0: {
         boss_event(kBossClockStop);   // PC 0x49A060
+        if (boss_death_center) {   // (the cut-scene viewer only: he falls where the camera looks, on the grey road below him)
+            const uint32_t rec = G::camera_matrices + 0x60 + mem.u32(G::camera_view) * 0x154;
+            of<float>(obj, 0x20) = mem.f32(rec + 0x18) + 50.0f;
+            of<float>(obj, 0x28) = mem.f32(rec + 0x20) + 50.0f;   // (the road's place, found by trial: 50 on and 50 down the courtyard)
+        }
         enemy_kill_score(obj, 1500);
         mem.at<uint16_t>(G::enemies_alive) = uint16_t(mem.at<uint16_t>(G::enemies_alive) - 1);
         const uint8_t target = of<uint8_t>(obj, 0x2E8);

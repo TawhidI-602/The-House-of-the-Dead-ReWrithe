@@ -36,7 +36,8 @@ arcade version's more detailed models and textures or the PC's.
 3. Put your own 1998 PC game (its installed folder, or a `.zip` of it) in `data\pc`; the CD music (`TrackNN.ogg`) in `data\music`.
 4. Double-click `HOTDReWritheSetup.bat` once: choose the files, then Play. The setup then makes
    **`The House of the Dead ReWrithe.exe`** in the same folder (with your PC game's icon): from then on start the game
-   with that. The PC game's CD music is optional (the arcade's music is used). The mouse is the gun (left shoot, right reload).
+   with that. The PC game's CD music is optional (the arcade's music is used). An **unpatched** 1998 PC copy is
+   recommended; a patched THOTD.EXE (music / no-CD / Windows fixes) is accepted too. The mouse is the gun (left shoot, right reload).
 5. Something missing? The setup window says what and where it goes; details in `settings\hotd.log` (a crash also leaves
    `settings\crash-<date>.txt`: attach both to a bug report, never game files).
 

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 # THE version (a release: change this line only): the exes' VERSIONINFO, the main menu's corner, hotd --version
-project(hotd_m2 VERSION 1.0.0 LANGUAGES C CXX)
+project(hotd_m2 VERSION 1.0.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

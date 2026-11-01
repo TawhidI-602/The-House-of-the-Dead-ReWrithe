@@ -769,22 +769,54 @@ void Frontend::remakeScenes(const ScenesText& s, const GalleryText& g)
     const int n = int(s.rows.size());
     const int mx = c.stageX + 16, mw = std::min(320, c.stageW - 32);
     struct Line { int scene; std::string text; int y; };
-    std::vector<Line> lines;
+    std::vector<Line> lines;   // (y set below, from the first shown line)
     {
-        int y = 40, chapter = 0;
+        int chapter = 0;
         for (int i = 0; i < n; ++i) {
             const std::string& r = s.rows[size_t(i)];
             const int ch = r.empty() ? 0 : r[0] - '0';
             if (ch != chapter) {
-                if (chapter) y += 6;
-                lines.push_back({-1, "Chapter " + std::to_string(ch), y});
-                y += 18;
+                lines.push_back({-1, "Chapter " + std::to_string(ch), 0});
                 chapter = ch;
             }
-            lines.push_back({i, r, y});
-            y += 18;
+            lines.push_back({i, r, 0});
         }
     }
+    // a scroll bar when the lines do not fit (the other lists' bar and wheel): lines from `first` down, to y 430
+    const int total = int(lines.size());
+    auto layout = [&](int first, bool set) {   // the lines that fit from `first` (the heading's gap before a chapter)
+        int y = 40, cnt = 0;
+        for (int i = first; i < total; ++i) {
+            if (i > first && lines[size_t(i)].scene < 0) y += 6;
+            if (y + 17 > 430) break;
+            if (set) lines[size_t(i)].y = y;
+            y += 18, ++cnt;
+        }
+        return cnt;
+    };
+    int top = 0;
+    while (top < total - 1 && layout(top, false) < total - top)
+        ++top;
+    int selLine = 0;
+    for (int i = 0; i < total; ++i)
+        if (lines[size_t(i)].scene == s.selected) selLine = i;
+    if (s.selected != reSceneSel_) {   // another scene chosen: it is shown (the list scrolled by the user stays otherwise)
+        reSceneSel_ = s.selected;
+        if (selLine < reSceneFirst_ || selLine >= reSceneFirst_ + layout(reSceneFirst_, false))
+            reSceneFirst_ = selLine >= 1 && lines[size_t(selLine - 1)].scene < 0 ? selLine - 1 : selLine;
+    }
+    reSceneTop_ = top;
+    reSceneFirst_ = std::clamp(reSceneFirst_, 0, top);
+    const int shown = layout(reSceneFirst_, true);
+    {
+        std::vector<Line> vis(lines.begin() + reSceneFirst_, lines.begin() + reSceneFirst_ + shown);
+        lines.swap(vis);
+    }
+    if (top > 0)
+        scrollBar(root_, mx + mw + 10, 40, 7, 390, reSceneFirst_, total - top, total, [this](int f) {
+            reSceneFirst_ = f;
+            screenScenes();
+        });
     for (const Line& l : lines)
         if (l.scene >= 0) {
             const size_t sp = l.text.find(' ');
@@ -797,7 +829,7 @@ void Frontend::remakeScenes(const ScenesText& s, const GalleryText& g)
     reList_.wantKey = "scenes";
     reList_.slide = -1;
     reList_.box[0] = mx - 8, reList_.box[1] = 30, reList_.box[2] = mw + 12, reList_.box[3] = 400;
-    reList_.wantSig = "scenes|" + std::to_string(s.selected) + "|" + std::to_string(n) + "|" + std::to_string(bloodHue_) + "|" + std::to_string(cw_);
+    reList_.wantSig = "scenes|" + std::to_string(s.selected) + "|" + std::to_string(reSceneFirst_) + "|" + std::to_string(n) + "|" + std::to_string(bloodHue_) + "|" + std::to_string(cw_);
     reList_.draw = [this, lines, sel = s.selected, mx, mw]() {
         const int* hide = reListHide_;   // (galact: the rows under the open Actors list)
         const float S = ps_;

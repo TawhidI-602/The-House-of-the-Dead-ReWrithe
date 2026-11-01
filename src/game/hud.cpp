@@ -1541,12 +1541,13 @@ void Hud::draw(const Runtime& rt, int ww, int wh, const float aim[4][2], bool sh
     // sweep (2026-10-28): the white cover (0x8D, the attract's cut to the sewer zombies at frame 7200, 5 frames) too:
     // it whitened the 4:3 middle only, the old scene showed beside it; the sides white then
     else if (const uint32_t cover = coverShown(rt))
-        blackSides(ww, wh, cover == 0x8D ? 1.0f : 0.0f);
+        blackSides(ww, wh, cover == 0x8D && !std::getenv("HOTD_NO_WHITE") ? 1.0f : 0.0f);   // (HOTD_NO_WHITE: black sides)
     // title-2: kind 104's fade from white (palette_blend_white: white - (white - colour) x level / 32) as white over
     // the 3D picture, alpha (32 - level) / 32, under the 2D layer (MAME attract_fade snaps 0128-0132: the 3D and the
     // backdrop fade from white, PRESS START / FREE PLAY stay as they are)
     // flash: also the Magician's death fades (Runtime::paletteWhite: palette_fade_out_task / _in_task)
-    const int whiteLevel = rt.whiteFade >= 0 ? rt.whiteFade : rt.paletteWhite();
+    static const bool noWhite = std::getenv("HOTD_NO_WHITE") != nullptr;   // (trailer footage: no white fades)
+    const int whiteLevel = noWhite ? -1 : rt.whiteFade >= 0 ? rt.whiteFade : rt.paletteWhite();
     if (whiteLevel >= 0 && whiteLevel < 32 && !rt.pcModels) {   // PC models: the PC's own fade (pcFadeDraw)
         // the 496 x 384 screen's shape in original 4:3; widescreen: the window's shape, so the flash fills the whole
         // picture (it only whitened the 4:3 middle, user 2026-10-17)
@@ -1558,7 +1559,8 @@ void Hud::draw(const Runtime& rt, int ww, int wh, const float aim[4][2], bool sh
         upload(rgba_, W, H, ww, wh);
     }
     // the cut-scene bars (letterbox_task: 0..0x28 lines of the 384-line arcade screen, top and bottom)
-    if (rt.letterbox > 0) {
+    static const bool noBars = std::getenv("HOTD_NO_BARS") != nullptr;   // (trailer footage: no cut-scene bars)
+    if (rt.letterbox > 0 && !noBars) {
         // the panel is 11 px a text row + 9 (render/overlay.cpp); was 8 a row, i.e. 60 of 40 lines (polish)
         const int rows = std::max(1, (rt.letterbox * wh / 384 - 9 + 5) / 11);
         if (rows != barRows_) {

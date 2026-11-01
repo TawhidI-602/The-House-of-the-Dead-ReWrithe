@@ -1422,7 +1422,9 @@ void Renderer::draw(const std::vector<DrawItem>& items, const Camera& cam, int w
                       -(f[0] * e[0] + f[1] * e[1] + f[2] * e[2]), 1};
     static const char* nearEnv = std::getenv("HOTD_NEAR");   // debugging: every camera's near plane (comparisons)
     const float n = std::clamp(nearEnv ? float(std::atof(nearEnv)) : cam.nearZ, 0.01f, 1.0f), fa = 20000.0f, t = 1.0f / std::tan(cam.fovY / 2), aspect = float(width) / float(height);
-    float proj[16] = {t / aspect, 0, 0, 0, 0, t, 0, 0, 0, 0, (fa + n) / (fa - n), 1, 0, 0, -2 * fa * n / (fa - n), 0};
+    // (trailer footage: HOTD_CAM_ZOOM=1.6 narrows every 3D view, a closer camera; the picture only)
+    static const float camZoom = std::getenv("HOTD_CAM_ZOOM") ? std::max(0.2f, float(std::atof(std::getenv("HOTD_CAM_ZOOM")))) : 1.0f;
+    float proj[16] = {t * camZoom / aspect, 0, 0, 0, 0, t * camZoom, 0, 0, 0, 0, (fa + n) / (fa - n), 1, 0, 0, -2 * fa * n / (fa - n), 0};
     float vp[16];
     multiply(proj, view, vp);
 

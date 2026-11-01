@@ -1099,6 +1099,7 @@ private:
     };
     ReAnim reFile_, reList_;
     int reListScroll_ = -1, reListSeen_ = -1, reListN_ = 0;   // menus3: the list's own scroll (-1: round the shown one)
+    int reSceneFirst_ = 0, reSceneSel_ = -2, reSceneTop_ = 0;   // the Cut-scenes list: its first shown line (scroll), the scene last chosen, the last scroll
     std::vector<RemakeLayers::Part> reParts_;
     uint64_t reGen_ = 0;
     void reAnimate();

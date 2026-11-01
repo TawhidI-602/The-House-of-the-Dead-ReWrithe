@@ -529,6 +529,17 @@ void Runtime::geo_draw_model(uint32_t model)
     }
     if (hideMarks && (model == 0x3F5 || model == 0x3F6))   // trailer: Trailer Mode's no MISS SHOT mark
         return;
+    if (hideSparks || hideMuzzle || hideBlood) {
+        const uint32_t rtn = d.task != 0 ? mem.u32(d.task) : 0;
+        if (hideSparks && (rtn == F::shot_flash || rtn == F::part_spark_anim || rtn == F::hit_spark || rtn == F::shot_effect_flash ||
+                           rtn == F::shot_effect_debris))
+            return;
+        if (hideBlood && (rtn == F::blood_burst || rtn == F::blood_drip || rtn == F::hit_splash || (model >= 7 && model <= 0x23) ||
+                           (model >= 0x46B && model <= 0x4A3) || (model >= 0x1AF && model <= 0x1BF)))   // (the bursts and drips are drawn by their bodies too: by model)
+            return;
+        if (hideMuzzle && rtn == F::muzzle_flash)
+            return;
+    }
     if (!teamFlashDraw(d))
         return;
     if (!pc_flash_model(d.model, d.flat))

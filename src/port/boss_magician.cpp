@@ -671,6 +671,7 @@ template <class P> void Game<P>::magician_dying(uint32_t obj)
     switch (uint32_t(int32_t(of<int16_t>(obj, 0x60)))) {
     case 0:
         boss_event(kBossClockStop);   // PC 0x4D1F63
+        ++magician_deaths;
         kill_score_shooter(obj, 2500);
         obj_stop(obj);
         of<int32_t>(obj, 0x2EC) = 60;

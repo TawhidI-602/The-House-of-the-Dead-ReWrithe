@@ -3391,6 +3391,11 @@ void Frontend::update(const FrontendInput& inRaw, uint32_t nowMs)
             screenExtras();
         }
     }
+    if (in.wheel && screen_ == 19 && galleryRE() && reSceneTop_ > 0 && castCd_ < 0) {   // the Cut-scenes list's wheel (2 lines a notch)
+        reSceneFirst_ = std::clamp(reSceneFirst_ - in.wheel * 2, 0, reSceneTop_);
+        screenScenes();
+        return;
+    }
     if (in.escape) {
         const int screen = screen_;
         if (sc_ > 1)

@@ -373,12 +373,28 @@ CheckReport checkPc(const std::string& folder, const std::string& cacheFile, std
             stamps[at->second.path] = at->second.stamp;
             continue;
         }
-        // a patched install: the patch's backup of the original (THOTD.EXE.orig ...)
-        auto orig = byPath.find(rel + ".orig");
-        if (orig != byPath.end() && matches(orig->second, want)) {
-            found[want.path] = orig->second.path;
-            stamps[orig->second.path] = orig->second.stamp;
+        // a patched install: the patch's backup of the original (THOTD.EXE.orig / .bak ...)
+        bool backup = false;
+        for (const char* ext : {".orig", ".bak"}) {
+            auto orig = byPath.find(rel + ext);
+            if (!backup && orig != byPath.end() && matches(orig->second, want)) {
+                found[want.path] = orig->second.path;
+                stamps[orig->second.path] = orig->second.stamp;
+                backup = true;
+            }
+        }
+        if (backup)
             continue;
+        // relfix (players 2026-11-01: "155 of 156"): a patched THOTD.EXE (music / no-CD / Windows fixes) is accepted:
+        // ReWrithe reads only its sound cue table and icon from it (Audio::loadCueTable says so if they are gone)
+        if (at != byPath.end() && rel == "thotd.exe") {
+            std::vector<uint8_t> d;
+            if (pcfs::readFile(at->second.path, d) && d.size() > 0x400 && d[0] == 'M' && d[1] == 'Z') {
+                found[want.path] = at->second.path;
+                stamps[at->second.path] = at->second.stamp;
+                r.lines.push_back("Patched THOTD.EXE found: accepted (an unpatched 1998 PC copy is recommended)");
+                continue;
+            }
         }
         if (at != byPath.end()) {
             ++bad;
@@ -425,8 +441,8 @@ CheckReport checkPc(const std::string& folder, const std::string& cacheFile, std
     r.ok = bad == 0;
     r.lines.push_back("PC files: " + std::to_string(std::size(kPcFiles) - size_t(bad)) + " of " + std::to_string(std::size(kPcFiles)) +
                       " match the 1998 PC release" + (pcfs::isZip(folder) ? " (in the zip)" : "") +
-                      (moved ? " (" + std::to_string(moved) + " found elsewhere in the " + (pcfs::isZip(folder) ? "zip" : "folder") + ")" : "") +
-                      "; music: " + std::to_string(music) + " Music\\TrackNN.ogg file(s) (CD audio, not checked)");
+                      (moved ? " (" + std::to_string(moved) + " found elsewhere in the " + (pcfs::isZip(folder) ? "zip" : "folder") + ")" : ""));
+    r.lines.push_back("Music (optional, not checked): " + std::to_string(music) + " CD track(s) found (Music\\TrackNN.ogg)");
     if (!r.ok)
         r.lines.push_back("Some PC files are missing or different: sound and the PC models need the 1998 PC release's files.");
     return r;

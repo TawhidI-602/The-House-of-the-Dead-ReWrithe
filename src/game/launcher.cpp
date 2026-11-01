@@ -284,6 +284,9 @@ bool LaunchConfig::load(const std::string& file)
         else if (k == "cursorspeed") cursorSpeed = std::clamp(n, 1, 10);
         else if (k == "gunborder") gunBorder = std::clamp(n, 0, 4); // padpass: the white border
         else if (k == "trailer") trailer = n != 0;
+        else if (k == "hitsparks") hitSparks = n != 0;
+        else if (k == "muzzleflash") muzzleFlash = n != 0;
+        else if (k == "bloodparticles") bloodParticles = n != 0;
         else if (k == "scene4p") scene4p = v;
         else if (k == "scenecast") sceneCast = v;
         else if (k == "crt") crt.preset = std::max(crtPresetParse(v), 0);
@@ -384,7 +387,7 @@ void LaunchConfig::save(const std::string& file) const
       << "\nexclusive=" << (exclusive ? 1 : 0)
       << "\nresolution_fullscreen=" << util::sizeKey({resFullW, resFullH}) << "\nresolution_window=" << util::sizeKey({resWinW, resWinH})
       << "\ngamespeed=" << (gameSpeed < 0 ? "auto" : gameSpeed == 1 ? "60" : "arcade") << "\ncontinues=" << continues << "\nfreeplay=" << (freePlay ? 1 : 0) << "\nframerate=" << (frameRate == 0 ? std::string("display") : frameRate < 0 ? std::string("unlimited") : frameRate == kFrameRateArcade ? std::string("arcade") : std::to_string(frameRate))
-      << "\nvsync=" << (vsync ? 1 : 0) << "\nrenderer=" << (renderer == 1 ? "gl" : renderer == 2 ? "angle" : "auto") << "\nsmooth=" << (smooth ? 1 : 0) << "\nnetname=" << netName << "\ndisplay=" << display << "\nnetinfo=" << netInfo << "\nnetpcmode=" << (netPcMode ? 1 : 0) << "\nnetbossmode=" << netBossMode << "\nnetpcchar=" << netPcChar[0] << ',' << netPcChar[1] << "\nsonicmode=" << sonicKey(sonic) << "\nboss4p=" << boss4p << "\nenemy4p=" << enemy4p << "\nteamflash=" << teamFlash << "\ntrailer=" << (trailer ? 1 : 0) << "\nscene4p=" << scene4p
+      << "\nvsync=" << (vsync ? 1 : 0) << "\nrenderer=" << (renderer == 1 ? "gl" : renderer == 2 ? "angle" : "auto") << "\nsmooth=" << (smooth ? 1 : 0) << "\nhitsparks=" << (hitSparks ? 1 : 0) << "\nmuzzleflash=" << (muzzleFlash ? 1 : 0) << "\nbloodparticles=" << (bloodParticles ? 1 : 0) << "\nnetname=" << netName << "\ndisplay=" << display << "\nnetinfo=" << netInfo << "\nnetpcmode=" << (netPcMode ? 1 : 0) << "\nnetbossmode=" << netBossMode << "\nnetpcchar=" << netPcChar[0] << ',' << netPcChar[1] << "\nsonicmode=" << sonicKey(sonic) << "\nboss4p=" << boss4p << "\nenemy4p=" << enemy4p << "\nteamflash=" << teamFlash << "\ntrailer=" << (trailer ? 1 : 0) << "\nscene4p=" << scene4p
       << "\ncrt=" << crtPresetKey(crt.preset) << "\ncrt.scan=" << crt.scan << "\ncrt.mask=" << crt.mask << "\ncrt.masktype=" << crt.maskType
       << "\ncrt.curve=" << crt.curve << "\ncrt.bloom=" << crt.bloom << "\ncrt.bright=" << crt.bright
       << "\ncrt.crispsights=" << (crt.crispSights ? 1 : 0) << "\ncrt.shotfiltered=" << (crt.shotFiltered ? 1 : 0)
@@ -855,10 +858,15 @@ bool Launcher::runCheck()
     auto show = [&](const CheckReport& r, bool arcade) {
         if (r.ok) return;
         bool wrong = false;
+        int named = 0;   // relfix: the first few wrong / missing files by name (all of them: hotd.log)
         for (const std::string& s : r.lines) {
-            const bool d = s.rfind("MISSING", 0) == 0 || s.rfind("WRONG", 0) == 0 || s.rfind("moved", 0) == 0;
+            const bool bad = s.rfind("MISSING", 0) == 0 || s.rfind("WRONG", 0) == 0;
+            const bool d = bad || s.rfind("moved", 0) == 0;
             wrong |= s.rfind("WRONG", 0) == 0;
-            if (!d) status.push_back(s);
+            if (!d)
+                status.push_back(s);
+            else if (bad && named++ < 3)   // "WRONG   THOTD.EXE" / "MISSING SOUND/X.RBH": the name, not the hashes
+                status.push_back(s.substr(0, std::min(s.find(':'), s.find(" (1998"))));
         }
         if (arcade && wrong)   // (files of the set's names, other contents: another revision or a bad dump)
             status.push_back("-> These are not Revision A ROMs: the game needs MAME's \"hotd\" set (Revision A); the original release (hotdo) and prototypes do not work.");

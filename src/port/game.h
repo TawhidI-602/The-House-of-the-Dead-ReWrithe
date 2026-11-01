@@ -56,6 +56,9 @@ public:
     int boss_mode = 0;
     bool boss_next = false;
     uint32_t boss_events = 0;
+    uint32_t boss_deaths = 0;   // (the cut-scene viewer's boss defeats: every boss death, any mode; not game state)
+    uint32_t magician_deaths = 0;   // (the viewer: the Magician's defeats, boss_magician case 0; chapter 4 has other boss events before)
+    bool boss_death_center = false;   // (the viewer's Hangedman defeat only: he falls where the camera looks, clear of the building)
     enum : uint32_t {
         kBossEntrance = 1,     // 0x412BC4: pc_boss_next = 0, the clock shown, the boss song (cue 12; Magician 19)
         kBossClockStart = 2,   // 0x412B00: the clock runs (the title card's end)
@@ -81,6 +84,8 @@ public:
     void boss_event(uint32_t e)
     {
         if constexpr (!P::pc) {
+            if (e == kBossClockStop)
+                ++boss_deaths;
             if (boss_mode == 0)
                 return;
             if (e == kBossEntrance)

@@ -515,6 +515,9 @@ public:
     // ownSeat: this PC's player online (always full); -1 a local game: every player is this PC's, all full. Draws
     // only: nothing of the game's state is written
     int teammateFlash = 0;
+    bool hideSparks = false;   // Options > Hit Sparks off: the shots' hit sparks (draw-only)
+    bool hideMuzzle = false;   // Options > Gun Muzzle Flash off: the cut-scene guns' flash (draw-only)
+    bool hideBlood = false;    // Options > Blood Particles off: the blood bursts / drips (draw-only)
     bool hideMarks = false;   // trailer: Trailer Mode: no MISS SHOT marks (models 0x3F5 / 0x3F6; draw-only)
     int ownSeat = -1;
     bool teamFlashDraw(DrawModel& d);                                       // false: not drawn
@@ -679,6 +682,7 @@ public:
     static constexpr int kSceneEnding = 19;
     // ours: the ending's staff roll (event 3 after the farewell) as the viewer's "4-20" (hudfix4, user 2026-10-26)
     static constexpr int kSceneCredits = 20;
+    static constexpr int kSceneBossDeath = 21;   // the cut-scene viewer: the chapter's boss defeat (boss_deaths), ours
     bool ending_scene_now() const             // mode 4 sub-mode 8 (game_ending), chapter slot 6, event 2 (both players)
     {
         return mem.at<int16_t>(A::G::game_mode) == 4 && mem.at<int16_t>(A::G::game_submode) == 8 &&

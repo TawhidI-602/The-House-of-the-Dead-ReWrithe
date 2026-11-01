@@ -952,6 +952,9 @@ void autofire(game::Runtime& rt, int frame)
     // out of rounds: a shot off screen reloads (T1: before, an empty gun kept "firing" without effect)
     // HOTD_NO_RELOAD (testing): an empty gun stays empty (the RELOAD prompts stay up for renders)
     static const bool noReload = std::getenv("HOTD_NO_RELOAD") != nullptr;
+    // (trailer footage: HOTD_AUTOFIRE_STOP=F: no more shots from frame F, e.g. after a boss's killing shot)
+    static const long long fireStop = std::getenv("HOTD_AUTOFIRE_STOP") ? std::atoll(std::getenv("HOTD_AUTOFIRE_STOP")) : -1;
+    if (fireStop >= 0 && frame >= fireStop) return;
     if (frame % gAutofireEvery == 0 && rt.mem.at<uint8_t>(rt.player_rec(p) + 0x3D) == 0) {
         if (noReload)
             return;
@@ -3551,6 +3554,7 @@ int main(int argc, char* argv[])
         r.jaText = (gNet ? gNet->gameSettings().gameText : cfg.gameText) == 1;
         r.teammateFlash = cfg.teamFlash;   // Teammate Flashes (draws only; each PC its own)
         r.hideMarks = gTrailer;   // (--trailer)
+        r.hideSparks = !cfg.hitSparks, r.hideMuzzle = !cfg.muzzleFlash; r.hideBlood = !cfg.bloodParticles;
         r.scene4p = cfg.scene4p;   // players 3 / 4's cut-scene variations (draws only; each PC its own)
         r.ownSeat = gNet ? gNet->localPlayer() : -1;   // (menufb: a local game: every seat this PC's own, full flashes)
         // PC Mode on the arcade logic (docs/pcmode.md); online the host's settings for every PC (protocol 16: PC Mode,
@@ -11328,6 +11332,21 @@ int main(int argc, char* argv[])
                     return true;
                 }
             }
+            // galfx2: the viewer's live toggles: 1 Hit Sparks, 2 Gun Muzzle Flash, 3 Blood Particles (Options > Video, kept),
+            // H hides / shows the key hints (for recording; kept for the session)
+            if (ev.type == SDL_EVENT_KEY_DOWN && !ev.key.repeat && (ev.key.key == SDLK_1 || ev.key.key == SDLK_2 || ev.key.key == SDLK_3 || ev.key.key == SDLK_H)) {
+                if (ev.key.key == SDLK_1) cfg.hitSparks = !cfg.hitSparks;
+                else if (ev.key.key == SDLK_2) cfg.muzzleFlash = !cfg.muzzleFlash;
+                else if (ev.key.key == SDLK_3) cfg.bloodParticles = !cfg.bloodParticles;
+                else gScene.hintsOff = !gScene.hintsOff;
+                if (ev.key.key != SDLK_H) {
+                    menu.cfg.hitSparks = cfg.hitSparks, menu.cfg.muzzleFlash = cfg.muzzleFlash, menu.cfg.bloodParticles = cfg.bloodParticles;
+                    menu.cfg.save(cache + "launcher.ini");
+                }
+                gScene.fx[0] = cfg.hitSparks, gScene.fx[1] = cfg.muzzleFlash, gScene.fx[2] = cfg.bloodParticles;
+                gScene.poke(SDL_GetTicks());
+                return true;
+            }
             // padpass: the keys' line names the pad's buttons once a pad is used, the keys once a key is
             // (padglyphs: the pad's family / model; Controls > Button Prompts other than Auto: always that)
             if (ev.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN)
@@ -11378,7 +11397,7 @@ int main(int argc, char* argv[])
                 case SDLK_S: case SDLK_M: a = 2; break;
                 case SDLK_F: a = 6; break;
                 case SDLK_ESCAPE: case SDLK_BACKSPACE: a = 3; break;
-                case SDLK_C: a = 4; break;
+                case SDLK_C: if (gScene.freeCam) gScene.freeSlow = !gScene.freeSlow; else a = 4; break;   // Free Cam: the slow cam
                 case SDLK_T: a = 5; break;   // trailer: Subtitles on / off
                 default:   // (F12 screenshot, fullscreen keys, ...; any other key shows Clean View's hint again)
                     if (!(ev.key.key >= SDLK_F1 && ev.key.key <= SDLK_F12))
@@ -11390,7 +11409,11 @@ int main(int argc, char* argv[])
                 case SDL_GAMEPAD_BUTTON_START: case SDL_GAMEPAD_BUTTON_SOUTH: a = 0; break;
                 case SDL_GAMEPAD_BUTTON_WEST: a = 1; break;
                 case SDL_GAMEPAD_BUTTON_NORTH: a = 2; break;
-                case SDL_GAMEPAD_BUTTON_EAST: case SDL_GAMEPAD_BUTTON_BACK: a = 3; break;
+                case SDL_GAMEPAD_BUTTON_EAST: a = 3; break;
+                case SDL_GAMEPAD_BUTTON_BACK:
+                    if (gScene.freeCam) gScene.freeSlow = !gScene.freeSlow;   // Free Cam: the slow cam
+                    else a = 3;
+                    break;
                 // ipolish: in Free Cam the left stick's click is the speed (x4 on / off; the right stick's: Free Cam
                 // off) and the shoulders move down / up (held: read each frame below)
                 case SDL_GAMEPAD_BUTTON_LEFT_STICK:
@@ -12333,6 +12356,8 @@ int main(int argc, char* argv[])
         }
         const bool crtShot = gCrt.active() && cfg.crt.shotFiltered;   // F12: the filtered picture as seen
         rt.teammateFlash = cfg.teamFlash;   // (Options can change it in the game)
+        rt.hideSparks = !cfg.hitSparks, rt.hideMuzzle = !cfg.muzzleFlash; rt.hideBlood = !cfg.bloodParticles;
+        gScene.fx[0] = cfg.hitSparks, gScene.fx[1] = cfg.muzzleFlash, gScene.fx[2] = cfg.bloodParticles;
         rt.hideMarks = gTrailer && !gScene.active();   // trailer: Trailer Mode (draws only)
         // backdrop: game over (mode 5: fallen body, route map, GAME OVER) clears to black as in MAME (snaps 0087-0094);
         // elsewhere the old dark navy. UNVERIFIED (teaser): the arcade's other modes not compared.

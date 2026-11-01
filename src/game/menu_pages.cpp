@@ -177,6 +177,7 @@ void menuReset(LaunchConfig& c, int page)
     case kCatVideo:
         c.models = d.models, c.aspect = d.aspect, c.menuStyle = d.menuStyle, c.liveBackground = d.liveBackground;
         c.fullscreen = d.fullscreen, c.exclusive = d.exclusive, c.frameRate = d.frameRate, c.menuFps = d.menuFps, c.vsync = d.vsync, c.smooth = d.smooth;
+        c.hitSparks = d.hitSparks, c.muzzleFlash = d.muzzleFlash, c.bloodParticles = d.bloodParticles;
         c.resFullW = d.resFullW, c.resFullH = d.resFullH, c.resWinW = d.resWinW, c.resWinH = d.resWinH;
         c.crt = d.crt;
         break;
@@ -304,6 +305,15 @@ std::vector<Frontend::Extra> menuCategoryRows(int category, LaunchConfig& c, con
         r.push_back({"Smooth Motion", [&c]() { return onOff(c.smooth); },
                      [&c, save]() { c.smooth = !c.smooth; save(); },
                      "Blend the 3D picture between game frames (smoother; the game itself is unchanged)"});
+        r.push_back({"Hit Sparks", [&c]() { return onOff(c.hitSparks); },
+                     [&c, save]() { c.hitSparks = !c.hitSparks; save(); },
+                     "The bright spark bursts where your bullets hit (draw only; the game itself is unchanged)"});
+        r.push_back({"Gun Muzzle Flash", [&c]() { return onOff(c.muzzleFlash); },
+                     [&c, save]() { c.muzzleFlash = !c.muzzleFlash; save(); },
+                     "The flash on the guns of Rogan and G when they fire in the cut-scenes (draw only)"});
+        r.push_back({"Blood Particles", [&c]() { return onOff(c.bloodParticles); },
+                     [&c, save]() { c.bloodParticles = !c.bloodParticles; save(); },
+                     "The blood spray and bursts where shots hit (draw only; the blood marks stay)"});
         // angle (render/gl_backend.h): OpenGL 3.3, or DirectX through ANGLE for older graphics; at the next start
         {
             static const char* const kRenderers[] = {"Auto", "OpenGL", "DirectX (ANGLE)"};

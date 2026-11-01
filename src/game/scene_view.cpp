@@ -144,9 +144,12 @@ const std::vector<SceneEntry>& sceneEntries()
         {1, 12, "Reload kick", "", true},               // ~7463
         {1, 10, "Jump down b", "2:5=0", true},             // ~11981
         {1, 14, "Rattle door", "", false},              // ~21715
+        {1, Runtime::kSceneBossDeath, "The Hangedman's defeat", "", false},   // (user 2026-10-31: Free Cam on it)
         {2, 15, "Jump down", "", false},    // ~283
+        {2, Runtime::kSceneBossDeath, "The Hermit's defeat", "", false},
         {3, 17, "Dash", "", false},                     // ~183
         {3, 18, "Second scene", "", false}, // ~11836
+        {3, Runtime::kSceneBossDeath, "The Magician's defeat", "", false},   // (he rises, speaks, blows up)
         // ours (Runtime::kSceneEnding, not a cam_job18 scene): the ending's event 2 after the Magician's defeat, the
         // two players' farewell (~26580 with --default-route; 1 player: the ending's event 0, player 1 alone)
         {3, Runtime::kSceneEnding, "Goodbye Curien", "", false},
@@ -174,6 +177,8 @@ std::string sceneLine(int i)
     char b[200];
     if (e.scene == Runtime::kSceneEnding)
         return "The ending, after the Magician: players 3 and 4 follow player 2 a beat later";
+    if (e.scene == Runtime::kSceneBossDeath)
+        return "The boss's defeat: from the killing shot (Free Cam: F / L3)";
     if (e.scene == Runtime::kSceneCredits)
         return "The ending's staff roll (the credits), after the farewell, up to the END card";
     std::snprintf(b, sizeof b, "Chapter %d, scene %02d%s%s: %s", e.chapter + 1, e.scene, *e.route ? ", route " : "", e.route,
@@ -214,6 +219,7 @@ void SceneView::put(Runtime& rt, const Snap& s)
     music_ = s.music;
     startCue_ = true;
     endingWas_ = false;   // (every save-state is before the ending's start)
+    rt.boss_death_center = scene().scene == Runtime::kSceneBossDeath && scene().chapter == 1;   // (viewer only)
 }
 
 void SceneView::begin(Runtime& rt)
@@ -241,6 +247,7 @@ void SceneView::begin(Runtime& rt)
         return;
     }
     startsSeen_ = rt.scene_starts;
+    deathsSeen_ = scene().chapter == 3 ? rt.magician_deaths : rt.boss_deaths;
     endingWas_ = false;
     seekFrom_ = rt.frameCount;
     ring_.push_back(take(rt));
@@ -321,6 +328,12 @@ bool SceneView::started(Runtime& rt)
         endingWas_ = now;
         return edge;
     }
+    if (scene().scene == Runtime::kSceneBossDeath) {   // the boss died (boss_deaths) in this chapter
+        if ((scene().chapter == 3 ? rt.magician_deaths : rt.boss_deaths) == deathsSeen_)
+            return false;
+        deathsSeen_ = scene().chapter == 3 ? rt.magician_deaths : rt.boss_deaths;
+        return rt.mem.at<int8_t>(A::G::chapter) == scene().chapter;
+    }
     if (rt.scene_starts == startsSeen_)
         return false;
     startsSeen_ = rt.scene_starts;
@@ -329,6 +342,8 @@ bool SceneView::started(Runtime& rt)
 
 void SceneView::afterFrame(Runtime& rt)
 {
+    if (phase == Phase::Over && rt.boss_death_center)
+        rt.boss_death_center = false;
     if (phase != Phase::Watching)
         return;
     if (!seen_ && started(rt)) {
@@ -337,7 +352,7 @@ void SceneView::afterFrame(Runtime& rt)
         endEvent_ = rt.mem.at<int8_t>(A::G::event_index);
     }
     if (endingScene()) {   // the ending's scenes: over when its event ends (3: the staff roll; then the ranking)
-        const uint64_t most = scene().scene == Runtime::kSceneCredits ? 7200 : 2400;
+        const uint64_t most = scene().scene == Runtime::kSceneCredits ? 7200 : 3600;   // (the farewell through the Magician's last words)
         if (seen_ && (rt.mem.at<int8_t>(A::G::event_index) != endEvent_ || rt.mem.at<int8_t>(A::G::chapter) != 6 ||
                       rt.mem.at<int16_t>(A::G::game_submode) != 8 || rt.chapterDone || rt.frameCount - sceneFrame_ > most)) {
             phase = Phase::Over;
@@ -352,6 +367,14 @@ void SceneView::afterFrame(Runtime& rt)
         } else if (rt.frameCount > watchFrom + kLead + 600) {
             phase = Phase::Over;
         }
+        return;
+    }
+    if (scene().scene == Runtime::kSceneBossDeath) {   // a boss's defeat: its death until the chapter's end (10 s at most)
+        const uint64_t most = scene().chapter == 3 ? 1400 : 600;   // (the Magician: he rises, speaks and blows up; the ending event ends it)
+        if (seen_ && (rt.chapterDone || rt.mem.at<int8_t>(A::G::chapter) != scene().chapter || rt.frameCount - sceneFrame_ > most))
+            phase = Phase::Over;
+        else if (!seen_ && rt.frameCount > watchFrom + kLead + 600)
+            phase = Phase::Over;
         return;
     }
     const auto routine = [&](int p) { return rt.mem.at<port::a::Player>(A::G::players, uint32_t(p)).scene_routine; };
@@ -390,20 +413,27 @@ bool SceneView::replay(Runtime& rt)
 // padpass: a pad used last (padType >= 0): its buttons, as that pad names them (keybinds.h padInputName)
 // ipolish: Free Cam's pad line names the moves (left stick move, right stick look, shoulders down / up, the left
 // stick's click the speed; the right stick's click Free Cam off)
-static std::string keysLine(bool paused, bool slow, bool freeCam, int padType, bool fast = false)
+static std::string keysLine(bool paused, bool slow, bool freeCam, int padType, bool fast = false, bool slowCam = false)
 {
-    std::string s = std::string(paused ? "PAUSED  " : "") + (slow ? "SLOW  " : "");
+    std::string s = std::string(paused ? "PAUSED  " : "") + (slow ? "SLOW  " : "") + (freeCam && slowCam ? "SLOW CAM  " : "");
     if (padType >= 0) {
         auto n = [padType](int in) { return padInputName(in, padType); };
         if (freeCam)
             return s + "FREE CAM" + (fast ? " FAST" : "") + "  Sticks move / look  " + n(kPiL1) + " / " + n(kPiR1) + " down / up  " +
-                   n(kPiL3) + " speed  " + n(kPiR3) + " off  " + n(kPiSouth) + " pause  " + n(kPiWest) + " replay  " + n(kPiEast) + " back";
+                   n(kPiL3) + " speed  " + n(kPiBack) + " slow cam  " + n(kPiR3) + " off  " + n(kPiSouth) + " pause  " + n(kPiWest) + " replay  " + n(kPiEast) + " back";
         return s + n(kPiSouth) + " pause  " + n(kPiWest) + " replay  " + n(kPiNorth) + " slow  " + n(kPiL3) + " free cam  " + n(kPiR1) +
                " clean view  D-Down subtitles  " + n(kPiL1) + " actors  " + n(kPiEast) + " back";
     }
     if (freeCam)
-        return s + "FREE CAM  WASD QE move  right-drag look  wheel zoom  Shift / Ctrl speed  F off  Space pause  M slow  R replay  Esc back";
+        return s + "FREE CAM  WASD QE move  right-drag look  wheel zoom  Shift / Ctrl speed  C slow cam  F off  Space pause  M slow  R replay  Esc back";
     return s + "Space pause  R replay  S slow  F free cam  C clean view  T subtitles  A actors  Esc back";
+}
+
+// the live toggles' line (1 / 2 / 3: Options > Video; H: the hints)
+static std::string fxLine(const bool* fx)
+{
+    return std::string("1 Hit Sparks ") + (fx[0] ? "On" : "Off") + "  2 Muzzle Flash " + (fx[1] ? "On" : "Off") + "  3 Blood " +
+           (fx[2] ? "On" : "Off") + "  H Hide hints";
 }
 
 static std::string overLine(bool freeCam, int padType)
@@ -418,6 +448,8 @@ static std::string overLine(bool freeCam, int padType)
 std::vector<std::string> SceneView::lines(const Runtime& rt) const
 {
     std::vector<std::string> v;
+    if (hintsOff && phase != Phase::Seeking)
+        return v;   // (H: no hints for recording)
     char b[200];
     std::snprintf(b, sizeof b, "CUT-SCENE %d-%02d %s  %dP %s", scene().chapter + 1, scene().scene, scene().name, players,
                   models == 1 ? "PC" : "arcade");
@@ -428,8 +460,10 @@ std::vector<std::string> SceneView::lines(const Runtime& rt) const
     } else if (phase == Phase::Over) {
         v.push_back(overLine(freeCam, padType));
     } else {
-        v.push_back(keysLine(paused, slow, freeCam, padType, freeFast));
+        v.push_back(keysLine(paused, slow, freeCam, padType, freeFast, freeSlow));
     }
+    if (phase == Phase::Watching || phase == Phase::Over)
+        v.push_back(fxLine(fx));
     if (castOpen && phase != Phase::Seeking)
         for (const std::string& l : castLines())
             v.push_back(l);
@@ -438,8 +472,12 @@ std::vector<std::string> SceneView::lines(const Runtime& rt) const
 
 std::vector<std::string> SceneView::hintLines() const
 {
+    if (hintsOff)
+        return {};
     std::vector<std::string> v = {phase == Phase::Over ? overLine(freeCam, padType)
-                                                       : keysLine(paused, slow, freeCam, padType, freeFast)};
+                                                       : keysLine(paused, slow, freeCam, padType, freeFast, freeSlow)};
+    if (phase != Phase::Seeking)
+        v.push_back(fxLine(fx));
     if (castOpen)
         for (const std::string& l : castLines())
             v.push_back(l);
@@ -451,17 +489,30 @@ void SceneView::freeCamStep(const FreeCamInput& in, float dt)
     if (!freeCam)
         return;
     dt = std::clamp(dt, 0.0f, 0.1f);   // (a long frame, a breakpoint: no jump)
+    FreeCamInput s = in;
+    if (freeSlow) {   // a quarter of the move and the turn, eased (time constant 0.45 s: starts and stops gently)
+        const float a = 1.0f - std::exp(-dt / 0.45f);
+        for (int k = 0; k < 3; ++k)
+            slowMove_[k] += (in.move[k] * 0.25f - slowMove_[k]) * a, s.move[k] = slowMove_[k];
+        for (int k = 0; k < 2; ++k)
+            slowLook_[k] += (in.look[k] * 0.25f - slowLook_[k]) * a, s.look[k] = slowLook_[k];
+    } else {
+        for (int k = 0; k < 3; ++k) slowMove_[k] = in.move[k];
+        const float an = 1.0f - std::exp(-dt / 0.06f);   // the mouse look eased a little too (the turn is kept, only spread over a few frames)
+        for (int k = 0; k < 2; ++k)
+            slowLook_[k] += (in.look[k] - slowLook_[k]) * an, s.look[k] = slowLook_[k];
+    }
     Camera& c = freeCamera;
-    c.yaw += in.look[0];
-    c.pitch = std::clamp(c.pitch + in.look[1], -1.55f, 1.55f);
+    c.yaw += s.look[0];
+    c.pitch = std::clamp(c.pitch + s.look[1], -1.55f, 1.55f);
     // the wheel: the field of view a notch at a time (10 % narrower / wider), 5-110 degrees
     if (in.zoom != 0)
         c.fovY = std::clamp(c.fovY * std::pow(0.9f, in.zoom), 0.087f, 1.92f);
     float right[3], up[3], fwd[3];
     c.basis(right, up, fwd);
-    const float v = kFreeCamSpeed * dt * (in.fast ? 4.0f : 1.0f) * (in.fine ? 0.25f : 1.0f);
+    const float v = kFreeCamSpeed * dt * (s.fast ? 4.0f : 1.0f) * (s.fine ? 0.25f : 1.0f);
     for (int k = 0; k < 3; ++k)
-        c.pos[k] += v * (in.move[0] * right[k] + in.move[1] * up[k] + in.move[2] * fwd[k]);
+        c.pos[k] += v * (s.move[0] * right[k] + s.move[1] * up[k] + s.move[2] * fwd[k]);
 }
 
 } // namespace hotd::game

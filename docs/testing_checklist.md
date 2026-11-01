@@ -1497,3 +1497,26 @@ Use only the DualSense (no mouse / keyboard) unless an item says so. Menu Style 
 
 - [ ] Gameplay > Attract Gore (On by default): the attract demo's shots blow off heads / limbs like the 1998 PC; Off = the arcade (Revision A, none)
 - [ ] Options > System > Check for Updates (On): after a newer GitHub release, the main menu asks to open the download page once
+
+## Options toggles, Cut-scenes list (galfx, 2026-10-31)
+- [ ] Options > Video > Hit Sparks Off: the bright spark bursts where your bullets hit (zombies, bosses, walls) are gone
+      in play, Boss Mode, Trailer Mode and the Gallery cut-scenes; the game plays the same. On brings them back.
+- [ ] Options > Video > Gun Muzzle Flash Off: the flash on Rogan's / G's gun when they fire in a cut-scene is gone (try
+      Chapter 1 "Reload shoot"). On brings it back. Both are kept in launcher.ini and reset by the Video page's Reset.
+- [ ] Gallery > Cut-scenes: the list has a scroll bar (wheel and drag), like the other Gallery lists. Choosing a scene
+      with Q / E keeps it in view.
+- [ ] Gallery > Cut-scenes > 2-21 "The Hangedman's defeat": he falls in front of the camera, no longer into the building.
+- [ ] Gallery > Cut-scenes > 4-19 "Goodbye Curien" ends when the Magician speaks; the new 4-22 "The Magician's
+      defeat" starts just before "You haven't seen anything yet" and runs to his blast.
+- [ ] Cut-scene viewer, Free Cam (F): C (pad: Back / Select) toggles the slow cam: a quarter of the move and turn speed,
+      eased in and out (no jerks); "SLOW CAM" shows in the key line. For cinematic recording.
+
+## Round 2 (galfx, 2026-10-31)
+- [ ] Options > Video > Blood Particles Off: the blood spray / bursts where shots hit are gone (the blood marks stay);
+      On brings them back. Kept in launcher.ini; the Video page's Reset puts it back On.
+- [ ] Gallery cut-scene viewer: 1 / 2 / 3 turn Hit Sparks / Gun Muzzle Flash / Blood Particles On / Off live (shown in the
+      key line, kept like the Options); H hides / shows all the key hints (for recording).
+- [ ] Gallery > 2-21 "The Hangedman's defeat": he lands on the grey road in the courtyard.
+- [ ] Free Cam: the mouse look (right-drag) is eased; with the slow cam (C) it is slower too.
+- [ ] Gallery > 4-21 "The Magician's defeat": right after you beat him: he rises, speaks and blows up; it ends after the blast.
+      "Goodbye Curien" (4-19) is the farewell as before. (4-22 is gone.)
