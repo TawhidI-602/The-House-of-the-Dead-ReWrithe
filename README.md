@@ -1,6 +1,6 @@
 # The House of the Dead: ReWrithe
 
-*A C++ rewrite of the arcade game and its PC port, combined.*
+*A rewrite of the arcade game and its PC port, combined.*
 
 <!-- READY FOR REVIEW (release3 worker, 2026-10-17). -->
 
@@ -40,7 +40,7 @@ arcade version's more detailed models and textures or the PC's.
 5. Something missing? The setup window says what and where it goes; details in `settings\hotd.log` (a crash also leaves
    `settings\crash-<date>.txt`: attach both to a bug report, never game files).
 
-6. First start without the files: the setup window (laid out like the 1998 PC CD's Auto Run window) opens
+6. First start without the files: the setup window (laid out like the 1998 PC CD's Auto Run window but I might update it in the future for something modern) opens
    by itself; use **Choose Zip...** or **Choose Folder...** for the Arcade ROMs and the PC Game (any names), then **Play**. The check runs
    once; after that the game opens at the main menu (every setting is in Options; Options -> System -> Files Check
    brings the setup back).
@@ -111,7 +111,7 @@ no person has tried it yet. *Not tested yet* = neither. A feature can sit in two
 | Menus (Classic PC and Remake styles) | yes: both styles, the players' quick choice, smooth menus, dropdowns, Q / E tabs, F12 (2026-10-26) | page pictures, the input test walks them (keys, mouse, pad) | the 10-26 fixes: scroll bars, shorter resolution list, volume bars, Reset to Defaults, Live Background Off slideshow, blood RGB bars |
 | Firing Range (Video > Crosshairs) | | pictures, test shots, pad and keyboard aim in the input test | yes |
 | Arcade Sort (advanced `--draw-depth sort` / `buffer`; no menu row since 10-27) | | pictures compared with MAME snaps; 0 pixels differ after the speed-ups (6,924 frames) | |
-| DualSense | yes: the first aim feel ("not fun", then reworked) | virtual pads in the input test (gyro, touchpad, rumble, LED, PlayStation prompts, menus by pad alone) | the reworked aim feel, the new prompts |
+| DualSense | yes: the first aim feel ("extremely clunky", then reworked) | virtual pads in the input test (gyro, touchpad, rumble, LED, PlayStation prompts, menus by pad alone) | the reworked aim feel, the new prompts |
 | 4 players (local, CPU teammates) | yes: played twice; 4P Enemy Toughness, P2 blue blood (2026-10-26) | balance runs, Chapters 1-4 with 4 seats | the P3 / P4 fixes (hit splash, join sound, cut-scene bodies), smarter CPU aim |
 | PC Mode / Boss Mode (the 1998 PC's rules) | | Chapter 1 PC Mode equal to a 1998 PC recording for all 17,289 frames; Chariot / Hangedman Boss Mode fights equal; THOTD.EXE routines checked (321, 0 differ) | yes |
 | Cut-scenes: hold to skip, pause | | input test (held 2 s no skip, 3 s skip; pause / resume) | yes |
