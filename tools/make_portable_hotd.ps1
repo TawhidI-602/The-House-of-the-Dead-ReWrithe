@@ -313,6 +313,7 @@ foreach ($d in "ui", "fonts", "lang", "mods") {
 Copy-Item -LiteralPath (Join-Path $repo "LICENSE") -Destination (Join-Path $Out "LICENSE.txt")
 Copy-Item -LiteralPath (Join-Path $repo "NOTICE.md") -Destination (Join-Path $Out "NOTICE.txt")
 Copy-Item -LiteralPath (Join-Path $repo "docs/release/CREDITS.txt") -Destination (Join-Path $Out "CREDITS.txt")
+Copy-Item -LiteralPath (Join-Path $repo "CHANGELOG.md") -Destination (Join-Path $Out "CHANGELOG.txt")   # setup2: What's New reads it
 # online co-op step by step (hosting, the share code, the LAN, port forwarding, the firewall, the messages)
 Copy-Item -LiteralPath (Join-Path $repo "docs\online_howto.md") -Destination (Join-Path $Out "ONLINE HOWTO.txt")
 

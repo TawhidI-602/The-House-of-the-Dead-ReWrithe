@@ -13,6 +13,16 @@ enum class ShortcutResult { Created, Exists, Failed };
 ShortcutResult createShortcut(const std::string& folder, bool startMenu, const std::string& pcDir, bool overwrite,
                               std::string& msg);
 
+// setup2 (the installer): a shortcut "<linkFolder>/<name>.lnk" to `target` (working folder = target's folder, icon =
+// iconFile or the target). Windows only (elsewhere Failed). `made`: the .lnk's path
+ShortcutResult createShortcutTo(const std::string& linkFolder, const std::string& name, const std::string& target,
+                                const std::string& iconFile, std::string& made, std::string& msg);
+// the user's Desktop and Start menu Programs folders (Windows; else "")
+std::string desktopFolder();
+std::string startMenuFolder();
+// starts a program (not waited for); args: the command line after the program's quoted name
+bool launch(const std::string& exe, const std::string& args, const std::string& workDir);
+
 // this program's own path (Windows: GetModuleFileName; Linux: /proc/self/exe; macOS: _NSGetExecutablePath)
 std::string selfExePath();
 

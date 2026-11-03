@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 # THE version (a release: change this line only): the exes' VERSIONINFO, the main menu's corner, hotd --version
-project(hotd_m2 VERSION 1.0.1 LANGUAGES C CXX)
+project(hotd_m2 VERSION 1.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -52,6 +52,7 @@ add_executable(hotd
     src/game/sprites.cpp
     src/game/files_check.cpp
     src/game/launcher.cpp
+    src/game/installer.cpp
     src/game/frontend.cpp
     src/game/gallery_remake.cpp
     src/game/gallery_re.cpp
@@ -237,6 +238,7 @@ add_library(hotd_engine STATIC
     src/util/window_icon.cpp
     src/util/win_shell.cpp
     src/util/update_check.cpp
+    src/util/disc_image.cpp
     src/util/game_exe.cpp
     src/util/steam_shortcut.cpp
     src/util/resolution.cpp)
@@ -248,7 +250,9 @@ endif()
 
 # Free-camera viewer for the chapter worlds (PC / arcade sources).
 if(WIN32)   # the package's game exe stub (util/game_exe.h): no DLLs (static runtime)
-    add_executable(hotd_launch WIN32 src/launch/launch_main.cpp)
+    add_executable(hotd_launch WIN32 src/launch/launch_main.cpp src/assets/archive.cpp)   # setup2: archive (the updater unzips)
+    target_include_directories(hotd_launch PRIVATE src)
+    target_link_libraries(hotd_launch PRIVATE shell32)
     set_property(TARGET hotd_launch PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
     add_dependencies(hotd hotd_launch)
 endif()
