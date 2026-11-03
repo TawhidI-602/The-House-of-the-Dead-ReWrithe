@@ -94,7 +94,7 @@ std::string baseName(const std::string& p)
 
 bool readWhole(const std::string& path, std::vector<uint8_t>& out)
 {
-    FILE* f = std::fopen(path.c_str(), "rb");
+    FILE* f = hotd::fopenLong(path);
     if (!f)
         return false;
     hotd::fseek64(f, 0, SEEK_END);
@@ -611,7 +611,7 @@ std::string placementHint(const std::string& where, bool arcade)
     };
     auto fileHead = [](const std::string& path) {
         std::vector<uint8_t> d(17 * 2352 + 64);
-        FILE* f = std::fopen(path.c_str(), "rb");
+        FILE* f = hotd::fopenLong(path);
         d.resize(f ? std::fread(d.data(), 1, d.size(), f) : 0);
         if (f) std::fclose(f);
         return d;

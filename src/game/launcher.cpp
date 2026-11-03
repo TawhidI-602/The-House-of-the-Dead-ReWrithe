@@ -7,6 +7,7 @@
 #include "game/lang.h"
 #include "game/sights.h"
 #include "util/disc_image.h"
+#include "util/file64.h"
 #include "util/fullscreen.h"
 #include "util/resolution.h"
 #include "util/png.h"
@@ -642,7 +643,20 @@ Verdict arcadeVerdict(const std::string& where, const CheckReport& r)
     if (hint.find("PC game") != std::string::npos && hint.rfind("That is the PC game", 0) == 0)
         return {4, T("This is the PC game, not the arcade ROMs"), {}};
     if (wrong) return {4, T("Not Revision A: MAME's \"hotd\" set is needed"), {T("The original release (hotdo) and prototypes do not work.")}};
+    {   // MAME's other sets by their zip's name (hotdp: the prototype, hotdo: the original release)
+        std::string n = std::filesystem::path(where).filename().string();
+        for (char& c : n) c = char(std::tolower(static_cast<unsigned char>(c)));
+        if (n.rfind("hotdp", 0) == 0 || n.rfind("hotdo", 0) == 0)
+            return {4, T("Not Revision A: MAME's \"hotd\" set is needed"), {T("The original release (hotdo) and prototypes do not work.")}};
+    }
     if (missing >= 29 || missing == 0) return {4, T("No arcade ROM files found here"), {hint.empty() ? std::string() : lang::tr(hint)}};
+    // (the drop test, 2026-11-03) only Revision A's own program ROMs missing (epr-19696a / epr-19697a ...): another
+    // revision's set, not a damaged one
+    bool revOnly = missing <= 4;
+    for (const std::string& l : r.lines)
+        if (l.rfind("MISSING", 0) == 0) revOnly &= l.find("epr-1969") != std::string::npos && l.find("a.") != std::string::npos;
+    if (revOnly)
+        return {4, T("Not Revision A: MAME's \"hotd\" set is needed"), {T("The original release (hotdo) and prototypes do not work.")}};
     return {4, lang::fmt("{n} of 29 ROM files are missing", {{"n", std::to_string(missing)}}),
             {lang::fmt("{file} is missing", {{"file", namedFile(first)}})}};
 }
@@ -673,6 +687,8 @@ Verdict pcVerdict(const std::string& where, const CheckReport& r)
     if (!why.empty() && missing == 0 && wrong == 0) return {4, lang::tr(why), {}};
     const std::string hint = placementHint(where, false);
     if (hint.rfind("Those are the arcade ROMs", 0) == 0) return {4, T("These are the arcade ROMs, not the PC game"), {}};
+    if (hint.rfind("Only THOTD.EXE", 0) == 0)   // (a no-CD patch's zip: the drop test, 2026-11-03)
+        return {4, T("Only THOTD.EXE is here (a no-CD patch?)"), {T("The whole PC game is needed: drop its folder, CD image or zip.")}};
     if (!exeMissing && missing >= 40) return {4, T("This is the PC demo: the full 1998 PC game is needed"), {}};
     if (exeMissing && missing >= 40) return {4, T("No PC game files found here"), {hint.empty() ? std::string() : lang::tr(hint)}};
     if (!firstMissing.empty())
@@ -782,13 +798,45 @@ void Launcher::checkZone(int which, const std::string& path)
             return exe ? std::string() : !cue.empty() ? cue : other;
         };
         stage({}, 0.05f);
+        // what is read (the drop test, user 2026-11-03): THOTD.EXE itself dropped = its folder; a zip holding nothing but
+        // another archive (and notes) = that archive, unpacked into the cache first
+        std::string in = path;
+        if (which == 1 && lowered(fs::path(path).filename().string()) == "thotd.exe") in = fs::path(path).parent_path().string();
+        if (lowered(fs::path(in).extension().string()) == ".zip") {
+            ZipFile outer;
+            std::string err;
+            if (outer.open(in, err)) {
+                const ZipFile::Entry* inner = nullptr;
+                bool other = false;
+                for (const ZipFile::Entry& e : outer.entries()) {
+                    const std::string n = lowered(e.name), ext = fs::path(n).extension().string();
+                    if (n.empty() || n.back() == '/') continue;
+                    if (ext == ".zip" || ext == ".7z" || ext == ".rar") { if (inner) other = true; else inner = &e; }
+                    else if (ext != ".txt" && ext != ".nfo" && ext != ".url" && ext != ".diz" && ext != ".htm" && ext != ".html") other = true;
+                }
+                std::vector<uint8_t> d;
+                if (inner && !other && outer.read(*inner, d, err)) {
+                    std::error_code ec;
+                    const fs::path dir = fs::path(cache) / (which == 0 ? "arcade_inner" : "pc_inner");
+                    fs::create_directories(dir, ec);
+                    const std::string f = (dir / fs::path(inner->name).filename()).string();
+                    std::ofstream o(hotd::longPath(f), std::ios::binary | std::ios::trunc);
+                    if (o.write(reinterpret_cast<const char*>(d.data()), std::streamsize(d.size()))) {
+                        o.close();
+                        in = f;
+                        // (kept in the cache: the setup installs from it, and an arcade zip is read at each start)
+                    }
+                }
+            }
+        }
+        src = image = z.checked = in;
         // a zip holding a CD image (user 2026-11-02 "allow for read it from zip"): its data track (the first track's
         // .bin, else the .iso / .img / .bin) unpacked into the cache, read as below, then removed
         // a .7z / .rar (user 2026-11-03 "can we support" it): unpacked into the cache by Windows' own tar (libarchive,
         // Windows 10 1803 and later) and checked there as a folder; a CD image in it (the .cue first) read as below
-        if (which == 1 && fs::is_directory(path)) {
-            if (const std::string img = imageIn(path); !img.empty()) image = img;
-        } else if (const std::string ext = lowered(fs::path(path).extension().string()); ext == ".7z" || ext == ".rar") {
+        if (which == 1 && fs::is_directory(in)) {
+            if (const std::string img = imageIn(in); !img.empty()) image = img;
+        } else if (const std::string ext = lowered(fs::path(in).extension().string()); ext == ".7z" || ext == ".rar") {
             stage(lang::tr("Unpacking ..."), 0.1f);
             const std::string dir = discFolder(cache, which == 0 ? "arcade_unpacked" : "pc_unpacked");
             std::error_code ec;
@@ -800,7 +848,7 @@ void Launcher::checkZone(int which, const std::string& path)
 #else
             const std::string tar = "tar";
 #endif
-            const int rc = winshell::runHidden(tar, "-xf \"" + path + "\" -C \"" + dir + "\"", 600);
+            const int rc = winshell::runHidden(tar, "-xf \"" + in + "\" -C \"" + dir + "\"", 600);
             bool any = false;
             for (const auto& e : fs::recursive_directory_iterator(dir, ec))
                 any |= e.is_regular_file(ec) && e.path().filename() != "hotd_disc_copy.txt";
@@ -818,9 +866,9 @@ void Launcher::checkZone(int which, const std::string& path)
         }
         ZipFile zf;
         bool zipImage = false;
-        if (which == 1 && lowered(fs::path(path).extension().string()) == ".zip") {
+        if (which == 1 && lowered(fs::path(in).extension().string()) == ".zip") {
             std::string err;
-            if (zf.open(path, err)) {
+            if (zf.open(in, err)) {
                 const ZipFile::Entry* best = nullptr;
                 bool bestFirst = false, hasExe = false;
                 for (const ZipFile::Entry& e : zf.entries()) {
@@ -857,6 +905,10 @@ void Launcher::checkZone(int which, const std::string& path)
                 }
             }
         }
+        // any track's .bin of a disc with its .cue next to it (the drop test: Track 02, music only, said "not a readable
+        // CD image"): the whole disc through its .cue
+        if (lowered(fs::path(image).extension().string()) == ".bin")
+            if (const std::string cue = disc::cueFor(image); !cue.empty()) image = cue;
         if (disc::isDiscImage(image)) {   // a CD image: what it is, then its files copied out and checked
             const disc::Info di = disc::probe(image);
             if (!di.ok) { z.state = 4; z.line = lang::tr("Not a readable CD image (ISO 9660)"); z.more = {di.err}; }

@@ -49,9 +49,15 @@ arcade version's more detailed models and textures or the PC's.
    `settings\crash-<date>.txt`: attach both to a bug report, never game files).
 
 Portable use still works: put the ROM zip in `data\arcade`, the PC game in `data\pc` and the music in `data\music` of the
-unzipped folder, and start `HOTDReWritheSetup.bat`: with the files found it goes straight to the menu.
+unzipped folder, and start `bin\hotd.exe`: with the files found it goes straight to the menu. (`HOTDReWritheSetup.bat`
+always opens the setup.)
 An **unpatched** 1998 PC copy is recommended; a patched THOTD.EXE or PC files of another version (the Japanese release, repacks) are accepted with a
 note. The mouse is the gun (left shoot, right reload).
+
+> **If your PC copy does not pass the check, try another one.** Copies of the 1998 PC game differ: the US and the
+> European releases work best (a CD image: choose its `.cue`). When the setup says a file is missing or damaged, that
+> file is missing or damaged in the copy itself, wherever it came from: it is not a problem of the setup or the game.
+> Keeping a second copy (US or European) at hand is recommended.
 
 System requirements (Windows): Windows 10 / 11, 64-bit; graphics with **OpenGL 3.3**, or else a
 **DirectX 10.1-class GPU** (Intel HD 2000 / 3000 and newer, Radeon HD 3000+, GeForce GT 200+): Options > Video >

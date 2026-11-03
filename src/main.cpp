@@ -4566,6 +4566,7 @@ int main(int argc, char* argv[])
                            std::getenv("HOTD_MENU_SEQ") != nullptr ||      // (menuperf: the menu's picture sequence: hidden too)
                            std::getenv("HOTD_MENU_PERF") != nullptr ||     // (the menu's frame times: hidden too)
                            std::getenv("HOTD_SETUP_SHOTS") != nullptr ||   // (setup2: the setup pages' pictures, hidden)
+                           std::getenv("HOTD_ZONE_TEST") != nullptr ||     // (the setup boxes' drop test: hidden)
                            std::getenv("HOTD_UPDATE_AUTO") != nullptr ||   // (setup2: the updater's test, hidden)
                            std::getenv("HOTD_SETUP_TEST") != nullptr;      // (setup: the setup window's switch, hidden)
     // borderless fullscreen at the start (user 2026-10-19): launcher.ini fullscreen= (default on; the state the player
@@ -4728,6 +4729,22 @@ int main(int argc, char* argv[])
     menu.cacheDir = cache;
     menu.wordmarkFile = game::Frontend::wordmarkFile;   // setup: our wordmark in its picture strip
     menu.packageRoot = packageFolder();                 // setup2: the setup's install / the updater (game/installer.h)
+    // (testing) HOTD_ZONE_TEST=<a text file, one path a line; "A:" before a path: the arcade box>: each path dropped
+    // on the setup's PC game box in turn, its verdict printed ("ZONE: <path> => <state> | <line> | ..."), then the end
+    if (const char* zt = std::getenv("HOTD_ZONE_TEST"); zt && *zt) {
+        std::ifstream in(zt);
+        for (std::string l; std::getline(in, l);) {
+            if (!l.empty() && l.back() == '\r') l.pop_back();
+            if (l.empty()) continue;
+            const int which = l.rfind("A:", 0) == 0 ? 0 : 1;
+            const std::string p = which == 0 ? l.substr(2) : l;
+            menu.checkZone(which, p);
+            while (menu.zoneState(which) == 1) SDL_Delay(50);
+            std::printf("ZONE: %s => %s\n", p.c_str(), menu.zoneReport(which).c_str());
+            std::fflush(stdout);
+        }
+        return 0;
+    }
     while (!menu.packageRoot.empty() && (menu.packageRoot.back() == '\\' || menu.packageRoot.back() == '/')) menu.packageRoot.pop_back();
     menu.installed = game::isInstall(menu.packageRoot);
     menu.version = HOTD_VERSION_TEXT;

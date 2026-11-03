@@ -444,6 +444,14 @@ public:
     // a zone's source checked on its own thread (0 arcade, 1 PC); its state (1 while it runs)
     void checkZone(int which, const std::string& path);
     int zoneState(int which) const;
+    // (testing, HOTD_ZONE_TEST) the box's verdict as one line: state, line, the lines under it, the music found
+    std::string zoneReport(int which) const
+    {
+        const Zone z = zoneCopy(which);
+        std::string s = std::to_string(z.state) + " | " + z.line;
+        for (const std::string& m : z.more) if (!m.empty()) s += " | " + m;
+        return s + " | music " + std::to_string(z.music);
+    }
     std::string shotFile;        // pchotfix: set: render() writes the page to this PNG instead of drawing it (--setup-shot)
     // pchotfix: --setup-shot: the files check, then the Game files page (960 x 600) into `png`; returns whether Play is
     // allowed

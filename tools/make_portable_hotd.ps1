@@ -202,7 +202,8 @@ An unofficial rewrite. This package contains NO game data: you need your own cop
 
 How to run
 ----------
-Double-click HOTDReWritheSetup.bat. In the setup window, choose your Arcade ROMs and your PC Game (Choose Zip... or Choose Folder... for either; any names), then Play. The setup then makes "The House of the Dead ReWrithe.exe" here: use it from then on. The PC game's CD music is optional: without it the arcade's music plays.
+Double-click HOTDReWritheSetup.bat. In the setup window, drop (or click to choose) your Arcade ROMs and your PC game: a zip, a .7z, a folder or a CD image (choose its .cue); any names. Then Install (or Play from here). The PC game's CD music is optional: without it the arcade's music plays. HOTDReWritheSetup.bat always opens the setup again (to change the files).
+If your PC copy does not pass, try another one: copies of the 1998 PC game differ, and the US and European releases work best. When the setup says a file is missing or damaged, it is missing or damaged in that copy itself, wherever it came from: not a problem of the setup or the game. Keeping a second copy (US or European) at hand is recommended.
 Your own files only: put your arcade ROM zip in data\arcade and your PC game files (a .zip of them, or unpacked)
 in data\pc for a copy you carry to another PC of yours; the game then finds them by itself (also when started from bin\hotd.exe, e.g. by Steam). Never share a package
 with game files in it.

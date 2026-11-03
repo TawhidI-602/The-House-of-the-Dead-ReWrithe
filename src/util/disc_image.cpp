@@ -43,7 +43,7 @@ struct Image {
 // a .cue's first FILE "<name>" (relative to the .cue's folder)
 std::string cueData(const std::string& cue)
 {
-    std::ifstream f(cue);
+    std::ifstream f(hotd::longPath(cue));
     std::string line;
     while (std::getline(f, line)) {
         const size_t k = line.find("FILE");
@@ -68,7 +68,7 @@ bool open(const std::string& path, Image& img, std::string& err)
         data = cueData(path);
         if (data.empty()) { err = "the .cue names no data file"; return false; }
     }
-    img.f = std::fopen(data.c_str(), "rb");
+    img.f = hotd::fopenLong(data);
     if (!img.f) { err = "cannot open " + fs::path(data).filename().string(); return false; }
     uint8_t head[16] = {};
     if (std::fread(head, 1, 16, img.f) != 16) { err = "the image is too small"; return false; }
@@ -173,7 +173,7 @@ bool extract(const std::string& path, const std::string& outDir, const std::func
     for (const Entry& e : entries) {
         const fs::path out = fs::path(outDir) / fs::path(e.path);
         fs::create_directories(out.parent_path(), ec);
-        std::ofstream f(out, std::ios::binary | std::ios::trunc);
+        std::ofstream f(hotd::longPath(out.string()), std::ios::binary | std::ios::trunc);
         if (!f) { err = "cannot write " + out.string(); return false; }
         for (uint32_t k = 0, left = e.size; left > 0; ++k) {
             if (!img.sector(e.lba + k, buf.data())) { err = "the image ends inside " + e.path; return false; }
@@ -211,7 +211,7 @@ int ripAudio(const std::string& path, const std::string& outDir, std::string& er
     struct Track { std::string file; int number = 0; bool audio = false; int64_t i0 = -1, i1 = -1; };
     std::vector<Track> tracks;
     {
-        std::ifstream f(cue);
+        std::ifstream f(hotd::longPath(cue));
         std::string file;
         for (std::string line; std::getline(f, line);) {
             if (!line.empty() && line.back() == '\r') line.pop_back();
@@ -247,7 +247,7 @@ int ripAudio(const std::string& path, const std::string& outDir, std::string& er
     for (size_t i = 0; i < tracks.size(); ++i) {
         const Track& t = tracks[i];
         if (!t.audio || t.i1 < 0 || t.number < 1 || t.number > 99) continue;
-        std::FILE* f = std::fopen(t.file.c_str(), "rb");
+        std::FILE* f = hotd::fopenLong(t.file);
         if (!f) { err = "cannot read " + t.file; continue; }
         hotd::fseek64(f, 0, SEEK_END);
         const int64_t fileBytes = hotd::ftell64(f);

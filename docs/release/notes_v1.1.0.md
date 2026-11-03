@@ -51,6 +51,13 @@ this version anywhere and start `HOTDReWritheSetup.bat` (it can install itself),
   way round, are put back in the game's order by themselves.
 - **Off-screen reload in Borderless** (#15): pushing the mouse against the screen's bottom edge reloads again.
 
+## If your PC copy does not pass
+
+Copies of the 1998 PC game differ. The **US and European** releases work best; for a CD image, choose its `.cue`. If
+the setup says a file is missing or damaged, that file is missing or damaged **in the copy itself**, wherever it came
+from: it is not a problem of the setup or the game. Try another copy (US or European); keeping a second one at hand is
+recommended.
+
 ## Known issues
 
 - Free Cam's slow mode is awkward (pressing E while rotated; looking straight down).
