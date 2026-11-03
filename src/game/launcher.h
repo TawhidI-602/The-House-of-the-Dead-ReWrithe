@@ -469,6 +469,7 @@ private:
         std::string line;        // the verdict, one short line
         std::vector<std::string> more;   // a few plain lines under it
         int music = 0;           // (PC) CD tracks found
+        float progress = 0;      // while checking (state 1): 0..1, the box's loading bar (user 2026-11-03)
     };
     Overlay page_;
     std::vector<Hot> hot_;

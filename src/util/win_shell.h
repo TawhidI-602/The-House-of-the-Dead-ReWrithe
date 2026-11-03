@@ -22,6 +22,8 @@ std::string desktopFolder();
 std::string startMenuFolder();
 // starts a program (not waited for); args: the command line after the program's quoted name
 bool launch(const std::string& exe, const std::string& args, const std::string& workDir);
+// runs a program without a window and waits for it (at most `seconds`); its exit code, -1: not started / timed out
+int runHidden(const std::string& exe, const std::string& args, int seconds);
 
 // this program's own path (Windows: GetModuleFileName; Linux: /proc/self/exe; macOS: _NSGetExecutablePath)
 std::string selfExePath();

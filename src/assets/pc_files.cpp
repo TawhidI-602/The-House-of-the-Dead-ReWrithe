@@ -213,7 +213,8 @@ std::string unsupportedArchive(const std::string& path)
 {
     for (const char* ext : {".rar", ".7z"})
         if (endsWithNoCase(path, ext))
-            return "'" + path + "' is a " + std::string(ext + 1) + " archive: not supported. Convert it to a .zip (or unpack it) and choose that.";
+            return std::filesystem::path(path).filename().string() + " is a " + std::string(ext + 1) +
+                   " archive that could not be opened: unpack it (or repack it as a .zip) and choose that.";
     return "";
 }
 

@@ -746,10 +746,76 @@ void Launcher::checkZone(int which, const std::string& path)
         auto lowered = [](std::string s) { for (char& c : s) if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a'); return s; };
         struct Cleanup {   // (what was unpacked from a zip: only needed while its files are copied out)
             std::vector<std::string> files;
-            ~Cleanup() { std::error_code ec; for (const std::string& f : files) fs::remove(f, ec); }
+            std::string dir;   // a folder of ours (its marker file) removed whole
+            ~Cleanup()
+            {
+                std::error_code ec;
+                for (const std::string& f : files) fs::remove(f, ec);
+                if (!dir.empty() && fs::exists(fs::path(dir) / "hotd_disc_copy.txt", ec)) fs::remove_all(dir, ec);
+            }
         } cleanup;
+        // the box's line and loading bar while it works (user 2026-11-03 "add a loading bar")
+        auto stage = [&](const std::string& line, float progress) {
+            std::lock_guard<std::mutex> l(zoneMutex_);
+            if (zone_[which].path != path) return;
+            if (!line.empty()) zone_[which].line = line;
+            zone_[which].progress = std::max(zone_[which].progress, std::clamp(progress, 0.0f, 1.0f));
+        };
+        // a folder holding a CD image and no installed game (user 2026-11-03: the folder of a .cue and its .bin files
+        // said "THOTD.EXE is missing"): its .cue, else its largest .iso / .img / .bin; "" when it is no CD image
+        auto imageIn = [&](const std::string& dir) -> std::string {
+            std::string cue, other;
+            uintmax_t otherSize = 0;
+            bool exe = false;
+            std::error_code ec;
+            for (auto it = fs::recursive_directory_iterator(dir, ec); it != fs::recursive_directory_iterator(); it.increment(ec)) {
+                if (ec) break;
+                if (it.depth() > 3) { it.disable_recursion_pending(); continue; }
+                const std::string n = lowered(it->path().filename().string()), e = lowered(it->path().extension().string());
+                exe |= n == "thotd.exe";
+                if (e == ".cue" && cue.empty()) cue = it->path().string();
+                if (e == ".iso" || e == ".img" || e == ".bin") {
+                    const uintmax_t s = it->file_size(ec);
+                    if (s > otherSize) other = it->path().string(), otherSize = s;
+                }
+            }
+            return exe ? std::string() : !cue.empty() ? cue : other;
+        };
+        stage({}, 0.05f);
         // a zip holding a CD image (user 2026-11-02 "allow for read it from zip"): its data track (the first track's
         // .bin, else the .iso / .img / .bin) unpacked into the cache, read as below, then removed
+        // a .7z / .rar (user 2026-11-03 "can we support" it): unpacked into the cache by Windows' own tar (libarchive,
+        // Windows 10 1803 and later) and checked there as a folder; a CD image in it (the .cue first) read as below
+        if (which == 1 && fs::is_directory(path)) {
+            if (const std::string img = imageIn(path); !img.empty()) image = img;
+        } else if (const std::string ext = lowered(fs::path(path).extension().string()); ext == ".7z" || ext == ".rar") {
+            stage(lang::tr("Unpacking ..."), 0.1f);
+            const std::string dir = discFolder(cache, which == 0 ? "arcade_unpacked" : "pc_unpacked");
+            std::error_code ec;
+            fs::create_directories(dir, ec);
+            std::ofstream(fs::path(dir) / "hotd_disc_copy.txt") << "Unpacked from " << path << " by the setup (removed with the next one).\n";
+#ifdef _WIN32
+            const char* root = std::getenv("SystemRoot");
+            const std::string tar = std::string(root && *root ? root : "C:\\Windows") + "\\System32\\tar.exe";
+#else
+            const std::string tar = "tar";
+#endif
+            const int rc = winshell::runHidden(tar, "-xf \"" + path + "\" -C \"" + dir + "\"", 600);
+            bool any = false;
+            for (const auto& e : fs::recursive_directory_iterator(dir, ec))
+                any |= e.is_regular_file(ec) && e.path().filename() != "hotd_disc_copy.txt";
+            if (rc != 0 || !any) {
+                z.state = 4, z.line = lang::fmt("{file} could not be unpacked", {{"file", fileName(path)}});
+                z.more = {lang::tr("Unpack it yourself (for example with 7-Zip) and drop the folder here.")};
+                std::lock_guard<std::mutex> l(zoneMutex_);
+                if (zone_[which].path == path) zone_[which] = z;
+                return;
+            }
+            src = z.checked = dir;
+            stage({}, 0.35f);
+            image = which == 1 ? imageIn(dir) : std::string();   // (a CD image in it: read as below)
+            if (!image.empty()) cleanup.dir = dir;               // (then only needed while its files are copied out)
+        }
         ZipFile zf;
         bool zipImage = false;
         if (which == 1 && lowered(fs::path(path).extension().string()) == ".zip") {
@@ -766,10 +832,7 @@ void Launcher::checkZone(int which, const std::string& path)
                         best = &e, bestFirst = first;
                 }
                 if (best && !hasExe) {
-                    {
-                        std::lock_guard<std::mutex> l(zoneMutex_);
-                        if (zone_[which].path == path) zone_[which].line = lang::tr("Unpacking the CD image from the zip ...");
-                    }
+                    stage(lang::tr("Unpacking the CD image from the zip ..."), 0.1f);
                     std::error_code ec;
                     const fs::path dir = fs::path(cache) / "disc_zip";
                     fs::create_directories(dir, ec);
@@ -802,12 +865,9 @@ void Launcher::checkZone(int which, const std::string& path)
             else if (which == 0) { z.state = 4; z.line = lang::tr("This is a CD image, not the arcade ROMs"); }
             else {
                 const std::string out = discFolder(cache, "pc");
-                {
-                    std::lock_guard<std::mutex> l(zoneMutex_);
-                    if (zone_[which].path == path) zone_[which].line = lang::tr("Copying the files from the CD image ...");
-                }
+                stage(lang::tr("Copying the files from the CD image ..."), 0.35f);
                 std::string err;
-                if (!disc::extract(image, out, {}, err)) { z.state = 4; z.line = lang::tr("The CD image could not be read"); z.more = {err}; }
+                if (!disc::extract(image, out, [&](float f) { stage({}, 0.35f + 0.35f * f); }, err)) { z.state = 4; z.line = lang::tr("The CD image could not be read"); z.more = {err}; }
                 else {
                     std::ofstream(fs::path(out) / "hotd_disc_copy.txt") << "Files copied from " << path << " by the setup (removed with the next image).\n";
                     src = z.checked = out;
@@ -822,10 +882,7 @@ void Launcher::checkZone(int which, const std::string& path)
                             if (ext != ".cue" && ext != ".bin") continue;
                             const std::string dst = (dir / fs::path(e.name).filename()).string();
                             if (dst == image) continue;
-                            {
-                                std::lock_guard<std::mutex> l(zoneMutex_);
-                                if (zone_[which].path == path) zone_[which].line = lang::tr("Copying the CD music ...");
-                            }
+                            stage(lang::tr("Copying the CD music ..."), 0.72f);
                             std::vector<uint8_t> d;
                             std::string e2;
                             if (!zf.read(e, d, e2)) continue;
@@ -836,10 +893,7 @@ void Launcher::checkZone(int which, const std::string& path)
                         }
                     }
                     if (!cue.empty()) {
-                        {
-                            std::lock_guard<std::mutex> l(zoneMutex_);
-                            if (zone_[which].path == path) zone_[which].line = lang::tr("Copying the CD music ...");
-                        }
+                        stage(lang::tr("Copying the CD music ..."), 0.8f);
                         std::string rerr;
                         const fs::path music = fs::path(out) / "Music";
                         const int n = disc::ripAudio(cue, music.string(), rerr);
@@ -862,6 +916,7 @@ void Launcher::checkZone(int which, const std::string& path)
                 return;
             }
         }
+        stage(lang::tr("Checking the files ..."), 0.9f);
         Verdict v;
         if (which == 0) {
             const CheckReport r = checkArcade(src, cache + "arcade_regions", false);
@@ -990,7 +1045,7 @@ void Launcher::render(int ww, int wh)
                       std::to_string(lang::gen()) + '|' + installDir_ + '|' + std::to_string(scroll_) + '|' +
                       std::to_string(optDesktop_) + std::to_string(optStartMenu_) + std::to_string(optSteam_) + std::to_string(optMusic_);
     for (const Zone* z : {&za, &zp}) {
-        key += '\n' + z->path + '\t' + std::to_string(z->state) + z->line;
+        key += '\n' + z->path + '\t' + std::to_string(z->state) + z->line + '\t' + std::to_string(int(z->progress * 100));
         for (const std::string& s : z->more) key += '\v' + s;
     }
     key += '\r' + std::to_string(ist) + std::to_string(int(installFrac_ * 200)) + instLine + instErr + updateErr_;
@@ -1119,7 +1174,7 @@ void Launcher::render(int ww, int wh)
     } else if ((mode == Mode::Setup || mode == Mode::Repair) && step_ == kFiles) {
         title(T("Game files"));
         y = 124;
-        para(T("Drop a zip, a folder or a CD image on each box, or click it to choose. They are checked at once."), L, y, CW, 9, kDim);
+        para(T("Drop a zip / .7z, a folder or a CD image on each box, or click it to choose. They are checked at once."), L, y, CW, 9, kDim);
         const float zy = 162, zh = 290, gap = 24, zw = (CW - gap) / 2;
         const struct { const Zone* z; const char* name; const char* sub; int click, folder; } zs[2] = {
             {&za, "Arcade ROMs", "Revision A (MAME set \"hotd\")", kZoneA, kFolderA},
@@ -1140,6 +1195,13 @@ void Launcher::render(int ww, int wh)
                 const std::string a = T("Drop it here"), b = T("or click to choose a zip or CD image");
                 p.text(a, x + (zw - p.textW(a, 11)) / 2, zy + zh / 2 + 10, 11, kDim);
                 p.text(b, x + (zw - p.textW(b, 8.5f)) / 2, zy + zh / 2 + 34, 8.5f, kFaint);
+                if (i == 1) {   // (user 2026-11-03: the .cue is the one that works best; the .bin files are the music)
+                    float hy = zy + zh / 2 + 52;
+                    for (const std::string& l : wrap(T("A CD image: choose its .cue file (its .bin files hold the CD music)"), zw - 40, 8.5f)) {
+                        p.text(l, x + (zw - p.textW(l, 8.5f)) / 2, hy + 8.5f, 8.5f, kFaint);
+                        hy += 16;
+                    }
+                }
             } else {
                 p.text(fitText(fileName(z.path), zw - 40, 10, false), x + 20, yy, 10, kText);
                 yy += 18;
@@ -1150,6 +1212,10 @@ void Launcher::render(int ww, int wh)
                 float ly = yy - 11;
                 para(z.line, x + 40, ly, zw - 60, 9.5f, c);
                 ly += 4;
+                if (z.state == 1) {   // (checking: the loading bar)
+                    progressBar(x + 40, ly, zw - 80, z.progress);
+                    ly += 28;
+                }
                 for (const std::string& m : z.more)
                     if (!m.empty()) para(m, x + 40, ly, zw - 60, 8.5f, kDim);
                 if (i == 1 && (z.state == 2 || z.state == 3))
@@ -1330,7 +1396,7 @@ void Launcher::click(int action, SDL_Window* window)
         if (folder) {
             SDL_ShowOpenFolderDialog(cb, this, window, start, false);
         } else {
-            static const SDL_DialogFileFilter filter[] = {{"Zip or CD image", "zip;iso;bin;cue;img"}, {"All files", "*"}};
+            static const SDL_DialogFileFilter filter[] = {{"Zip, 7z or CD image (.cue)", "zip;7z;rar;cue;iso;bin;img"}, {"All files", "*"}};
             SDL_ShowOpenFileDialog(cb, this, window, filter, 2, start, false);
         }
     };

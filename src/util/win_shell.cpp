@@ -270,6 +270,21 @@ bool launch(const std::string& exe, const std::string& args, const std::string& 
     return true;
 }
 
+int runHidden(const std::string& exe, const std::string& args, int seconds) {
+    std::wstring cmd = L"\"" + wide(exe) + L"\"" + (args.empty() ? std::wstring() : L" " + wide(args));
+    STARTUPINFOW si{};
+    si.cb = sizeof si;
+    PROCESS_INFORMATION pi{};
+    if (!CreateProcessW(wide(exe).c_str(), cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi))
+        return -1;
+    CloseHandle(pi.hThread);
+    DWORD code = DWORD(-1);
+    if (WaitForSingleObject(pi.hProcess, DWORD(seconds) * 1000) == WAIT_OBJECT_0) GetExitCodeProcess(pi.hProcess, &code);
+    else TerminateProcess(pi.hProcess, 1);
+    CloseHandle(pi.hProcess);
+    return int(code);
+}
+
 #endif
 
 #ifndef _WIN32
@@ -281,6 +296,7 @@ ShortcutResult createShortcutTo(const std::string&, const std::string&, const st
 std::string desktopFolder() { return {}; }
 std::string startMenuFolder() { return {}; }
 bool launch(const std::string&, const std::string&, const std::string&) { return false; }
+int runHidden(const std::string& exe, const std::string& args, int) { return std::system(("\"" + exe + "\" " + args).c_str()); }
 #endif
 
 void dialogFrame(void* hwnd, bool on)

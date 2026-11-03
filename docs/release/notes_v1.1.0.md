@@ -12,7 +12,7 @@ this version anywhere and start `HOTDReWritheSetup.bat` (it can install itself),
 - **Setup**: Install to (any folder; not Program Files) > Game files > Options > Install > Play.
   - Game files: drop a zip, a folder or a CD image (`.iso`, `.bin` / `.cue`) on "Arcade ROMs" and "PC game", or click
     to choose. Each is checked at once: green, yellow (accepted with a note), or red with the reason ("This is the
-    Saturn version", "This is the PC demo", "SOUND\GAMESNDS.RBH is missing"). A zip holding a CD image works too.
+    Saturn version", "This is the PC demo", "SOUND\GAMESNDS.RBH is missing"). A zip holding a CD image works too, and so do .7z / .rar archives. For a CD image, choose its .cue file.
   - A CD image's music tracks are copied too, so the CD music plays without ripping it yourself.
   - Your own files are only read: the setup always builds a new copy, never installs into a folder that already
     has files in it, and the uninstaller removes only what the setup copied.
