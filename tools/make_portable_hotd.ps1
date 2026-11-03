@@ -85,8 +85,8 @@ foreach ($d in "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "vcruntime140
 # 3. Start file and README
 @'
 @echo off
-rem Starts The House of the Dead: ReWrithe. The first time (or while files are missing) its setup window comes up:
-rem pick your arcade ROMs and PC game there, then Play; after that it goes straight to the menu.
+rem The House of the Dead: ReWrithe's setup: it always opens the setup window (install, or change the game files),
+rem also when it ran before. To play, use the shortcut / "The House of the Dead ReWrithe.exe" it makes, or bin\hotd.exe.
 rem Only paths relative to this file: works from any drive.
 rem Personal portable copy: put your own arcade ROM zip in data\arcade (or at data\hotd.zip) and your PC game files,
 rem in data\pc (a .zip of them, or unpacked: THOTD.EXE there or one folder down); the game finds them by itself, also when
@@ -95,7 +95,13 @@ rem Music: the PC release played CD audio; put your TrackNN.ogg files in data\mu
 rem .mp3 works too, any name ending in the track number ("House of the Dead 02.mp3"), or a .zip of them.
 setlocal
 cd /d "%~dp0"
-start "" "%~dp0bin\hotd.exe" %*
+if not exist "%~dp0bin\hotd.exe" (
+  echo bin\hotd.exe is missing. If Windows Defender removed it, restore it in Windows Security ^> Protection history
+  echo ^(a false positive^), or unzip the whole package again.
+  pause
+  exit /b 1
+)
+start "" "%~dp0bin\hotd.exe" --setup %*
 '@ | Set-Content -LiteralPath (Join-Path $Out "HOTDReWritheSetup.bat") -Encoding ascii
 @'
 @echo off

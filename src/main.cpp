@@ -195,6 +195,9 @@ static void mouseUsed(SDL_MouseID id)
 // (util/fullscreen.h), so the window's last row is never on screen and the mouse never reached it: the edge is the
 // display's outermost pixel row / column instead (gunVisibleArea, each frame of play)
 static SDL_Rect gGunArea{0, 0, 0, 0};
+// --setup (HOTDReWritheSetup.bat; user 2026-11-03: a friend could not get back into the setup after Windows Defender
+// stopped it, the files being known): the setup window always comes up, even with the files known
+static bool gForceSetup = false;
 static void gunVisibleArea(SDL_Window* window, int lw, int lh)
 {
     gGunArea = SDL_Rect{0, 0, lw, lh};
@@ -2682,6 +2685,7 @@ int main(int argc, char* argv[])
             continue;
         }
         if (a == "--setup-test") { setupTestDest = next(); continue; }
+        if (a == "--setup") { gForceSetup = true; continue; }
         if (a == "--make-game-exe") {   // (testing: util/game_exe.h for this package and a PC folder / zip, then quit)
             std::string m;
             const bool ok = util::makeGameExe(packageFolder(), next(), m);
@@ -4934,7 +4938,10 @@ int main(int argc, char* argv[])
     // the launcher draws nothing meanwhile (quiet: black); setup (2026-10-31): the launcher is one setup dialog for
     // everyone (the files and the check; every other setting is Options in the menu)
     bool autoMenu = launcher && inputTestFile.empty() && !cfg.arcade.empty() && !cfg.pc.empty() &&
-                    !std::getenv("HOTD_SETUP_SHOTS");   // (the setup pages' pictures: the setup window stays)
+                    !std::getenv("HOTD_SETUP_SHOTS") &&   // (the setup pages' pictures: the setup window stays)
+                    !gForceSetup;
+    if (gForceSetup && launcher && menu.installed)   // (an installed copy: its Game files page, as Options' Repair)
+        menu.open(game::Launcher::Mode::Repair);
     (void)filesFromData;
     menu.quiet = autoMenu && !setupTest;
     // setup2: What's New once on the first start of a new version (launcher.ini lastversion= another one, or settings
