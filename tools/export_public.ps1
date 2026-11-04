@@ -18,7 +18,9 @@ if ((Test-Path -LiteralPath $outFull) -and (Get-ChildItem -LiteralPath $outFull 
 }
 New-Item -ItemType Directory -Force $outFull | Out-Null
 
-$exclude = @("TODO-NEXT-SESSION.md", "docs/history.md", "docs/session-history.md", "Run Viewer.bat")
+$exclude = @("TODO-NEXT-SESSION.md", "docs/history.md", "docs/session-history.md", "Run Viewer.bat",
+              "docs/typing.md", "docs/horde.md")   # (the unreleased modes: not shown in the public repo, the user 2026-11-03)
+$excludeDirs = @("data/typing", "data/horde")
 $sha = (git -C $repo rev-parse --short $Rev).Trim()
 
 # 1. the committed tree (git archive: only tracked files, never private\ or build folders)
@@ -31,6 +33,10 @@ Remove-Item -LiteralPath $tar
 foreach ($f in $exclude) {
     $p = Join-Path $outFull $f
     if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force }
+}
+foreach ($d in $excludeDirs) {
+    $p = Join-Path $outFull $d
+    if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force }
 }
 
 # 2. checks

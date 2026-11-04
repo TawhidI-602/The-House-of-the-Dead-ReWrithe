@@ -11,8 +11,7 @@ default ON), with that line on its More Modes item and its help line and a notic
 package (`HOTD_EXPERIMENTAL_MODES` OFF) only `--survival*` works: the old `--horde*` names are refused there (they are
 the new Horde Mode's, which stays out) ([porting.md](porting.md#experimental-modes)).
 
-Named **Horde Mode** until 2026-11-03 (the user: it is survival; Horde is now the arcade game with more creatures,
-[horde.md](horde.md)). The old names still work: `--horde <arena>`, `--horde-test`, `--horde-seed`, `--horde-smg-wave`,
+Named **Horde Mode** until 2026-11-03 (the user: it is survival). The old names still work: `--horde <arena>`, `--horde-test`, `--horde-seed`, `--horde-smg-wave`,
 `--horde-cap`, `--horde-no-cut` (= the `--survival*` ones), `HOTD_HORDE_*` (= `HOTD_SURVIVAL_*`), `data/horde/` (the
 sound folder when there is no `data/survival/`); `horde_scores.txt` is moved to `survival_scores.txt` once.
 

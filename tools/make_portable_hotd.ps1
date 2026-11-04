@@ -369,6 +369,16 @@ foreach ($d in "ui", "fonts", "lang", "mods", "vr") {   # (vr: vr.ini, the VR se
         Copy-Item -LiteralPath $_.FullName -Destination $dst -Force
     }
 }
+# -Release: the modes left out of the release builds (Typing of the Dead 0, Horde) are not shown anywhere: their menu
+# texts leave the language files too (the user, 2026-11-03: "don't even show them"); their data folders are not copied
+if ($Release) {
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    Get-ChildItem -LiteralPath (Join-Path $Out "data\lang") -Filter *.txt -File | ForEach-Object {
+        $lines = [IO.File]::ReadAllLines($_.FullName, $utf8)
+        $keep = $lines | Where-Object { $_ -notmatch '^\s*#' -and $_ -match ' = ' -and ($_ -split ' = ', 2)[0] -match '(?i)typing of the dead|totd|horde' }
+        if ($keep) { [IO.File]::WriteAllLines($_.FullName, ($lines | Where-Object { $keep -notcontains $_ }), $utf8) }
+    }
+}
 # the license and the notice (what the license covers; no game data)
 Copy-Item -LiteralPath (Join-Path $repo "LICENSE") -Destination (Join-Path $Out "LICENSE.txt")
 Copy-Item -LiteralPath (Join-Path $repo "NOTICE.md") -Destination (Join-Path $Out "NOTICE.txt")
