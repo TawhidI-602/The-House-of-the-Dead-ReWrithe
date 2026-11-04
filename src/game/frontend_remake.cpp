@@ -149,6 +149,17 @@ std::string upper(std::string s)
         if (c >= 'a' && c <= 'z') c = char(c - 'a' + 'A');
     return s;
 }
+// upper() of the PC fonts' bytes (Latin-1): the accented small letters too (à..þ but ÷; ÿ has no capital there), so
+// the small capitals of Spanish / Portuguese / French ... match their letters (2026-11-03). Never on UTF-8
+std::string upperPc(std::string s)
+{
+    for (char& c : s) {
+        const uint8_t b = uint8_t(c);
+        if (b >= 'a' && b <= 'z') c = char(b - 'a' + 'A');
+        else if (b >= 0xE0 && b <= 0xFE && b != 0xF7) c = char(b - 0x20);
+    }
+    return s;
+}
 
 // the colours
 constexpr uint32_t kInk = 0xA81410;       // the strips' red letters
@@ -289,12 +300,20 @@ void Frontend::remakeMainMenu()
     const int top = py + 30, bottom = py + ph - 22;
     const int step = std::min(32, (bottom - top) / std::max(1, n));
     const int sh = std::min(26, step - 4);
+    // polish (user 2026-11-03: "Survival Arena: Chapter 1: The Courtyard" ran past its strip): the strips as wide as the
+    // longest label needs, up to the panel's inside (drawRStrip then makes a label still too long smaller)
+    int sw = 212;
+    for (const MainItem& it : items)
+        if (!it.heading)
+            sw = std::max(sw, int(std::ceil(rTextWidth(it.name(), std::min(15.0f, float(sh) * 0.6f)))) + 34);
+    sw = std::min(sw, pw - 24);
     for (int k = 0; k < n; ++k) {
         const MainItem& it = items[size_t(k)];
         Widget* w = widgetNew();
         addChild(root_, w);
-        setRect(w, cw_ / 2 - 106, top + k * step, 212, sh);   // (one column on the panel's centre)
+        setRect(w, cw_ / 2 - sw / 2, top + k * step, sw, sh);   // (one column on the panel's centre)
         w->text = it.name();
+        w->value = it.tag;   // (polish: Survival's small red line under its name)
         w->help = it.help;
         w->seed = 101 + k * 7 + grp * 53;
         w->draw = &Frontend::drawRStrip;
@@ -532,7 +551,7 @@ void Frontend::remakeSettings(const std::string& title, std::vector<Extra>* rows
         w->flags |= 0x100;
         w->help = !off.empty() ? off : (exp && e.help.rfind("Experimental", 0) != 0 ? "Experimental: " + e.help : e.help);
         if (e.preview && on && !dd && e.choices.size() >= 2) {   // fix28: the comparison pictures, shown with the focus
-            const int nc = int(e.choices.size()), np = nc <= 3 ? nc : 1, tw = 150, th = 84;
+            const int nc = int(e.choices.size()), np = !e.previewList.empty() ? int(e.previewList.size()) : nc <= 3 ? nc : 1, tw = 150, th = 84;
             const int bw = np * tw + (np - 1) * 6 + 12, bh = th + 30;
             const int bx = px + pw - 22 - bw;
             int by = rowTop + (r + 1) * rowH + 2;
@@ -1200,7 +1219,7 @@ float Frontend::rTextWidthRaw(const std::string& sIn, float h) const
     const int capH = std::max(1, spr_.height(glyph('A', 0x10000)));
     float w = 0;
     const std::vector<bool> tall = tallLetters(s);
-    const std::string u = upper(s);
+    const std::string u = upperPc(s);
     for (size_t i = 0; i < u.size(); ++i) {
         const char ch = u[i];
         if (ch == ' ') {
@@ -1282,7 +1301,7 @@ void Frontend::rText(const std::string& sIn, float x, float y, float h, uint32_t
     };
     int idx = 0;
     const std::vector<bool> tall = tallLetters(s);
-    const std::string u = !tf || lang::upperCase() ? upper(s) : s;
+    const std::string u = !tf ? upperPc(s) : lang::upperCase() ? upper(s) : s;
     if (tf) {   // lang: the language's font, its capitals h high on the same baseline, shaded top to bottom
         const float em = lang::pxForCap(h, tf) * S, top = y * S, hp = h * S;
         tf->draw(u, em, x * S, (y + h) * S, [&](int px, int py, float a) {
@@ -2463,9 +2482,26 @@ void Frontend::drawRStrip(Widget& w)
     }
     rPaper(float(x + sx - gx), float(y - gy), float(ww + 2 * gx), float(hh + 2 * gy), w.seed, tilt,
            lit || chosen ? 0 : w.user == 1 ? 2 : 1);
-    const float th = big ? std::min(26.0f, float(hh) * 0.62f) : std::min(15.0f, float(hh) * 0.6f);
-    rText(w.text, float(x + sx + ww / 2), float(y) + (float(hh) - th) / 2 + 1, th, lit || chosen ? paperInk(kInkLit) : w.user == 1 ? kInkGrey : paperInk(kInk), 1,
+    float th = big ? std::min(26.0f, float(hh) * 0.62f) : std::min(15.0f, float(hh) * 0.6f);
+    // polish (user 2026-11-03: the More Modes labels ran past their strips): a label too long for the paper (inside its
+    // torn edges) smaller; a tag (Survival's "Very Experimental / Proof of Concept") a small red line under it
+    const float room = float(ww) - 30.0f;
+    float tagH = 0.0f;
+    if (!big) {
+        if (!w.value.empty()) {
+            th = std::min(th, float(hh) * 0.5f);
+            tagH = std::min(th * 0.7f, float(hh) * 0.34f);
+            if (const float tw = rTextWidth(w.value, tagH); tw > room) tagH = std::max(6.0f, tagH * room / tw);
+        }
+        if (const float tw = rTextWidth(w.text, th); tw > room) th = std::max(8.0f, th * room / tw);
+        if (langCheck && rTextWidth(w.text, th) > room + 2.0f)   // (the sweep: still wider than the strip)
+            langOverflow(langOn() ? lang::tr(w.text) : w.text, 0, int(rTextWidth(w.text, th)), int(room), &w);
+    }
+    const float gap = tagH > 0.0f ? 1.0f : 0.0f, ty = float(y) + (float(hh) - th - gap - tagH) / 2 + 1;
+    rText(w.text, float(x + sx + ww / 2), ty, th, lit || chosen ? paperInk(kInkLit) : w.user == 1 ? kInkGrey : paperInk(kInk), 1,
           0.12f, w.seed, w.user == 1 ? kTxShadow : kTxOutline | kTxShadow);
+    if (tagH > 0.0f)
+        rText(w.value, float(x + sx + ww / 2), ty + th + gap, tagH, w.user == 1 ? kInkGrey : paperInk(0xA01810), 1, 0.0f, w.seed + 1, 0);
     if (lit)   // the arcade's claw marks (0x2A) at the strip's left end
         rBlood(2, float(x + sx - (big ? 6 : 12)), float(y + hh / 2), float(hh) * (big ? 1.1f : 1.5f), 0.0f, 0.9f);
 }
@@ -3072,11 +3108,25 @@ void Frontend::remakeRender()
             });
         }
         if (!help_.empty()) part("h" + help_, 0.0f, float(rHelp_[1] - 20), float(cw_), float(kHeight - rHelp_[1] + 20), [&]() {   // the help line (two lines when too wide)
-            const float th = 11.0f;   // (blood2: was 9)
+            // polish (user 2026-11-03: the Gallery's top hint ran into the layout): at the top of the page (the Gallery,
+            // the Cut-scenes) a little smaller, wrapped to its width in as many lines as it needs, downwards
+            const bool topLine = rHelp_[1] < 40;
+            const float th = topLine ? 10.0f : 11.0f;   // (blood2: was 9)
             // lang: the translation, cut into lines by the language's widths (English: as before)
             const std::string help = T(help_);
             const RawText raw(this);
             std::vector<std::string> lines{help};
+            if (topLine) {
+                lines = lang::wrapBy(help, float(rHelp_[2]), [&](const std::string& s) { return rTextWidthRaw(s, th); });
+                if (langCheck && lines.size() > 3)
+                    langOverflow(help, 0, cw_ * 2, cw_, nullptr);
+                float y = float(rHelp_[1]) - 4.0f;
+                for (const std::string& l : lines) {
+                    rText(l, float(rHelp_[0]), y, th, 0xB4AAA2, 1, 0.0f, 0, kTxOutline | kTxShadow);
+                    y += th + 3;
+                }
+                return;
+            }
             if (lang::active()) {
                 lines = lang::wrapBy(help, float(rHelp_[2]), [&](const std::string& s) { return rTextWidthRaw(s, th); });
                 if (langCheck && lines.size() > 2)
@@ -3192,8 +3242,11 @@ void Frontend::drawRPreview(Widget& w)
     for (int k = 0; k < nc && curK < 0; ++k)
         if (e.choices[size_t(k)] == cur)
             curK = k;
-    std::vector<int> ks;
-    if (nc <= 3)
+    std::vector<int> ks = e.previewList;
+    if (!ks.empty()) {
+        if (std::find(ks.begin(), ks.end(), curK) == ks.end())
+            curK = ks[0];   // (fxux: Auto shown as the choice it is now)
+    } else if (nc <= 3)
         for (int k = 0; k < nc; ++k) ks.push_back(k);
     else
         ks.push_back(std::max(0, curK));

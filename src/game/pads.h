@@ -73,6 +73,7 @@ struct GunState {
     // edgereload: last placed by a touch / pen (an absolute pointer, put on the picture directly): the window's
     // outermost pixel is a shot there, not the confined mouse's "pushed against the edge" reload
     bool pointer = false;
+    bool held = false;   // Survival Mode's SMG: the mouse button / fire key is down now (Runtime::GunInput::held)
 };
 
 class Pads {

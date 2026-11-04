@@ -38,8 +38,8 @@ $problems = @()
 $files = Get-ChildItem -LiteralPath $outFull -Recurse -File
 $badExt = '\.(zip|7z|rar|exe|dll|bin|rom|rbh|vmc|ogg|wav|png|jpg|bmp|iso|chd)$'
 # relprep: our own / third-party shipped files with their licences in NOTICE.md (the prompt icons CC0, the wordmark ours,
-# the Noto fonts OFL: the two CJK fonts are ~4.7 MB each); everything else of these types is still a problem
-$allowed = '^data[\\/](ui[\\/]prompts[\\/](xelu|kenney)[\\/].*\.png|ui[\\/]rewrithe_wordmark\.png|fonts[\\/]NotoSans[A-Za-z]+-Bold\.(otf|ttf))$'
+# the Noto fonts OFL: the CJK fonts are ~4.7 MB each, SC 8.5 MB); everything else of these types is still a problem
+$allowed = '^data[\\/](ui[\\/]prompts[\\/](xelu|kenney)[\\/].*\.png|ui[\\/]rewrithe_wordmark\.png|fonts[\\/]NotoSans[A-Za-z]*-Bold\.(otf|ttf))$'
 foreach ($f in $files) {
     $rel = $f.FullName.Substring($outFull.Length + 1)
     if ($rel -match '^private[\\/]') { $problems += "private file: $rel" }

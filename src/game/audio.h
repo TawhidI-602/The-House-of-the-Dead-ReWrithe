@@ -72,6 +72,13 @@ public:
     std::string describe(int cue) const;     // "type name / value" of a PC cue (the report)
     int pcCueOf(uint32_t arcadeCode) const;  // -1: none
     bool isMusicCode(uint32_t arcadeCode) const;   // its PC cue starts a music track or turns the music off
+    bool isMusicStart(uint32_t arcadeCode) const;  // its PC cue starts a music track
+    // Survival Mode (ours, game/survival.h): an extra sound: <dir>/<name>.wav when that file is there (RIFF PCM, 8 / 16-bit,
+    // mono / stereo, any rate), else the stand-in: PC cue `cue`'s bank sample played `pitch` times faster and cut to
+    // `clip` of its length. Loaded once. false: nothing to play (no file, no stand-in). extraSource(name): "file",
+    // "stand-in" or "" (not loaded / nothing)
+    bool playExtra(const std::string& dir, const std::string& name, int cue, float pitch, float clip, float volume = 1.0f);
+    std::string extraSource(const std::string& name) const;
     std::set<uint32_t> unmapped;             // arcade codes without a PC cue (logged once)
     std::set<int> silent;                    // PC sample / file cues that had nothing to mix (missing data)
     bool musicAvailable() const;
@@ -162,6 +169,8 @@ private:
     std::vector<uint8_t> bank_;                                  // GAMESNDS.RBH BODY 1
     std::map<std::string, std::vector<uint8_t>> oneShots_;       // O_*.RBH sample data, by name
     std::map<uint32_t, int> cueMap_;                             // arcade code -> PC cue
+    struct Extra { std::vector<uint8_t> data; int sample = -1; bool file = false; };
+    std::map<std::string, Extra> extras_;                        // playExtra's sounds (8-bit unsigned mono), by name
     mutable std::recursive_mutex lock_;                                // voices / music against the audio thread
     Voice voices_[16];
     Voice tails_[8];   // stopped / replaced voices ramping down (cut)

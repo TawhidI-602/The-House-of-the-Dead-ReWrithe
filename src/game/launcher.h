@@ -147,6 +147,10 @@ struct PadProfile {
     // padfix (user 2026-10-30: "players should have a sensitivity option"): Controls > Aim Sensitivity, x 10 % on every
     // aim of the pad (the sticks, the gyro, the trackpad) on top of the style's own Sensitivity; 5-20 (50-200 %)
     int aimSens = 10;
+    // GitHub #36 (user 2026-11-03: "Decoupled Cursor Sensitivity across all Input Methods"): each way of aiming its own
+    // sensitivity, x 10 % (5-20: 50-200 %) on top of the style's Sensitivity and Aim Sensitivity: the sticks, the gyro,
+    // the trackpad (Controller page; pad1.sticksens= / gyrosens= / touchsens=; 100 %: as before)
+    int stickSens = 10, gyroSens = 10, touchSens = 10;
 };
 // the profile's fields for launcher.ini (pad1.<key>= / pad1.<style>.<key>=) and the More Options > Controller page;
 // per style (styleMask: the styles 1-4 it matters for, bit = 1 << (style - 1)) or the player's (styleMask 0)
@@ -234,10 +238,17 @@ struct LaunchConfig {
     // padglyphs: the menus' cursor from player 1's pad (menu_cursor.h): Touchpad Cursor 0 Off / 1 On, Gyro Cursor
     // 0 Off / 1 While Holding ZL / L2 / LT / 2 Always, Cursor Speed 1-10 (launcher.ini touchcursor= gyrocursor= cursorspeed=)
     int touchCursor = 1, gyroCursor = 1, cursorSpeed = 5;
+    // GitHub #36: the menus' gyro cursor its own speed (Cursor Speed is the touchpad's now; launcher.ini
+    // gyrocursorspeed=, an older file: cursorspeed='s); each player's mouse its sensitivity x 10 % (5-20; 100 %: the
+    // desktop cursor as before; not 100 %: that mouse moves its crosshair by its motion; launcher.ini mousesens1..2=)
+    int gyroCursorSpeed = 5;
+    int mouseSens[2] = {10, 10};
     bool calibrateNext = false;  // padpass: the next game with a light gun starts with its calibration (not saved)
     int difficulty = 2;          // 0-4 VERY EASY .. VERY HARD
-    int lives = 9;               // the lives setting 0-11 (table 0xD780)
-    int blood = 0;               // 0 red, 1 green, 2 blue, 3 purple, 4 yellow (PC models), 5 custom (display: experimental)
+    int lives = 9;               // the lives setting 0-11 (table 0xD780), or a (start, most) pair's code (game/lives.h, #30)
+    bool chapterRetry = false;   // GitHub #5: Gameplay > Chapter Retry (the pause's Retry Chapter, the game over's question; launcher.ini chapterretry=)
+    int soloSeat = 0;            // GitHub #29: a 1-player Arcade / Chapter Select game in seat 0 player 1, 1 player 2 (launcher.ini soloseat=)
+    int blood = 0;              // 0 red, 1 green, 2 blue, 3 purple, 4 yellow (PC models), 5 custom (display: experimental)
     int bloodRgb = 0xFFFFFF;     // the custom colour 0xRRGGBB (launcher.ini bloodrgb=RRGGBB; white the preset)
     bool cuts = true;            // teaser cut (1): default route + guards past unported objects
     bool title = true;           // the arcade's title screen and attract loop before Chapter 1 (start button: the game)
@@ -276,6 +287,8 @@ struct LaunchConfig {
     bool hitSparks = true;
     bool muzzleFlash = true;
     bool bloodParticles = true;   // Blood Particles: off hides the blood spray / bursts (draw-only); launcher.ini bloodparticles=
+    bool clearMarks = false;      // bugs1 (#35) Hit Marks: Dithered (the arcade's stipple) / See-through (the PC's D3D look); launcher.ini hitmarks=
+    int transparency = 3;         // Transparency (team 2026-11-03): 0 Smooth (as before), 1 Clean Edges, 2 Dithered (arcade), 3 Auto (default: 2 arcade models, 1 PC models); launcher.ini transparency=
     // players 3 / 4 in the cut-scenes (docs/coop4.md section 16): the variation picked per scene, "00:B,09:C" (a scene
     // not named: A, the look of sections 10-12); launcher.ini scene4p=, --scene4p
     std::string scene4p;
@@ -370,7 +383,12 @@ struct LaunchConfig {
     // crt (render/crt.h): the CRT filter's preset and Custom's settings (launcher.ini crt=off|arcade|tv|sharp|custom,
     // crt.scan= crt.mask= crt.masktype= crt.curve= crt.bloom= crt.bright= (0-10), crt.crispsights= crt.shotfiltered=)
     CrtSettings crt;
-    int chapter = 0;             // select: the chapter to start, 0-3 (launcher.ini chapter=1-4); only a playable one (game/chapters.h)
+    // gamma (render/gamma.h, issue #23): Video > Gamma in hundredths, 60-200 in steps of 5, 100 = the picture unchanged
+    // (launcher.ini gamma=1.00, --gamma). polish (user 2026-11-03): this is Game Gamma (the play); the menus, the Gallery
+    // and the front-end screens have their own Menu Gamma (launcher.ini menugamma=, --menu-gamma), the same steps
+    int gamma = 100;
+    int menuGamma = 100;
+    int chapter = 0;            // select: the chapter to start, 0-3 (launcher.ini chapter=1-4); only a playable one (game/chapters.h)
     // a portable package's folder (not saved): arcade / pc paths inside it are saved relative to it, so a moved or
     // copied package still finds its data\ (user 2026-10-17)
     std::string base;
