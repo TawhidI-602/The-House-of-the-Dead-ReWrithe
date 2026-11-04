@@ -22,7 +22,9 @@ Not now); your settings and game files are kept.
   - **Rainbow Blood** (#8): all the blood, the wounds and the blood marks cycle through the game's own rainbow (the
     colours of the computer screens behind Curien in Chapter 4). Speed, "each splash / together", creature colours,
     and optionally the HUD and crosshairs.
-  - **Big Head** (#10): the classic cheat, 2x by default, bosses included.
+  - **Big Head** (#10): the classic cheat, 2x by default, everyone (creatures, people, bosses) by default.
+- **Light-gun options**: Video > Show Crosshairs Off (or Off per player) for playing without a crosshair, and Shot
+  Flash Size (Small / Arcade / Large; Arcade is the original size at any resolution).
 - **Settings during play**: Pause > Settings opens the options over the paused game. Rows that only take effect in
   the next game say so.
 - **Game Gamma and Menu Gamma** (#23), Options > Video: brighten the dark tones of the game and of the menus
@@ -71,6 +73,8 @@ issue if you are unsure.
 
 - #16: the camera tilts while tracking the Hermit in Arcade Mode. This is the arcade's own camera (MAME shows the
   same); Boss Mode and PC Mode use the PC's camera, which does not.
+- For about 48 frames after you are hit, the shot flash lands slightly off the crosshair: the hit's screen shake moves
+  the picture under it. This was always in the arcade's code (the shake is the original's), so it is kept.
 - #26: the arcade FM music: no change yet (needs a recording from real hardware to compare against).
 - #27: frame pacing / micro-stutter on some systems: send your `settings\hotd.log`.
 - macOS and the Steam Deck have only been tested by their automatic builds, not on real hardware yet: reports are

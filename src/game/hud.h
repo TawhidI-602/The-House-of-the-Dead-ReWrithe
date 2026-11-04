@@ -35,6 +35,9 @@ public:
     // style, 2 the PC's own sight sprites, 3.. the drawn ones, 9 custom; size, thickness, colour) and the crosshairs
     // folders (the custom sets)
     SeatSight sights[4];
+    // gunfb (Video > Show Crosshairs; LaunchConfig::showCrosshairs): off, no sight drawn for anyone (a player's own
+    // Crosshair Off: theirs alone); the sight still counts as shown for the desktop cursor (drewSight: hidden)
+    bool showSights = true;
     std::vector<std::string> customDirs;
     // the launcher's aspect is widescreen (full-window flashes) rather than the original 4:3 (pillarboxed)
     bool widescreen = true;

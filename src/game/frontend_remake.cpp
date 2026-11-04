@@ -551,12 +551,30 @@ void Frontend::remakeSettings(const std::string& title, std::vector<Extra>* rows
         w->flags |= 0x100;
         w->help = !off.empty() ? off : (exp && e.help.rfind("Experimental", 0) != 0 ? "Experimental: " + e.help : e.help);
         if (e.preview && on && !dd && e.choices.size() >= 2) {   // fix28: the comparison pictures, shown with the focus
-            const int nc = int(e.choices.size()), np = !e.previewList.empty() ? int(e.previewList.size()) : nc <= 3 ? nc : 1, tw = 150, th = 84;
-            const int bw = np * tw + (np - 1) * 6 + 12, bh = th + 30;
-            const int bx = px + pw - 22 - bw;
-            int by = rowTop + (r + 1) * rowH + 2;
-            if (by + bh > py + ph - 4)
-                by = rowTop + r * rowH - bh - 2;
+            const int nc = int(e.choices.size()), np = !e.previewList.empty() ? int(e.previewList.size()) : nc <= 3 ? nc : 1;
+            int tw = 150, th = 84, bw = 0, bh = 0, bx = 0, by = 0;
+            // relfix (the v1.2.0 checklist: "Gun Muzzle Fl...", "Blood Particle..." under the pictures): the panel kept
+            // right of the labels of the rows it covers, its pictures smaller where the labels are long (German, 4:3)
+            for (int pass = 0; pass < 2; ++pass) {
+                bw = np * tw + (np - 1) * 6 + 12, bh = th + 30;
+                by = rowTop + (r + 1) * rowH + 2;
+                if (by + bh > py + ph - 4)
+                    by = rowTop + r * rowH - bh - 2;
+                float labels = 0.0f;   // the widest label of the shown rows under the panel
+                for (int q = 0; q < shown; ++q) {
+                    const int qy = rowTop + q * rowH;
+                    if (qy + rowH - 2 > by && qy < by + bh)
+                        labels = std::max(labels, rTextWidth((*rows)[size_t(remakeScroll_ + q)].name, 15.0f));
+                }
+                const int room = (pw - 44) - 6 - int(std::ceil(labels)) - 12;   // (the label's inset, a gap)
+                if (bw <= room || pass == 1)
+                    break;
+                tw = std::max(60, (room - 12 - (np - 1) * 6) / np);
+                th = tw * 84 / 150;
+            }
+            bx = px + pw - 22 - bw;
+            if (lang::rtl())   // (the labels at the right: the panel at the left)
+                bx = px + 22;
             Widget* pv = widgetNew();
             addChild(root_, pv);
             setRect(pv, bx, by, bw, bh);
@@ -3250,7 +3268,9 @@ void Frontend::drawRPreview(Widget& w)
         for (int k = 0; k < nc; ++k) ks.push_back(k);
     else
         ks.push_back(std::max(0, curK));
-    const float tw = 150.0f, th = 84.0f, S = ps_;
+    // the pictures' size from the panel's (relfix: smaller beside long labels; 150 x 84 at most)
+    const float np = float(std::max<size_t>(ks.size(), 1));
+    const float tw = std::max(1.0f, (float(ww) - 12.0f - 6.0f * (np - 1.0f)) / np), th = float(hh) - 30.0f, S = ps_;
     for (size_t j = 0; j < ks.size(); ++j) {
         const int k = ks[j];
         const float tx = float(x + 6) + float(j) * (tw + 6.0f), ty = float(y + 6);
@@ -3289,7 +3309,8 @@ void Frontend::drawRPreview(Widget& w)
             rText(file.empty() && e.preview(-1).empty() ? "No picture" : "Making the picture...", tx + tw / 2, ty + th / 2 - 6, 11.0f,
                   kRowOff, 1);
         }
-        rText(e.choices[size_t(k)], tx + tw / 2, ty + th + 5, 12.0f, on ? kInkLit : kRowText, 1, 0.0f, 0, kTxShadow);
+        const float cw = rTextWidth(e.choices[size_t(k)], 12.0f), ch = cw > tw + 4.0f ? std::max(8.0f, 12.0f * (tw + 4.0f) / cw) : 12.0f;
+        rText(e.choices[size_t(k)], tx + tw / 2, ty + th + 5 + (12.0f - ch) / 2, ch, on ? kInkLit : kRowText, 1, 0.0f, 0, kTxShadow);   // (relfix: fits a small picture)
     }
 }
 

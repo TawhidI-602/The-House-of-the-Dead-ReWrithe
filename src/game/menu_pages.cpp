@@ -87,12 +87,13 @@ void volumeList(std::vector<X>& r, int& v, std::function<void()> save)
     r.back().barStep = 5;   // (the drag snaps to 5 %; Left / Right step 5 %)
 }
 // the Crosshair row's built-in styles in the list's order (sights.h; 5 / 8 removed) and their names
-constexpr int kSightList[] = {0, 1, 2, 3, 4, 6, 7, 10};
+// (gunfb: Off, no crosshair drawn, for the light guns, after the capped cross)
+constexpr int kSightList[] = {0, 1, 2, 3, 4, 6, 7, 10, 11};
 constexpr int kSightListN = int(sizeof kSightList / sizeof kSightList[0]);
 const char* sightMenuName(int style)
 {
     static const char* const k[kSightStyles] = {"Auto", "Arcade", "PC", "Cross", "Ring + Dot", "Dotted Ring", "Brackets",
-                                                "Gap Cross", "Pointer", "", "Capped Cross"};
+                                                "Gap Cross", "Pointer", "", "Capped Cross", "Off"};
     return k[std::clamp(style, 0, kSightStyles - 1)];
 }
 }
@@ -108,7 +109,7 @@ static void teamFlashRow(std::vector<X>& r, LaunchConfig& c, std::function<void(
                      return std::string(k[std::clamp(c.teamFlash - 1, 0, 2)]);
                  },
                  [&c, save]() { c.teamFlash = c.teamFlash <= 1 ? 2 : c.teamFlash == 2 ? 3 : 1; save(); },
-                 "Online: the other PCs' players' shot flashes in full, reduced or off. Players on this PC always show in full"});
+                 "The shot flashes of CPU teammates and of the other PCs' players online: full, reduced or off. Players on this PC always show in full"});
     indexed(r, {"Full", "Reduced", "Off"}, [&c]() { return std::clamp(c.teamFlash - 1, 0, 2); },
             [&c, save](int k) { c.teamFlash = k + 1; save(); });
 }
@@ -226,7 +227,8 @@ void menuReset(LaunchConfig& c, int page)
     case kCatVideo:
         c.models = d.models, c.aspect = d.aspect, c.menuStyle = d.menuStyle, c.liveBackground = d.liveBackground;
         c.fullscreen = d.fullscreen, c.exclusive = d.exclusive, c.frameRate = d.frameRate, c.menuFps = d.menuFps, c.vsync = d.vsync, c.smooth = d.smooth;
-        c.hitSparks = d.hitSparks, c.muzzleFlash = d.muzzleFlash, c.bloodParticles = d.bloodParticles, c.clearMarks = d.clearMarks, c.transparency = d.transparency;
+        c.hitSparks = d.hitSparks, c.muzzleFlash = d.muzzleFlash, c.shotFlashSize = d.shotFlashSize, c.showCrosshairs = d.showCrosshairs;
+        c.bloodParticles = d.bloodParticles, c.clearMarks = d.clearMarks, c.transparency = d.transparency;
         c.resFullW = d.resFullW, c.resFullH = d.resFullH, c.resWinW = d.resWinW, c.resWinH = d.resWinH;
         c.crt = d.crt;
         c.gamma = d.gamma, c.menuGamma = d.menuGamma;
@@ -364,6 +366,17 @@ std::vector<Frontend::Extra> menuCategoryRows(int category, LaunchConfig& c, con
         r.push_back({"Gun Muzzle Flash", [&c]() { return onOff(c.muzzleFlash); },
                      [&c, save]() { c.muzzleFlash = !c.muzzleFlash; save(); },
                      "The flash on the guns of Rogan and G when they fire in the cut-scenes (draw only)"});
+        // gunfb (a light-gun player 2026-11-03 found the shot flash too large): the flash at the aim when you fire,
+        // the arcade's size by default (checked against MAME: the same share of the picture at any resolution)
+        r.push_back({"Shot Flash Size", [&c]() {
+                         static const char* const k[3] = {"Small", "Arcade", "Large"};
+                         return std::string(k[std::clamp(c.shotFlashSize, 0, 2)]);
+                     },
+                     [&c, save]() { c.shotFlashSize = (c.shotFlashSize + 1) % 3; save(); },
+                     "The flash where you shoot: Small, Arcade (the original's size) or Large (draw only)"});
+        r.back().clickBack = [&c, save]() { c.shotFlashSize = (c.shotFlashSize + 2) % 3; save(); };
+        indexed(r, {"Small", "Arcade", "Large"}, [&c]() { return std::clamp(c.shotFlashSize, 0, 2); },
+                [&c, save](int k) { c.shotFlashSize = k; save(); });
         r.push_back({"Blood Particles", [&c]() { return onOff(c.bloodParticles); },
                      [&c, save]() { c.bloodParticles = !c.bloodParticles; save(); },
                      "The blood spray and bursts where shots hit (draw only; the blood marks stay)"});
@@ -460,6 +473,11 @@ std::vector<Frontend::Extra> menuCategoryRows(int category, LaunchConfig& c, con
         // crosshair on the Firing Range page (menuRangeRows), tried out on its targets
         r.push_back({"Crosshairs", []() { return page("Firing Range"); }, [h]() { if (h.rangePage) h.rangePage(); },
                      "Each player's crosshair (style, colour, size, thickness), tried out on a firing range"});
+        // gunfb (a light-gun player 2026-11-03): every crosshair off at once, for light guns (each player's own
+        // Crosshair has Off too); the aim and the RELOAD prompts stay
+        r.push_back({"Show Crosshairs", [&c]() { return onOff(c.showCrosshairs); },
+                     [&c, save]() { c.showCrosshairs = !c.showCrosshairs; save(); },
+                     "Off: no crosshairs drawn, as the arcade (for light guns); aiming and the prompts are unchanged"});
         break;
     case kCatAudio:
         r.push_back({"Sound", [&c]() { return std::string(c.sound == 1 ? "Arcade" : c.sound == 2 ? "PC" : "Auto"); },

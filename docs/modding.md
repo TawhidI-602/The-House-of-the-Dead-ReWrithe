@@ -266,8 +266,8 @@ GitHub #10. The classic cheat: the creatures' heads drawn big. Off by default: O
 - **Bosses** (setting Bosses, On by default): each boss's head part grows like the others': the Chariot (its skull, with
   and without the armour), the Hangedman's fly-by and fight, the Hermit, the Magician. Their weak points stay where they
   are. Off: the bosses keep their size.
-- **People** (setting Heads: Everyone): Rogan and G in the cut-scenes, Sophie, the researchers, Curien. Default:
-  enemies only.
+- **People** (setting Heads: Everyone, the default): Rogan and G in the cut-scenes, Sophie, the researchers, Curien.
+  Heads: Enemies: the creatures only.
 - Not scaled: the heads the game throws when it blows one off (they are their own models, no longer on the body), the
   dead researchers lying in the opening scenes (scene models, not bodies), creatures drawn without a body (bats,
   Murrers, rats).
@@ -275,7 +275,7 @@ GitHub #10. The classic cheat: the creatures' heads drawn big. Off by default: O
 | Setting | Choices | What it does |
 |---|---|---|
 | Head Size | 1.5x, 2x, 3x | How big the heads are |
-| Heads | Enemies, Everyone | Everyone: the people too |
+| Heads | Enemies, Everyone (default) | Everyone: the people too |
 | Bosses | On, Off | The bosses' heads too |
 
 Both mods' texts and settings come from `data\mods\rainbow-blood\mod.ini` and `data\mods\big-head\mod.ini` (the game
@@ -333,7 +333,10 @@ the game's files (`--export-textures`) as they are, nor the game's files themsel
   path in white, `pc_loader.cpp` sets the marked texels' alpha). Big Head: `bigHeadFrame` at the end of
   `Runtime::frame` (after the Ragdoll mod and the actor swap): each draw with `DrawModel::part` whose part or an
   ancestor (BodyPart +0x20) has class 1 (the part role table 0x1184E0, byte 3) is scaled about that head's pivot (the
-  head draw's translation; shadows their own). With both off nothing changes (no draw-list pass, `uRainbow` 0).
+  head draw's translation; shadows their own). The Chariot and the Hermit draw their parts through their own hooks
+  (0x9A040 / 0x9A280, 0x87560), never body_part_draw_hook: `DrawModel::bossPart` holds those parts (`part` stays 0, so
+  the Ragdoll mod leaves the bosses alone). The Gallery (`Gallery::draw`, `bigHeadTypeOn`) scales its placements the
+  same way. With both off nothing changes (no draw-list pass, `uRainbow` 0).
   Creature Blood: `creatureBloodFrame` (after `bigHeadFrame`) keeps a hue per enemy body (first drawn frame, a hash of
   the body address and the frame); `GameView` puts `creatureBloodHue(body)` in `DrawItem::bloodHue` -> the per-item
   `uBodyHue` (vertex: the item's hue instead of the cycling one; fragment, arcade: `woundTint` on the colour after the

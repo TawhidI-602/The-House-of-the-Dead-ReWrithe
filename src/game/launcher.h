@@ -59,6 +59,8 @@ inline int parseFrameRate(const std::string& s)
     const int v = std::atoi(s.c_str());
     return v >= 10 && v <= 1000 ? v : 0;
 }
+// gunfb: Video > Shot Flash Size (LaunchConfig::shotFlashSize) as the flash's scale: Small 0.5, Arcade 1, Large 1.5
+inline float shotFlashScaleOf(int size) { return size <= 0 ? 0.5f : size >= 2 ? 1.5f : 1.0f; }
 
 // the main menu's song choices: PC CD track, PC sound cue (docs/formats.md), name; the list's order is the cycle's.
 // prerel (user 2026-10-27: "add the cut soundtrack (unused) too ... change the final boss music to magician theme
@@ -260,6 +262,10 @@ struct LaunchConfig {
     // (0 the player's). launcher.ini crosshair= crosshaircustom= crosssize= crossthick= crosscolour= (player 1), the
     // same with 2 / 3 / 4 after them (the others; missing: player 1's)
     SeatSight sights[4];
+    // gunfb (a light-gun player's feedback 2026-11-03): Video > Show Crosshairs: off draws no player's crosshair (the
+    // quick switch over every player's own Crosshair, which has Off too; the aim, RELOAD and the other prompts stay);
+    // launcher.ini showcrosshairs=, --no-crosshair
+    bool showCrosshairs = true;
     int aspect = 0;              // display: 0 widescreen (hor+: the whole window), 1 the original 4:3 (pillarboxed), 2 16:10 (hor+ up to 16:10, pillarboxed past it)
     bool fullscreen = true;      // display: start in fullscreen (launcher.ini fullscreen= / displaymode=; F11 in play keeps it; --windowed / --fullscreen)
     // rescrash (Video > Display Mode: Windowed / Borderless / Fullscreen): the fullscreen is exclusive (in the
@@ -286,6 +292,11 @@ struct LaunchConfig {
     // guns' muzzle flash (draw-only); launcher.ini hitsparks= / muzzleflash=
     bool hitSparks = true;
     bool muzzleFlash = true;
+    // gunfb: Video > Shot Flash Size: the flash at the aim when a player fires (shot_effect_flash 0x95140, the star, and
+    // its spark 0x95630, the orange ball of the first frames): 0 Small
+    // (half), 1 Arcade (the original's size: measured against MAME, the same share of the screen's height at every
+    // resolution and shape), 2 Large (1.5 x); draw-only; launcher.ini shotflashsize=, --shot-flash-size
+    int shotFlashSize = 1;
     bool bloodParticles = true;   // Blood Particles: off hides the blood spray / bursts (draw-only); launcher.ini bloodparticles=
     bool clearMarks = false;      // bugs1 (#35) Hit Marks: Dithered (the arcade's stipple) / See-through (the PC's D3D look); launcher.ini hitmarks=
     int transparency = 3;         // Transparency (team 2026-11-03): 0 Smooth (as before), 1 Clean Edges, 2 Dithered (arcade), 3 Auto (default: 2 arcade models, 1 PC models); launcher.ini transparency=

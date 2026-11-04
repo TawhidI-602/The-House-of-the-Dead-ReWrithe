@@ -1496,6 +1496,28 @@ void Gallery::draw(int ww, int wh, int x, int y, int w, int h, float lift, const
             partDrawModels(ps, models);
             for (uint32_t id : models) place(id, scratch_[n], int(n));
         }
+        // relfix (the v1.2.0 checklist: the Gallery never showed Big Head): the Mods page's Big Head as in play
+        // (cosmods.cpp bigHeadFrame): the topmost class-1 part and every part under it scaled about its joint. Not
+        // the PC Mode portraits (their own head framing)
+        if (!portraitOn_ && bigHeadTypeOn(e.type)) {
+            const float sc = bigHeadSettings().scale;
+            std::vector<int> headOf(sk.nodes.size(), -1);   // (parents come before their children)
+            for (size_t n = 0; n < sk.nodes.size(); ++n) {
+                const int p = sk.nodes[n].parent;
+                headOf[n] = p >= 0 && size_t(p) < n && headOf[size_t(p)] >= 0 ? headOf[size_t(p)]
+                            : anim_.partClass(e.type, sk.nodes[n].joint) == 1 ? int(n) : -1;
+            }
+            for (size_t i = 0; i < placements_.size(); ++i) {
+                const int n = placedNode[i];
+                const int h = n >= 0 && size_t(n) < headOf.size() ? headOf[size_t(n)] : -1;
+                if (h < 0 || size_t(h) >= scratch_.size()) continue;
+                float P[3] = {scratch_[size_t(h)].pos[0], scratch_[size_t(h)].pos[1], scratch_[size_t(h)].pos[2]};
+                P[0] -= scratch_[0].pos[0], P[2] -= scratch_[0].pos[2];   // (as place(): the ground travel out)
+                Placement& pl = placements_[i];
+                for (float& v : pl.rot) v *= sc;
+                for (int k = 0; k < 3; ++k) pl.pos[k] = P[k] + (pl.pos[k] - P[k]) * sc;
+            }
+        }
         // the generated skin (skin_draw: the belly between the anchor parts of classes 8 / 9), arcade only
         ArcadeSource::Skin skin;
         auto mit = arcade ? stages_.find({int(source_), chapter}) : stages_.end();

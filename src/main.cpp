@@ -509,6 +509,8 @@ static const int gMenuTourN = std::getenv("HOTD_MENU_PERF_TOUR") ? std::max(60, 
 
 static int gAutofireEvery = 15;   // --autofire-every N (T1): frames between autofire shots
 static int gClearMarksOpt = -1;   // --hit-marks dots|smooth (old: dithered|see-through) (bugs1 #35): Video > Hit Marks for this run
+static int gShowCrossOpt = -1;   // gunfb: --no-crosshair (0) / --show-crosshair (1): Video > Show Crosshairs for this run
+static int gFlashSizeOpt = -1;   // gunfb: --shot-flash-size small|arcade|large (or 0|1|2): Video > Shot Flash Size for this run
 static int gTranspOpt = -1;      // fxux: --transparency auto|dots|smooth|dark (or 3|2|1|0): Video > Transparency for this run
 // fxux (user 2026-11-03: "Settings in the pause menu: the full Options pages over the paused game"): the menus' Options
 // pages shown from the pause (the screen is the menu's, the game held as it was); the paused game's picture under them
@@ -520,6 +522,7 @@ static int gOverW = 0, gOverH = 0;
 static void liveSettings(game::LaunchConfig& g, const game::LaunchConfig& m, bool online)
 {
     g.hitSparks = m.hitSparks, g.muzzleFlash = m.muzzleFlash, g.bloodParticles = m.bloodParticles, g.clearMarks = m.clearMarks;
+    g.shotFlashSize = m.shotFlashSize, g.showCrosshairs = m.showCrosshairs;   // (gunfb)
     g.transparency = m.transparency, g.smooth = m.smooth, g.frameRate = m.frameRate, g.vsync = m.vsync, g.menuFps = m.menuFps;
     g.gamma = m.gamma, g.crt = m.crt, g.teamFlash = m.teamFlash, g.holdSkip = m.holdSkip, g.scoreDisplay = m.scoreDisplay;
     std::copy(m.sights, m.sights + 4, g.sights);
@@ -1399,7 +1402,13 @@ void autofire(game::Runtime& rt, int frame)
     int p = rt.mem.u32(game::A::G::players + 0xCC) == 5 ? (frame / 15) % 2 : 0;
     if (rt.soloSeat == 1 && rt.mem.u32(game::A::G::players) != 5)
         p = 1;   // (GitHub #29: player 2 alone)
+    // HOTD_AUTOFIRE_SEAT=n (testing, gunfb): only that seat fires (two players in, the other's gun idle on the screen)
+    static const int onlySeat = std::getenv("HOTD_AUTOFIRE_SEAT") ? std::clamp(std::atoi(std::getenv("HOTD_AUTOFIRE_SEAT")), 0, 1) : -1;
     rt.gun[0] = rt.gun[1] = {};
+    if (onlySeat >= 0 && !rt.coop4_on()) {
+        p = onlySeat;
+        rt.gun[1 - onlySeat] = {true, false, 120.0f, -40.0f};   // (the idle gun aims at the screen, never pulled)
+    }
     if (rt.coop4_on()) {   // the 4P mode (docs/coop4.md): the seats in play take turns
         rt.gun[2] = rt.gun[3] = {};
         int in[4], n = 0;
@@ -3329,6 +3338,12 @@ int main(int argc, char* argv[])
         }
         if (a == "--setup-test") { setupTestDest = next(); continue; }
         if (a == "--setup") { gForceSetup = true; continue; }
+        if (a == "--no-crosshair" || a == "--show-crosshair") { gShowCrossOpt = a == "--show-crosshair" ? 1 : 0; continue; }   // (gunfb)
+        if (a == "--shot-flash-size") {   // gunfb: Video > Shot Flash Size
+            const std::string v = next();
+            gFlashSizeOpt = v == "small" || v == "0" ? 0 : v == "large" || v == "2" ? 2 : 1;
+            continue;
+        }
         if (a == "--hit-marks") {   // bugs1 (#35): Video > Hit Marks (fxux: the menu's words too)
             const std::string v = next();
             gClearMarksOpt = v == "see-through" || v == "smooth" ? 1 : 0;
@@ -4061,6 +4076,8 @@ int main(int argc, char* argv[])
     if (autoReloadOpt >= 0) cfg.autoReload = autoReloadOpt != 0;
     if (scoreDisplayOpt) cfg.scoreDisplay = true;
     if (gClearMarksOpt >= 0) cfg.clearMarks = gClearMarksOpt != 0;
+    if (gShowCrossOpt >= 0) cfg.showCrosshairs = gShowCrossOpt != 0;   // (gunfb)
+    if (gFlashSizeOpt >= 0) cfg.shotFlashSize = gFlashSizeOpt;
     if (gTranspOpt >= 0) cfg.transparency = gTranspOpt;
     if (gameTextOpt >= 0) cfg.gameText = gameTextOpt;
     if (gameSpeedOpt >= 0) cfg.gameSpeed = gameSpeedOpt == 2 ? -1 : gameSpeedOpt;
@@ -4580,7 +4597,7 @@ int main(int argc, char* argv[])
         r.jaText = (gNet ? gNet->gameSettings().gameText : cfg.gameText) == 1;
         r.teammateFlash = cfg.teamFlash;   // Teammate Flashes (draws only; each PC its own)
         r.hideMarks = gTrailer;   // (--trailer)
-        r.hideSparks = !cfg.hitSparks, r.hideMuzzle = !cfg.muzzleFlash; r.hideBlood = !cfg.bloodParticles; r.transparency = cfg.transparency;
+        r.hideSparks = !cfg.hitSparks, r.shotFlashScale = game::shotFlashScaleOf(cfg.shotFlashSize), r.hideMuzzle = !cfg.muzzleFlash; r.hideBlood = !cfg.bloodParticles; r.transparency = cfg.transparency;
         r.scene4p = cfg.scene4p;   // players 3 / 4's cut-scene variations (draws only; each PC its own)
         r.ownSeat = gNet ? gNet->localPlayer() : -1;   // (menufb: a local game: every seat this PC's own, full flashes)
         // PC Mode on the arcade logic (docs/pcmode.md); online the host's settings for every PC (protocol 16: PC Mode,
@@ -4861,6 +4878,7 @@ int main(int argc, char* argv[])
             rr.hud.anchorEdges = cfg.aspect != 1;   // display2: widescreen (and 16:10): the corners at the edges
             rr.hud.maxAspect = cfg.aspect == 2 ? 1.6f : 0.0f;
             std::copy(cfg.sights, cfg.sights + 4, rr.hud.sights);
+            rr.hud.showSights = cfg.showCrosshairs;   // (gunfb)
             rr.hud.customDirs = xhairDirs;
             rr.hud.widescreen = cfg.aspect != 1;
             rr.hud.translucentMarks = cfg.clearMarks;
@@ -4966,6 +4984,7 @@ int main(int argc, char* argv[])
                 for (int p = 0; p < 4; ++p) {
                     float ax = rt.gun[p].x, ay = rt.gun[p].y;
                     rr.hud.cpu[p] = teamSeatShown(p);   // computer teammates: their aim
+                    rt.cpuSeats = rr.hud.cpu[p] ? rt.cpuSeats | 1u << p : rt.cpuSeats & ~(1u << p);   // (gunfb: Teammate Flashes)
                     if (rr.hud.cpu[p])
                         gTeam->aim(p, ax, ay);
                     rr.view->fromArcade(ax, ay, w, h, aim[p][0], aim[p][1]);
@@ -14078,6 +14097,7 @@ int main(int argc, char* argv[])
         }
         for (int p = 0; p < 4; ++p) {   // computer teammates: their own crosshair (the bot's aim), a CPU tag
             hud.cpu[p] = teamSeatShown(p);
+            rt.cpuSeats = hud.cpu[p] ? rt.cpuSeats | 1u << p : rt.cpuSeats & ~(1u << p);   // gunfb: their flashes are a teammate's (Teammate Flashes)
             if (hud.cpu[p] && view) {
                 float ax, ay, x, y;
                 gTeam->aim(p, ax, ay);
@@ -14116,7 +14136,7 @@ int main(int argc, char* argv[])
         const bool crtShot = gCrt.active() && cfg.crt.shotFiltered;   // F12: the filtered picture as seen
         rt.teammateFlash = cfg.teamFlash;   // (Options can change it in the game)
         hud.translucentMarks = cfg.clearMarks;   // bugs1 (#35): Video > Hit Marks
-        rt.hideSparks = !cfg.hitSparks, rt.hideMuzzle = !cfg.muzzleFlash; rt.hideBlood = !cfg.bloodParticles; rt.transparency = cfg.transparency;
+        rt.hideSparks = !cfg.hitSparks, rt.shotFlashScale = game::shotFlashScaleOf(cfg.shotFlashSize), rt.hideMuzzle = !cfg.muzzleFlash; rt.hideBlood = !cfg.bloodParticles; rt.transparency = cfg.transparency;
         gScene.fx[0] = cfg.hitSparks, gScene.fx[1] = cfg.muzzleFlash, gScene.fx[2] = cfg.bloodParticles;
         rt.hideMarks = gTrailer && !gScene.active();   // trailer: Trailer Mode (draws only)
         // backdrop: game over (mode 5: fallen body, route map, GAME OVER) clears to black as in MAME (snaps 0087-0094);
@@ -14137,6 +14157,7 @@ int main(int argc, char* argv[])
         // the sights are 2D, drawn by the HUD (the PC's sprites 0x45E / 0x45F or the arcade-style one): the gun mark
         // models drawn here before were 0x660 `tamahi`, the shot spark (user 2026-10-16: "an image of a gunshot")
         std::copy(cfg.sights, cfg.sights + 4, hud.sights);   // (firing range: each player's own)
+        hud.showSights = cfg.showCrosshairs;   // gunfb: Video > Show Crosshairs
         hud.customDirs = xhairDirs;
         hud.widescreen = cfg.aspect != 1;
         hud.drawCross[0] = !(gTotd && gTyping && !gNet);   // The Typing of the Dead 0: no sight for player 1 (the typist)

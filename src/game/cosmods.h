@@ -57,12 +57,16 @@ bool creatureBloodKeepsRows(uint32_t body);
 struct BigHeadSettings {
     bool on = false;
     float scale = 2.0f;      // the heads' size (1.5x, 2x, 3x)
-    bool everyone = false;   // "Heads: Everyone": the people too (the players in cut-scenes, Sophie, the researchers, Curien)
+    bool everyone = true;    // "Heads: Everyone": the people too (the players in cut-scenes, Sophie, the researchers, Curien;
+                             // the default since v1.2.0, user 2026-11-03; Enemies: the creatures only)
     bool bosses = true;      // the bosses' heads (the Chariot, the Hangedman, the Hermit, the Magician)
 };
 BigHeadSettings& bigHeadSettings();
 // mod.ini [settings] keys size / who / bosses
 void bigHeadConfigure(bool on, const std::map<std::string, std::string>& values);
+// whether a creature type gets a big head with the settings now (the mod on; Heads: the people; Bosses). Also the
+// Gallery's (relfix: it follows the Mods page's Big Head)
+bool bigHeadTypeOn(int type);
 // the Big Head mod: each drawn head (a body part of class 1 in the part role table: the part whose look angles the
 // game turns) and every part below it in the part tree scaled about the head's own pivot (its joint). The frame's
 // draw list only (shadows too); call after the frame's other draw-list passes (Runtime::frame)

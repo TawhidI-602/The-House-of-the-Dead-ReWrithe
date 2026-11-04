@@ -2798,7 +2798,9 @@ void Frontend::screenExtras()
             if (extrasExit) {   // a copy: it may clear itself
                 const auto back = extrasExit;
                 back();
-            } else
+            } else if (rowsFilter)   // relfix (checklist 2026-11-03): the in-game Settings: one Back to the pause
+                screenMainMenu();
+            else
                 screenOptions();
         });
         return;
@@ -2951,6 +2953,8 @@ void Frontend::screenExtras()
                 const auto back = extrasExit;
                 back();
             }
+            else if (rowsFilter)   // relfix: the in-game Settings: one Back to the pause (not the Options screen first)
+                screenMainMenu();
             else
                 screenOptions();
         }, &Frontend::hitText);
@@ -3750,12 +3754,16 @@ int frontendShot(const std::string& pcInstall, const std::string& png, int cx, i
     fe.startBossMode = []() {};   // (as the host: Boss Mode and PC Mode are on)
     fe.startPcMode = []() {};
     // polish: More Modes' Survival / Horde / Typing of the Dead 0 items as a development build has them (the sweep's
-    // pictures; HOTD_FE_RELEASE=1: as a release build, Survival only)
+    // pictures; HOTD_FE_RELEASE=1: as a release build, Survival only). relfix (the v1.2.0 checklist: --lang-check /
+    // --lang-shots of the release exe showed Typing of the Dead 0 and Horde): a release build (HOTD_EXPERIMENTAL_MODES
+    // OFF) always as its own menu, Survival only where it is built in (HOTD_SURVIVAL_MODE)
     {
-        const bool release = std::getenv("HOTD_FE_RELEASE") != nullptr;
-        fe.startSurvival = []() {};
-        fe.survivalArenaValue = []() { return std::string("Chapter 1: The Courtyard"); };
-        fe.onSurvivalArena = []() {};
+        const bool release = std::getenv("HOTD_FE_RELEASE") != nullptr || HOTD_EXPERIMENTAL_MODES == 0;
+        if (HOTD_EXPERIMENTAL_MODES != 0 || HOTD_SURVIVAL_MODE != 0) {
+            fe.startSurvival = []() {};
+            fe.survivalArenaValue = []() { return std::string("Chapter 1: The Courtyard"); };
+            fe.onSurvivalArena = []() {};
+        }
         if (!release) {
             fe.startTotd = []() {};
             fe.hordeSizeValue = []() { return std::string("Normal"); };

@@ -2020,6 +2020,8 @@ void Hud::drawSights(const Runtime& rt, int ww, int wh, const float aim[4][2])
         const int32_t st = rt.mem.at<Player>(rt.player_rec(p)).state;
         if (drawCross[p] && !paused && !clean && !ending && (st == 5 || st == 8) && mode == 4) {
             drewSight[p] = true;
+            if (!showSights || game::sightStyleKept(sights[p].style) == game::kSightOff)
+                continue;   // gunfb: no crosshair (Show Crosshairs off, or the player's Crosshair Off): nothing drawn
             // rainbow2: Rainbow Blood's HUD & Crosshair (Crosshair / Both): the sight cycles through the rainbow, each
             // player half a cycle (P2) or a quarter (P3 / P4) on, also with Colours: Together, so they stay apart
             static const float kSightPhase[4] = {0.0f, 0.5f, 0.25f, 0.75f};
@@ -2041,6 +2043,8 @@ bool Hud::vrSight(const Runtime& rt, int seat, int wh, unsigned& tex, float& asp
     const bool ending = mode == 4 && (sub == 7 || sub == 8);
     if (seat < 0 || seat >= rt.seat_count() || pauseSelection >= 0 || clean || ending || mode != 4)
         return false;
+    if (!showSights || game::sightStyleKept(sights[seat].style) == game::kSightOff)
+        return false;   // gunfb: no crosshair
     const int32_t st = rt.mem.at<Player>(rt.player_rec(seat)).state;
     if ((st != 5 && st != 8) || !buildSeatSight(seat, rt.pcModels, wh))
         return false;

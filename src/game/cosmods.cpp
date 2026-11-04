@@ -176,9 +176,23 @@ void bigHeadConfigure(bool on, const std::map<std::string, std::string>& values)
     const std::string size = valueOf(values, "size", "2x");
     s.scale = std::clamp(float(std::atof(size.c_str())), 1.0f, 4.0f);
     if (s.scale <= 1.0f) s.scale = 2.0f;
-    s.everyone = valueOf(values, "who", "Enemies") == "Everyone";
+    s.everyone = valueOf(values, "who", "Everyone") != "Enemies";   // (default Everyone: user 2026-11-03)
     s.bosses = valueOf(values, "bosses", "On") != "Off";
     bigHeadSettings() = s;
+}
+
+bool bigHeadTypeOn(int type)
+{
+    const BigHeadSettings& s = bigHeadSettings();
+    if (!s.on || s.scale == 1.0f || type < 0 || type >= 94)
+        return false;
+    // the bosses (also the Hangedman's fly-by 55 and the Chariot without armour 36: they keep their own list)
+    static const int kBoss[] = {35, 36, 50, 55, 64, 69, 76};
+    const bool boss = std::find(std::begin(kBoss), std::end(kBoss), type) != std::end(kBoss) ||
+                      CreatureCategories::ofType(type) == Category::Bosses;
+    if (boss) return s.bosses;
+    if (CreatureCategories::ofType(type) == Category::Humans) return s.everyone;
+    return true;
 }
 
 // Big Head. The game draws a creature part by part (body_draw -> body_part_draw_hook 0x9CE60, DrawModel::part), each
@@ -203,15 +217,7 @@ void bigHeadFrame(Runtime& rt)
         for (const BodyInfo& b : bodies)
             if (b.body == body) return type = b.type, b.ok;
         type = valid(body) ? mem.at<int16_t>(body + 0xCC) : -1;
-        bool ok = type >= 0 && type < 94;
-        if (ok) {
-            // the bosses (also the Hangedman's fly-by 55 and the Chariot without armour 36: they keep their own list)
-            static const int kBoss[] = {35, 36, 50, 55, 64, 69, 76};
-            const bool boss = std::find(std::begin(kBoss), std::end(kBoss), type) != std::end(kBoss) ||
-                              CreatureCategories::ofType(type) == Category::Bosses;
-            if (boss) ok = s.bosses;
-            else if (CreatureCategories::ofType(type) == Category::Humans) ok = s.everyone;
-        }
+        const bool ok = bigHeadTypeOn(type);
         bodies.push_back({body, type, ok});
         return ok;
     };
@@ -242,18 +248,19 @@ void bigHeadFrame(Runtime& rt)
     std::vector<int> headIndex(rt.drawList.size(), -1);   // the pivot each draw scales about (-1: none)
     for (size_t i = 0; i < rt.drawList.size(); ++i) {
         const DrawModel& d = rt.drawList[i];
-        if (d.body == 0 || d.part == 0 || d.background || !valid(d.part))
+        const uint32_t dp = d.part ? d.part : d.bossPart;   // (relfix: the Chariot, the Hermit: their own part hooks)
+        if (d.body == 0 || dp == 0 || d.background || !valid(dp))
             continue;
         int type = -1;
         if (!bodyOk(d.body, type))
             continue;
-        const uint32_t head = headOf(type, d.part);
+        const uint32_t head = headOf(type, dp);
         if (head == 0)
             continue;
         int k = -1;
         for (size_t j = 0; j < pivots.size(); ++j)
             if (pivots[j].body == d.body && pivots[j].head == head && pivots[j].shadow == d.shadow) k = int(j);
-        if (k < 0 && d.part == head) {
+        if (k < 0 && dp == head) {
             pivots.push_back({d.body, head, d.shadow, {d.m[9], d.m[10], d.m[11]}});
             k = int(pivots.size() - 1);
         }

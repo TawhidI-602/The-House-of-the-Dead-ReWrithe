@@ -82,6 +82,9 @@ struct DrawModel {
     uint32_t part = 0;         // ragdoll: the body part (BodyPart address) whose draw hook drew it (and its shadow), 0 = none;
                                // the Ragdoll mod (game/ragdoll.h) poses a dead body's models by part. Never read by the logic
     int16_t joint = -1;        // 4P cut-scenes: the body part's joint (part +0x38) when body_part_draw_hook drew it, -1 none
+    uint32_t bossPart = 0;     // relfix (Big Head): the part a boss's own part hook drew (the Chariot's 0x9A040 / 0x9A280,
+                               // the Hermit's 0x87560: they never pass body_part_draw_hook, so `part` stays 0 for them
+                               // and the Ragdoll mod leaves them alone), 0 = none. Never read by the logic
 };
 
 class Ragdolls;   // the Ragdoll mod (game/ragdoll.h): draw-only bodies of the dead
@@ -223,6 +226,7 @@ public:
     void body_draw(uint32_t obj) override;                                  // the port's, marked (objectDraw_)
     uint32_t drawBody_ = 0;                                                 // feet2: inside body_draw (DrawModel::body)
     uint32_t drawPart_ = 0;                                                 // ragdoll: the part the draw hook drew last (DrawModel::part)
+    uint32_t drawBossPart_ = 0;                                             // relfix: the part a boss's part hook drew last (DrawModel::bossPart)
     // the Ragdoll mod (game/ragdoll.h, docs/modding.md): after the frame's logic, the dead humanoids' drawn poses replaced
     // by a ragdoll's (the draw list only; the address space is only read). Made on the first frame the mod is on
     std::shared_ptr<Ragdolls> ragdolls;
@@ -565,6 +569,13 @@ public:
     int transparency = 3;      // Options > Video > Transparency (draw-only): 0 Smooth, 1 Clean Edges, 2 Dithered (arcade), 3 Auto (by the models); RenderOptions::transparency
     bool hideMarks = false;   // trailer: Trailer Mode: no MISS SHOT marks (models 0x3F5 / 0x3F6; draw-only)
     int ownSeat = -1;
+    // gunfb (a light-gun player 2026-11-03: flashes where nobody of them fired): the computer teammates' seats (bit per
+    // seat, the host sets it each frame): their shot flashes / sparks are a teammate's, so Teammate Crosshair Flashes
+    // reduces or hides them in a local game too (Full, the default, unchanged)
+    unsigned cpuSeats = 0;
+    // gunfb: Video > Shot Flash Size: the shot flash's (shot_effect_flash 0x95140) and its spark's (0x95630) scale, 1 =
+    // the arcade's (draw-only)
+    float shotFlashScale = 1.0f;
     bool teamFlashDraw(DrawModel& d);                                       // false: not drawn
     struct TeamFx { uint8_t kind, age; int8_t seat; float x, y; uint32_t task, model; };
     std::vector<TeamFx> teamFx_;                                            // this frame's shot flashes (teamFlashDraw)

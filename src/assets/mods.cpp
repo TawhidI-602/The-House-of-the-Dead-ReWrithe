@@ -433,7 +433,7 @@ static ModPack builtinCosmetic(const std::string& type)
         p.name = "Big Head";
         p.description = "Big Head mode: the creatures' heads drawn big, the classic cheat (visual only: they are hit where the heads really are)";
         settings = {{"size", "Head Size | 2x | 1.5x, 2x, 3x | How big the heads are"},
-                    {"who", "Heads | Enemies | Enemies, Everyone | Everyone: the people too (Rogan and G in the cut-scenes, Sophie, the researchers)"},
+                    {"who", "Heads | Everyone | Enemies, Everyone | Everyone: the people too (Rogan and G in the cut-scenes, Sophie, the researchers)"},
                     {"bosses", "Bosses | On | On, Off | The bosses' heads too"}};
     }
     for (const auto& [k, v] : settings) {

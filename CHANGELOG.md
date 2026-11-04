@@ -14,7 +14,11 @@ Options > System > What's New.
   harder, points for hits and kills to spend between rounds (ammo, the SMG, a life, perks), reloading by hand, three
   lives, its own high scores. Expect rough edges.
 - Two built-in mods (Options > Mods, off by default): Rainbow Blood (#8: all the blood, the wounds and the blood marks
-  cycle through the colours, with speed and style settings, optionally the HUD and crosshairs too) and Big Head (#10).
+  cycle through the colours, with speed and style settings, optionally the HUD and crosshairs too) and Big Head (#10:
+  big heads on the creatures, the bosses and, by default, the people too; also in the Gallery).
+- Light guns: Options > Video > Show Crosshairs Off (or Off per player) to play without a crosshair, and Shot Flash
+  Size (Small / Arcade / Large; Arcade is the original size at any resolution). CPU teammates' shot flashes follow
+  Teammate Crosshair Flashes.
 - Settings during play: the pause menu opens the settings.
 - Options > Video > Game Gamma and Menu Gamma (#23): brighter (or darker) dark tones for the game and for the menus
   separately; 1.00 is the original picture.
