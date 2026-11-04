@@ -1274,6 +1274,36 @@ void Hud::drawPause(int selection, int ww, int wh)
                 x += pcSprites_.width(id(c)) + 1;
             }
         };
+        if (L[0] != "PAUSED")
+            row(L[0], 196, 0xFE);   // (white 32)
+        for (int i = 0; i < items; ++i) {
+            const int y = 0xF8 + 28 * i;
+            row(L[size_t(i) + 1], y, i == selection ? 0x23C : 0x19D);
+            pauseRects_.push_back({210.0f, float(y - 4), 430.0f, float(y + 24)});
+        }
+        // relfix2 (user 2026-11-03): the menu's 24 / 32 fonts have no edge of their own (hard to read over bright
+        // scenes): a black edge around them as the pause font's own (PAUSED, Continue, Exit): 1 pixel solid, a soft
+        // second one; PAUSED is drawn after it with its own edge
+        {
+            std::vector<uint8_t> a(size_t(W) * H, 0);
+            for (size_t p = 0; p < a.size(); ++p) a[p] = rgba_[p * 4 + 3];
+            for (int y = 0; y < H; ++y)
+                for (int x = 0; x < W; ++x) {
+                    if (a[size_t(y) * W + size_t(x)]) continue;
+                    int edge = 0;
+                    for (int dy = -2; dy <= 2 && edge < 255; ++dy)
+                        for (int dx = -2; dx <= 2; ++dx) {
+                            const int sx = x + dx, sy = y + dy;
+                            if (sx < 0 || sy < 0 || sx >= W || sy >= H || !a[size_t(sy) * W + size_t(sx)]) continue;
+                            const int d = std::abs(dx) + std::abs(dy);
+                            edge = std::max(edge, std::max(std::abs(dx), std::abs(dy)) <= 1 ? 255 : d <= 3 ? 120 : 0);
+                        }
+                    if (!edge) continue;
+                    uint8_t* d = &rgba_[(size_t(y) * W + size_t(x)) * 4];
+                    d[0] = d[1] = d[2] = 0;
+                    d[3] = uint8_t(edge);
+                }
+        }
         if (L[0] == "PAUSED") {
             int width = 0, x = 0;
             for (char c : L[0]) width += pcSprites_.width(glyph(c, 0x2000000)) + 1;
@@ -1282,12 +1312,6 @@ void Hud::drawPause(int selection, int ww, int wh)
                 pcSprites_.draw(rgba_, glyph(c, 0x2000000), x, 200);
                 x += pcSprites_.width(glyph(c, 0x2000000)) + 1;
             }
-        } else
-            row(L[0], 196, 0xFE);   // (white 32)
-        for (int i = 0; i < items; ++i) {
-            const int y = 0xF8 + 28 * i;
-            row(L[size_t(i) + 1], y, i == selection ? 0x23C : 0x19D);
-            pauseRects_.push_back({210.0f, float(y - 4), 430.0f, float(y + 24)});
         }
         upload(rgba_, W, H, ww, wh);
         return;
@@ -2209,6 +2233,29 @@ void texParams(bool mip)
 
 void Hud::drawRemake(const Frontend::RemakeLayers& L, int ww, int wh)
 {
+    // menublocks (user 2026-11-04: the main menu's live background under big flat dark-red squares on the layers' 32 px
+    // tiles, the hand a dark box, the layers faded out (the idle), right after the settings pictures were made in the
+    // background; not reproduced here): the layers drawn opaque, as by another program. Our GL objects checked each
+    // frame; one gone (another part's clean-up deleting a name it no longer owned) -> all of them made again, the
+    // layers uploaded again
+    if (bgProg_ && fgProg_ && (!gl::IsProgram(bgProg_) || !gl::IsProgram(fgProg_) || !gl::IsVertexArray(vao_) || !gl::IsTexture(bgTex_) ||
+                    (fgGen_ != ~0ull && !gl::IsTexture(fgTex_)) || (splatGen_ && !gl::IsTexture(splatTex_[splatCur_])))) {
+        std::fprintf(stderr, "remake menu: its GL objects were gone (programs %d %d, vao %d): made again\n",
+                     int(gl::IsProgram(bgProg_)), int(gl::IsProgram(fgProg_)), int(gl::IsVertexArray(vao_)));
+        for (unsigned* p : {&bgProg_, &fgProg_})
+            if (gl::IsProgram(*p)) gl::DeleteProgram(*p);
+        if (!gl::IsVertexArray(vao_))
+            gl::GenVertexArrays(1, &vao_);
+        bgProg_ = fgProg_ = 0;
+        bgGen_ = fgGen_ = partsGen_ = animGen_ = ~0ull;
+        bgSrc_ = nullptr;
+        bgW_ = bgH_ = fgW_ = fgH_ = 0;
+        splatGen_ = 0;
+        splatOld_ = false;
+        handId_ = -1;
+        partTex_.clear();
+        animTex_.clear();
+    }
     if (!bgProg_) {
         std::string err;
         bgProg_ = linkRemake(kRemakeBgFs, err);
@@ -2261,6 +2308,15 @@ void Hud::drawRemake(const Frontend::RemakeLayers& L, int ww, int wh)
     gl::Viewport(0, 0, ww, wh);
     gl::Disable(gl::DEPTH_TEST);
     gl::Disable(gl::BLEND);
+    // menublocks: every other state these passes rely on set here too (none left over from the settings pictures' or
+    // the live attract's renders): no scissor / stencil / culling, all channels written, the blend adding, unit 0's
+    // own sampling (no sampler object)
+    gl::Disable(gl::SCISSOR_TEST);
+    gl::Disable(gl::STENCIL_TEST);
+    gl::Disable(gl::CULL_FACE);
+    gl::ColorMask(gl::TRUE_, gl::TRUE_, gl::TRUE_, gl::TRUE_);
+    gl::BlendEquation(gl::FUNC_ADD);
+    gl::BindSampler(0, 0);
     gl::UseProgram(bgProg_);
     rect(uBgRect_, x0, y0, pw, ph);
     gl::Uniform3f(uBgMul_, L.mul[0], L.mul[1], L.mul[2]);
@@ -2338,6 +2394,7 @@ void Hud::drawRemake(const Frontend::RemakeLayers& L, int ww, int wh)
     gl::Enable(gl::BLEND);
     gl::BlendFunc(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);   // (premultiplied)
     gl::UseProgram(fgProg_);
+    gl::Uniform1f(uFgShadow_, 0.0f);   // (menublocks: not the hand's shadow, whatever was left)
     rect(uFgRect_, x0, y0, pw, ph);
     // misc18: a whole-picture layer drawn scissored to its tiles with pixels and their neighbours within the filter's
     // reach (2 texels magnified, more for the mip levels when smaller); the scissors cut the window along the same tile

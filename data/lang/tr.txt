@@ -1503,3 +1503,8 @@ sub.87.1 = Çok geç.
 sub.88.1 = Curien!!
 # There's no way out Curien!
 sub.89.1 = Kaçış yok Curien!
+Dotted Edge = Noktalı Kenar
+Smooth Edge = Düzgün Kenar
+Dark Edge = Koyu Kenar
+Solid Mark = Düz İz
+See-through = Yarı Saydam

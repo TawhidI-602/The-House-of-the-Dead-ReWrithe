@@ -393,6 +393,7 @@ std::vector<Frontend::Extra> menuCategoryRows(int category, LaunchConfig& c, con
             r.back().clickBack = r.back().click;
             indexed(r, {c.models == 1 ? "Solid" : "Arcade Dots", "Smooth"}, [&c]() { return c.clearMarks ? 1 : 0; }, setM);
             previewed(r, h, "marks");
+            r.back().previewLook = {c.models == 1 ? "Solid Mark" : "Dotted Edge", c.models == 1 ? "See-through" : "Smooth Edge"};   // (relfix2)
         }
         // team (2026-11-03; a trailer comment asked for the emulator's "mesh transparency"): the see-through texels'
         // edges (blood splatters, floor stains, water, the creatures' wounds) stippled by their cover in a screen-door
@@ -420,6 +421,7 @@ std::vector<Frontend::Extra> menuCategoryRows(int category, LaunchConfig& c, con
             };
             previewed(r, h, "transp");
             r.back().previewList = {1, 2, 3};   // (Arcade Dots, Smooth, Dark Edges side by side; Auto: Arcade Dots)
+            r.back().previewLook = {"Dotted Edge", "Dotted Edge", "Smooth Edge", "Dark Edge"};   // (relfix2)
         }
         // angle (render/gl_backend.h): OpenGL 3.3, or DirectX through ANGLE for older graphics; at the next start
         {

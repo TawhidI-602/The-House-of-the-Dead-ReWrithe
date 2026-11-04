@@ -1950,7 +1950,17 @@ int runHeadless(game::Host& host, int frames, bool fire, const std::vector<uint6
         hpause.onCue = [&audio](int c) { audio.pcCue(c); };
         hpause.onSound = [&audio](bool hold) { audio.pause(hold); };
     }
+    // relfix2 (testing): HOTD_AUDIO_RESTART_AT=F: at game frame F the sound is set up again (Audio::init), as the
+    // window's every game start does (the SMG's stand-in after a second game: game/audio.cpp loadBank)
+    static uint64_t audioRestartAt = [] { const char* e = std::getenv("HOTD_AUDIO_RESTART_AT"); return e ? std::strtoull(e, nullptr, 10) : 0ull; }();
     for (int i = 0; gNet && gNetFrames >= 0 ? gNet->frame() < uint32_t(gNetFrames) : i < frames; ++i) {
+        if (audioRestartAt && rt.frameCount >= audioRestartAt) {
+            audioRestartAt = 0;
+            std::string e;
+            const std::string root = audio.pcRoot();
+            std::printf("frame %llu: the sound set up again (HOTD_AUDIO_RESTART_AT): %s\n", (unsigned long long)rt.frameCount,
+                        audio.init(root, false, e) ? "ok" : e.c_str());
+        }
         if (pauseFor > 0 && rt.frameCount >= pauseAt && !hpause.paused()) {   // the first frame from F that is in play
             game::PauseInput in;
             in.toggle = true;
@@ -1962,6 +1972,20 @@ int runHeadless(game::Host& host, int frames, bool fire, const std::vector<uint6
             }
         }
         if (hpause.paused()) {
+            // relfix2 (testing): HOTD_PAUSE_KEYS=<one letter a pause frame>: d down, u up, a choose, other none; the
+            // pause has Settings then (the release's Continue / Settings / Exit): its cues into --audio-wav
+            if (static const char* keys = std::getenv("HOTD_PAUSE_KEYS"); keys) {
+                static size_t k = 0;
+                hpause.settings = true;
+                if (k < std::strlen(keys) && std::strchr("dua", keys[k])) {
+                    game::PauseInput in;
+                    in.down = keys[k] == 'd', in.up = keys[k] == 'u', in.activate = keys[k] == 'a';
+                    hpause.frame(rt, in);
+                    std::printf("frame %llu: pause key %c (pause frame %zu): selection %d\n", (unsigned long long)rt.frameCount,
+                                keys[k], k, hpause.selection());
+                }
+                ++k;
+            }
             audio.renderFrame();
             if (gNet) {   // online: the other PCs are told (P<n> PAUSED), the link kept alive; a pause frame = 1/60 s
                 gNet->setPaused(true);
@@ -5059,7 +5083,8 @@ int main(int argc, char* argv[])
                 // HOTD_PAUSE_TEST_OVER=1 the game over's)
                 if (static const char* pt = std::getenv("HOTD_PAUSE_TEST"); pt) {
                     game::Pause tp;
-                    tp.retry = true;
+                    tp.retry = !std::getenv("HOTD_PAUSE_TEST_SETTINGS");   // (relfix2: =1 the release's Continue / Settings / Exit)
+                    tp.settings = !tp.retry;
                     if (std::getenv("HOTD_PAUSE_TEST_OVER")) tp.openGameOver();
                     rr.hud.pauseSelection = std::atoi(pt);
                     rr.hud.pauseLines = pauseLinesOf(tp);
@@ -12168,6 +12193,8 @@ int main(int argc, char* argv[])
             // Gallery and the front-end screens have their own (Game Gamma: the play's frames below)
             setGamma100(menu.cfg.menuGamma);
             const bool crtMenu = gCrt.begin(ww, wh);
+            if (!crtMenu)   // (menublocks: the window's own picture, whatever the settings pictures / live attract left bound)
+                gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
             gl::Viewport(0, 0, ww, wh);
             gl::ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);

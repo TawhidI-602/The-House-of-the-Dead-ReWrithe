@@ -451,6 +451,18 @@ bool Audio::loadBank(const std::string& path, std::string& err)
     }
     samples_.resize(bodies[0].second / sizeof(SampleInfo));
     std::memcpy(samples_.data(), &d[bodies[0].first], bodies[0].second);
+    // relfix2 (user 2026-11-03: the SMG silent in Survival): playExtra's sounds are samples appended past the bank's;
+    // every game start loads the bank again (init), which dropped them while extras_ kept their old numbers (the
+    // second game on: play() refused them, nothing sounded). Made again from the new bank on their next use
+    std::lock_guard<std::recursive_mutex> g(lock_);
+    auto drop = [&](Voice& v) {   // (a voice of a dropped sound: its data goes)
+        for (const auto& [name, e] : extras_)
+            if (v.data && !e.data.empty() && v.data == e.data.data())
+                v = Voice{};
+    };
+    for (Voice& v : voices_) drop(v);
+    for (Voice& v : tails_) drop(v);
+    extras_.clear();
     bank_.assign(d.begin() + std::ptrdiff_t(bodies[1].first + 8), d.begin() + std::ptrdiff_t(bodies[1].first + bodies[1].second));
     return true;
 }

@@ -222,6 +222,15 @@ Damage per shot: the handgun's (the game's own shot path, `player_shoot`).
 Any RIFF PCM WAV (8 / 16-bit, mono / stereo, any rate) works (`Audio::playExtra`); the self-test's line says which
 source each one used (`file` / `stand-in` / `unused`).
 
+The stand-ins play in both sound modes (with the arcade sound board they are mixed with the PC voices, as the pause's
+cues). Without a file or the PC sound bank the SMG's shot / reload is the handgun's own (the board's or the PC's),
+never silence. Fixed for v1.2.0 (relfix2, user 2026-11-03: "the SMG sound is missing"): every game start loads the
+PC sound bank again (`Audio::init`), which dropped the stand-ins' samples while `playExtra` kept their old numbers, so
+in every game after the one where the SMG was first heard (the user's log: the next Survival game from the menu) the
+SMG was silent; `loadBank` now forgets them and they are made again. Test helpers: `HOTD_TRACE_SOUND=1` logs each SMG
+shot's source, `HOTD_AUDIO_RESTART_AT=F` sets the sound up again at frame F (as a new game does),
+`HOTD_SURVIVAL_SMG_SILENT=1` mutes the SMG's shots (a WAV of the same run without them: the difference is the SMG alone).
+
 ## Normal play
 
 Every Survival hook does nothing while Survival Mode is off: `Game::evt_spawned` (an empty virtual), `Game::survivalRounds` /

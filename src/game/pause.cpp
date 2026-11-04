@@ -111,6 +111,8 @@ void Pause::frame(const Runtime& rt, const PauseInput& in)
             return;
         }
         if (itemAt(selection_) == kSettings) {   // (fxux: the pause stays; the host opens the Options pages)
+            if (onCue)   // relfix2 (user 2026-11-03: Settings made no sound): Continue's confirm (0x10C)
+                onCue(0x10C);
             if (onSettings)
                 onSettings();
             return;

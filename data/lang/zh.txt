@@ -1502,3 +1502,8 @@ sub.87.1 = 太迟了。
 sub.88.1 = 库里安！！
 # There's no way out Curien!
 sub.89.1 = 你无路可逃了，库里安！
+Dotted Edge = 网点边缘
+Smooth Edge = 光滑边缘
+Dark Edge = 暗色边缘
+Solid Mark = 实心痕迹
+See-through = 半透明

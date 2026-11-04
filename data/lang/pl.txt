@@ -1503,3 +1503,8 @@ sub.87.1 = Za późno.
 sub.88.1 = Curien!!
 # There's no way out Curien!
 sub.89.1 = Nie ma wyjścia, Curien!
+Dotted Edge = Kropkowana krawędź
+Smooth Edge = Gładka krawędź
+Dark Edge = Ciemna krawędź
+Solid Mark = Pełny ślad
+See-through = Przezroczyste

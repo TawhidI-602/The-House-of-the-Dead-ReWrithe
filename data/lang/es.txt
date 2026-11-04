@@ -1500,3 +1500,8 @@ sub.87.1 = Es demasiado tarde.
 sub.88.1 = ¡¡Curien!!
 # There's no way out Curien!
 sub.89.1 = ¡No tienes salida, Curien!
+Dotted Edge = Borde punteado
+Smooth Edge = Borde liso
+Dark Edge = Borde oscuro
+Solid Mark = Marca sólida
+See-through = Translúcida

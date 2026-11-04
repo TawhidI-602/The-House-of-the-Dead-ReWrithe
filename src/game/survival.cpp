@@ -878,15 +878,18 @@ bool Runtime::survival_cue(uint32_t cue)
     if (cue == 0xA01208 || cue == 0xA01207) {   // player_shoot's shot (players 1 / 2): the SMG's when that seat has it
         if (!survival.seat[cue == 0xA01208 ? 0 : 1].smg)
             return false;
-        if (audio)
-            audio->playExtra(dir, kSurvivalSfx[0], 30, 1.4f, 0.4f, 0.9f);
-        return true;
+        // relfix2 (user 2026-11-03): nothing to play (no file, no PC sound bank for the stand-in): the handgun's own
+        // shot instead (the board's or the PC's), never silence. HOTD_SURVIVAL_SMG_SILENT (testing): the SMG's shots
+        // unheard (a WAV of the same run without them: the difference is the SMG's sound alone)
+        static const bool silent = survivalEnv("SMG_SILENT") != nullptr;
+        const bool ok = silent || (audio && audio->playExtra(dir, kSurvivalSfx[0], 30, 1.4f, 0.4f, 0.9f));
+        if (audio && audio->traceCues)
+            std::printf("[sound %llu] 0x%06X -> SMG shot: %s\n", (unsigned long long)audio->frameNo, cue,
+                        silent ? "silent (test)" : ok ? audio->extraSource(kSurvivalSfx[0]).c_str() : "the handgun's");
+        return ok;
     }
-    if (cue == 0xA01200 && survival.seat[survival.reloadSeat & 3].smg) {   // the reload (the SMG's)
-        if (audio)
-            audio->playExtra(dir, kSurvivalSfx[1], 28, 0.8f, 1.0f);
-        return true;
-    }
+    if (cue == 0xA01200 && survival.seat[survival.reloadSeat & 3].smg)   // the reload (the SMG's); none: the handgun's
+        return audio && audio->playExtra(dir, kSurvivalSfx[1], 28, 0.8f, 1.0f);
     return false;
 }
 

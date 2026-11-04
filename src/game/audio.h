@@ -34,6 +34,7 @@ public:
     // pcRoot: the PC game's folder (THOTD.EXE, SOUND\, Music\); device false: no audio device (headless runs: the cues
     // are still decoded and counted)
     bool init(const std::string& pcRoot, bool device, std::string& err);
+    const std::string& pcRoot() const { return root_; }
     void shutdown();
     // --audio-wav: the mixed output goes to a WAV file (44.1 kHz stereo 16-bit), one game frame (1 / the tick rate) per
     // renderFrame() call from the frame loop, instead of the device (nothing is played aloud)

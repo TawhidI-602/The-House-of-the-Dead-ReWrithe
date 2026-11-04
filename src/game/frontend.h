@@ -634,6 +634,10 @@ public:
         // fxux: the choices whose pictures show side by side (empty: up to 3 of them, else the current one); a current
         // choice not among them marks the first (Transparency's Auto: the Arcade Dots picture)
         std::vector<int> previewList;
+        // relfix2 (user 2026-11-03: "the differences aren't noticeable"): what to look for in choice k's picture
+        // (non-empty: the pictures shown as one that flips between the choices each second and a close-up of each, the
+        // same spot where they differ most, 4x with nearest pixels, each with its look-for line)
+        std::vector<std::string> previewLook;
     };
     // fix28: the preview pictures' maker's progress (a new number: a picture finished, the pages draw them again)
     std::function<int()> previewGen;
@@ -864,7 +868,8 @@ private:
     void drawRPreview(Widget& w);
     std::map<const Widget*, const Widget*> rPreviewRow_;
     std::vector<Extra>* rPreviewRows_ = nullptr;
-    struct PreviewPic { std::vector<uint8_t> rgba; int w = 0, h = 0; };
+    // (relfix2: zoom: the close-ups' spot, by the other pictures' names and the crop's size: where they differ most)
+    struct PreviewPic { std::vector<uint8_t> rgba; int w = 0, h = 0; std::map<std::string, std::pair<int, int>> zoom; };
     std::map<std::string, PreviewPic> previewPics_;
     int previewGenSeen_ = -1;
     uint32_t previewPollMs_ = 0;
