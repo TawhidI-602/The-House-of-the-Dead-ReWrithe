@@ -20,7 +20,7 @@ arcade version's more detailed models and textures or the PC's.
 >
 > **Made with AI assistance:** Anthropic's Claude assisted with the reverse engineering and with rewriting and combining
 > the existing code, directed and tested by the project's author (Tawhid);
-> the translations are machine-made and marked as such. No AI-generated images are shipped (the button icons are CC0
+> the translations are machine-made and marked as such. No AI-generated images/assets are shipped (the button icons are CC0
 > packs, the menu wordmark was set in a free font). Details: [docs/release/compliance_v1.0.0.md](docs/release/compliance_v1.0.0.md).
 
 > **Expect bugs:** v1.0.0 is the first public release. Every chapter plays from start to end, but not every mode,
