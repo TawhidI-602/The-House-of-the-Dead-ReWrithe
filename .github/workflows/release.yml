@@ -132,6 +132,10 @@ jobs:
     # Valve's Steam Runtime 3 "sniper" SDK (Debian 11, glibc 2.31): the binary then runs on SteamOS 3 and older desktop
     # distributions too (docs/porting.md "SteamOS package")
     container: registry.gitlab.steamos.cloud/steamrt/sniper/sdk:latest
+    # in a container the steps' default shell is sh (dash), which refuses "set -o pipefail" (exit 2: v1.2.0's run)
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - name: Fetch third-party sources
