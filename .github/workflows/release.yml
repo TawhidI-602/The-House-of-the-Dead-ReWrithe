@@ -272,6 +272,12 @@ jobs:
           cp -L "$sdl" "$out/bin/libSDL3.0.dylib"
           echo "The House of the Dead: ReWrithe, portable package (no game data)." > "$out/hotd_package.txt"
           for d in ui fonts lang mods; do mkdir -p "$out/data/$d"; cp -R "data/$d/." "$out/data/$d/"; done
+          # the modes left out (Typing of the Dead 0, Horde) leave the language files too (as the Windows package)
+          for f in "$out"/data/lang/*.txt; do
+            awk '{ if ($0 !~ /^[ \t]*#/ && index($0, " = ")) { k = tolower(substr($0, 1, index($0, " = ") - 1));
+                   if (k ~ /typing of the dead|totd|horde/) next } print }' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+          done
+          ! grep -rqiE "^[^#]*(typing of the dead|horde)" "$out/data/lang"
           mkdir -p "$out/data/arcade" "$out/data/pc" "$out/data/music"
           echo "Put your own arcade ROM zip here (MAME's 'hotd' set, Revision A)." > "$out/data/arcade/put the arcade ROM zip here.txt"
           echo "Put your own 1998 PC game here (its installed folder's contents, or a .zip of it)." > "$out/data/pc/put the PC game here.txt"

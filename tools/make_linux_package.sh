@@ -164,6 +164,14 @@ EOF
 for d in ui fonts lang mods; do
     [ -d "$repo/data/$d" ] && mkdir -p "$out/data/$d" && cp -R "$repo/data/$d/." "$out/data/$d/"
 done
+# a release package: the modes left out (Typing of the Dead 0, Horde) leave the language files too, as the Windows
+# package (make_portable_hotd.ps1 -Release; the user, 2026-11-03: "don't even show them")
+if [ "$experimental" = 0 ]; then
+    for f in "$out"/data/lang/*.txt; do
+        awk '{ if ($0 !~ /^[ \t]*#/ && index($0, " = ")) { k = tolower(substr($0, 1, index($0, " = ") - 1));
+               if (k ~ /typing of the dead|totd|horde/) next } print }' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+    done
+fi
 cp "$repo/LICENSE" "$out/LICENSE.txt"
 cp "$repo/NOTICE.md" "$out/NOTICE.txt"
 cp "$repo/docs/release/CREDITS.txt" "$out/CREDITS.txt"
