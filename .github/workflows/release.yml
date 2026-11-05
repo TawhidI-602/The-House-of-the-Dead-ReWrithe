@@ -199,7 +199,7 @@ jobs:
       - name: Package
         run: |
           set -euo pipefail
-          tools/make_linux_package.sh -b build-linux -o "$GITHUB_WORKSPACE/pkg/HOTD ReWrithe Linux" --no-build
+          bash tools/make_linux_package.sh -b build-linux -o "$GITHUB_WORKSPACE/pkg/HOTD ReWrithe Linux" --no-build
       - name: Package test (unpacked in a fresh folder, as a player would)
         # linux2 (2026-11-03): the tarball's own bin/hotd with its bundled libSDL3 (no build folder on the library path)
         run: |
