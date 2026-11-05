@@ -1314,6 +1314,19 @@ all in tools/ghidra/types.tsv with every field used.
   routines match the arcade's, plus the PC's draw-skip flag 0x5CD35C). ReWrithe: under **Attract Gore** (on) the
   event interpreter runs that ENTB when the script reaches 0xFDC64 in mode 9 (`evt_attract_restore`, event.cpp); off
   = Revision A (no spawn; frames identical to before).
+- **The attract, Revision A against the PC, everything compared (2026-11-04).** Every event of all 7 lists (ROM
+  0xE0000 against EVTALL.RBH.orig), instruction by instruction, with the records behind ENTB / ENTB2 / ENTB3 / ENTBE /
+  ET* / WLTB pointers compared by content (the PC packs its records tighter; only the packing differs), and all 142
+  camera paths (copro data against CAMALL.RBH, keys within rounding). Differences: (1) the prologue's sewer ENTB
+  (above); (2) **camera path 107** (the prologue's scene 7, the hostage held by two zombies, frames 0-94): the PC's
+  last key is higher (frame 100: eye y 13.79 / look-at y 18; ROM 10.79 / 16, copro words 0xC803 / 0xC7CC / 0xC7D0),
+  so its close-up ends with the raised hand in the picture; (3) the gore's game-mode-4 test (bullet damage row).
+  Outside the attract, not censorship: Chapter 2 event 10 SKYTB 1 (PC 0), Chapter 4 event 4 one more SNDON in the
+  PC, the ending list 6 (event 3 ENTB2 kind 0x6F, PC 0x6B; events 4-6 the PC waits 240 / 120 frames where the ROM
+  repeats a camera hold). The recorded demos (Chapter 1 events 5 / 15, Chapter 2 event 9) run the same scripts and
+  records in both. Two more kind-118 records in Chapter 2 event 9's data (0xF0624 / 0xF0654) are in neither script
+  (and not in the PC data): left out. ReWrithe, Attract Gore on: (1), (2) (`camera_path_eval` reads the PC's keys,
+  `Tgp::set_patch`), (3); off = Revision A.
 - **Player hits** (`player_hit` 0x6410 (player, shake, side), `player_hit_lose_life` 0x6520 (player, shake, side,
   ignore invulnerability, invulnerable frames)): a hit counts only when the player is in play (in game mode 4 the
   player state must be 1, 4 or 5; unverified which states those are on screen), not invulnerable

@@ -227,17 +227,19 @@ static bool gunAtEdge(const game::GunState& g, int lw, int lh)
 }
 // GitHub #17 (user 2026-11-03): Options > Gameplay "Edge Reload", as The House of the Dead 2: a player in play with
 // rounds fired whose mouse crosshair arrives on the screen's edge reloads (an off-screen pull, the original's reload),
-// once per arrival; only while shots are on (an off-screen pull in a cut-scene would skip it)
+// once per arrival; only while shots are on (an off-screen pull in a cut-scene would skip it). GitHub #42 (2026-11-04:
+// "Edge screen reload does not work in PC Mode"): PC Mode too, against the character's full load (pm_full_rounds;
+// was: never in PC Mode)
 static bool gEdgeWas[4] = {};
 static bool edgeReloadNow(game::Runtime& rt, int p, bool atEdge, bool on)
 {
     const bool arrived = atEdge && !gEdgeWas[p & 3];
     gEdgeWas[p & 3] = atEdge;
-    if (!on || !arrived || rt.pm_on())
+    if (!on || !arrived)
         return false;
     const port::a::Player& pl = rt.mem.at<port::a::Player>(rt.player_rec(p));
     return rt.mem.at<int16_t>(game::A::G::game_mode) == 4 && rt.mem.u32(game::A::G::shot_enable) != 0 && pl.state == 5 &&
-           pl.rounds < 6 && rt.mem.u32(game::A::G::ammo_enabled) != 0;
+           pl.rounds < rt.pm_full_rounds(p) && rt.mem.u32(game::A::G::ammo_enabled) != 0;
 }
 // the game area's half width in arcade units (the screen is +-192 high) for the launcher's Aspect: widescreen = the
 // window's; 4:3 = the arcade's 496-wide screen (248) at most; aspect1610: 16:10 = 192 x 1.6 = 307.2 at most
@@ -2094,6 +2096,19 @@ int runHeadless(game::Host& host, int frames, bool fire, const std::vector<uint6
         livesOut(rt, out);
         if (!gNet)
             autoReloadSeats(rt, gAutoReload);   // launcher "Auto reload" / --auto-reload, every seat
+        if (static const bool edgeTest = std::getenv("HOTD_EDGE_TEST") != nullptr; edgeTest && !gNet) {
+            // HOTD_EDGE_TEST=1 (testing, bugs3 / GitHub #42): Gameplay > Edge Reload on, player 1's crosshair onto the
+            // screen's edge for 2 frames every 40; each edge reload counted (the run's last line: "edge reloads: N")
+            static int edgeReloads = 0;
+            if (edgeReloadNow(rt, 0, rt.frameCount % 40 < 2, true)) {
+                rt.gun[0].trigger = true, rt.gun[0].onScreen = false;
+                if (++edgeReloads <= 3)
+                    std::printf("frame %llu: edge reload (P1 had %d of %d rounds)\n", (unsigned long long)rt.frameCount,
+                                int(rt.mem.at<port::a::Player>(rt.player_rec(0)).rounds), int(rt.pm_full_rounds(0)));
+            }
+            if (i + 1 == frames)
+                std::printf("edge reloads: %d (%s)\n", edgeReloads, rt.pm_on() ? "PC Mode" : "arcade");
+        }
         rt.scoreDisplay = gScoreDisplay && !gNet;   // scoredisp: offline only (it is game memory: 0x51F42C)
         for (uint64_t s : startAt)   // --start-at P:F (player P presses start at frame F)
             if (!gNet && (s & 0xFFFFFFFF) == rt.frameCount)

@@ -55,7 +55,9 @@ Options > System > What's New.
 - PC models: the punch's hit mark is the PC's own splat, not claw marks (#9).
 - PC sound: the chainsaw and electric sounds popped (#3).
 - Setup: importing loose arcade ROM files (a folder or an unpacked archive) found only 4 of the 29 files.
-- Attract demo: the sewer researcher and the blood pool in the prologue are back (with Attract Gore), as on the PC.
+- Attract demo: fully uncensored as on the 1998 PC with Attract Gore (the default): the sewer researcher and the
+  blood pool in the prologue are back, and the prologue's hostage close-up uses the PC's camera. Off plays Revision A.
+- Gameplay > Edge Reload works in PC Mode too (#42), reloading to the character's full load.
 
 ## [1.1.0] - 2026-11-02
 

@@ -2084,6 +2084,19 @@ bool Hud::vrSight(const Runtime& rt, int seat, int wh, unsigned& tex, float& asp
 namespace hotd::game {
 namespace {
 
+// redblocks (user 2026-11-04: the Remake main menu under big flat dark-red squares on the layers' 32 px tiles, the
+// widgets gone, the hand a box): the Remake passes' own vertex shader, the whole quad's texture (0..1, v down).
+// They shared the 2D layer's kVs, whose uUV (wide2d: the texture's range) they never set: every texel read at
+// (0, 0) (the splatter's corner: its dark red over each tile it has), and the backdrop's uUV read as that range
+const char* kRemakeVs = R"(#version 330 core
+uniform vec4 uRect;   // x, y, w, h in normalized device coordinates (y up)
+out vec2 vUV;
+void main() {
+    vec2 c = vec2(gl_VertexID & 1, gl_VertexID >> 1);
+    vUV = vec2(c.x, 1.0 - c.y);
+    gl_Position = vec4(uRect.xy + c * uRect.zw, 0.0, 1.0);
+}
+)";
 // the backdrop: the source's part across the screen, grey and dark, tinted (c * mul + add), the vignette (as
 // Frontend::rBackground's CPU loop, per window pixel)
 const char* kRemakeBgFs = R"(#version 330 core
@@ -2126,7 +2139,7 @@ void main() {
 
 gl::GLuint linkRemake(const char* fs, std::string& err)
 {
-    const gl::GLuint v = compile(gl::VERTEX_SHADER, kVs, err), f = v ? compile(gl::FRAGMENT_SHADER, fs, err) : 0;
+    const gl::GLuint v = compile(gl::VERTEX_SHADER, kRemakeVs, err), f = v ? compile(gl::FRAGMENT_SHADER, fs, err) : 0;
     if (!v || !f)
         return 0;
     const gl::GLuint p = gl::CreateProgram();
