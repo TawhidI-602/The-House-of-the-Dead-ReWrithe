@@ -344,7 +344,7 @@ jobs:
           HOTD_PREF_DIR="$RUNNER_TEMP/pref_pkg" "$app/Contents/MacOS/hotd-launcher" --version
           rm -rf "$out/settings"   # (the two runs above made it: the package ships without one)
           # no game data
-          ! find "$out" -type f \( -iname '*.zip' -o -iname '*.ogg' -o -iname '*.mp3' -o -iname '*.wav' -o -iname '*.rbh' -o -iname '*.bin' -o -iname 'thotd.exe' \) | grep -q .
+          ! find "$out" -type f -not -path '*/data/typing/ding.wav' \( -iname '*.zip' -o -iname '*.ogg' -o -iname '*.mp3' -o -iname '*.wav' -o -iname '*.rbh' -o -iname '*.bin' -o -iname 'thotd.exe' \) | grep -q .
           (cd "$root" && ditto -c -k --keepParent "HOTD ReWrithe macOS" "hotd-rewrithe-v${ver}-macos-universal.zip" \
             && shasum -a 256 "hotd-rewrithe-v${ver}-macos-universal.zip" > SHA256SUMS-macos.txt)
       - uses: actions/upload-artifact@v4

@@ -178,7 +178,8 @@ cp "$repo/CHANGELOG.md" "$out/CHANGELOG.txt"   # setup2: What's New reads it
 cp "$repo/docs/online_howto.md" "$out/ONLINE HOWTO.txt"
 
 # 4. Checks: no game data, the bundled SDL is the one the exe loads, the newest glibc it needs
-bad="$(find "$out" -type f \( -iname '*.zip' -o -iname '*.7z' -o -iname '*.rar' -o -iname '*.ogg' -o -iname '*.mp3' -o -iname '*.wav' \
+# (data/typing/ding.wav is ours: TotD 0's ding, a CC0 recording, NOTICE.md; v1.3.0's Linux job stopped on it)
+bad="$(find "$out" -type f -not -path '*/data/typing/ding.wav' \( -iname '*.zip' -o -iname '*.7z' -o -iname '*.rar' -o -iname '*.ogg' -o -iname '*.mp3' -o -iname '*.wav' \
       -o -iname '*.rbh' -o -iname '*.vmc' -o -iname '*.bin' -o -iname '*.rom' -o -iname '*.iso' -o -iname 'epr-*' -o -iname 'mpr-*' -o -iname 'thotd.exe' \))"
 [ -z "$bad" ] || { echo "game data in the package: $bad" >&2; exit 1; }
 loaded="$(LD_LIBRARY_PATH= sdlOf "$out/bin/hotd")"
