@@ -88,11 +88,21 @@ template <class P> void Game<P>::hud_ammo_draw(uint32_t task)
         // PC Mode (ReWrithe on the arcade logic; THOTD.EXE hud_ammo_draw 0x50B7E4): no bullets while the reload timer
         // runs, up to 12 of them
         if (scene != 3 && scene != 5 && !(pm_on() && pm_reload_at[p & 3] != 0)) {
+            // weapons (ours, game/weapons.h): a magazine of more than 6: one bullet (the HUD draws "x N" beside it, as
+            // the lives above 5)
+            int shown = int8_t(mem.template at<uint8_t>(pl + 0x3D));
+            if (weaponHooks && shown > 6)
+                shown = 1;
+            const bool none = noAmmoRow && p == 0;   // (totd6: TotD 0, player 1: every place put out)
+            if (none)
+                shown = 0;
             for (int i = 0; i < (pm_on() ? 12 : 6); ++i) {
                 const int x = p == 0 ? 2 + 2 * i : 0x3B - 2 * i;
-                if (int8_t(mem.template at<uint8_t>(pl + 0x3D)) <= i) {
+                if (shown <= i) {
                     sprite_draw(kTileRam, x, 0x26, 0x10);
-                    break;
+                    if (!weaponHooks && !none)
+                        break;
+                    continue;   // (weapons: every slot past the shown ones put out: the count jumps with a switch)
                 }
                 sprite_draw_anim(kTileRam, 1, 0, x, 0x26, 0x10);
             }

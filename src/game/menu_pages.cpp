@@ -231,7 +231,7 @@ void menuReset(LaunchConfig& c, int page)
         c.bloodParticles = d.bloodParticles, c.clearMarks = d.clearMarks, c.transparency = d.transparency;
         c.resFullW = d.resFullW, c.resFullH = d.resFullH, c.resWinW = d.resWinW, c.resWinH = d.resWinH;
         c.crt = d.crt;
-        c.gamma = d.gamma, c.menuGamma = d.menuGamma;
+        c.gamma = d.gamma, c.menuGamma = d.menuGamma, c.blackLevel = d.blackLevel, c.vrr = d.vrr;
         break;
     case kCatAudio:
         c.sound = d.sound, c.sfxVolume = d.sfxVolume, c.music = d.music, c.musicVolume = d.musicVolume, c.menuMusic = d.menuMusic;
@@ -240,8 +240,8 @@ void menuReset(LaunchConfig& c, int page)
         c.p1Input = d.p1Input, c.p2Input = d.p2Input, c.p3Input = d.p3Input, c.p4Input = d.p4Input;
         c.gunKind = d.gunKind, c.gunFlash = d.gunFlash, c.gunBorder = d.gunBorder;   // (padpass)
         c.padPrompts = d.padPrompts, c.buttonStyle = d.buttonStyle, c.iconOutline = d.iconOutline;   // (padglyphs; menus3)
-        c.touchCursor = d.touchCursor, c.gyroCursor = d.gyroCursor, c.cursorSpeed = d.cursorSpeed;
-        c.gyroCursorSpeed = d.gyroCursorSpeed, c.mouseSens[0] = d.mouseSens[0], c.mouseSens[1] = d.mouseSens[1];   // (#36)
+        c.touchCursor = d.touchCursor, c.gyroCursor = d.gyroCursor, c.touchCursorSens = d.touchCursorSens;
+        c.gyroCursorSens = d.gyroCursorSens, c.mouseSens[0] = d.mouseSens[0], c.mouseSens[1] = d.mouseSens[1];   // (#36)
         for (int p = 0; p < 4; ++p) c.gunDev[p].clear(), c.gunName[p].clear();   // (ipolish: Light Guns: Assign)
         break;
     case kCatGameplay:
@@ -279,6 +279,14 @@ std::vector<Frontend::Extra> menuCategoryRows(int category, LaunchConfig& c, con
                      [&c, save]() { c.aspect = c.aspect == 0 ? 2 : c.aspect == 2 ? 1 : 0; save(); },
                      "16:9 fills the window; 16:10 for 16:10 screens (Steam Deck), thin side bars on wider ones; 4:3 is the original picture with side bars"});
         listed(r, {"16:9", "16:10", "4:3"});
+        // wide2d (user 2026-11-03): the 2D screens made for 4:3 only (the chapter cards, GAME OVER, the route map, the
+        // chapter clear's wall) widened from their own pixels (backgrounds extended or stretched, words kept in shape),
+        // up to 16:9 (wider windows: side bars past 16:9), or as the original 4:3 with side bars
+        r.push_back({"Widen 2D Screens", [&c]() { return std::string(c.widen2d == 1 ? "Original 4:3" : "Stretch"); },
+                     [&c, save]() { c.widen2d = c.widen2d == 1 ? 0 : 1; save(); },
+                     "The chapter title cards, GAME OVER and other 4:3 pictures: Stretch fills a wide window (up to 16:9; the words keep their shape); Original 4:3 keeps the side bars"});
+        listed(r, {"Stretch", "Original 4:3"});
+        r.back().off = [&c]() { return c.aspect == 1 ? std::string("Aspect 4:3 shows the whole game in 4:3") : std::string(); };
         // remakemenu: the menu's look (game/frontend.h "the menu's two styles")
         r.push_back({"Menu Style", [&c]() { return std::string(c.menuStyle == 1 ? "Remake" : "Classic PC"); },
                      [&c, save, h]() {
@@ -343,6 +351,7 @@ std::vector<Frontend::Extra> menuCategoryRows(int category, LaunchConfig& c, con
                     },
                     [&c, save, rates](int k) { c.frameRate = rates[k]; save(); });
         }
+        r.back().off = [&c]() { return c.vrr ? std::string("The game's own rate while VRR is On") : std::string(); };   // (bugs4)
         // optui (user 2026-10-26 "the menu lags"): the menus' own cap (the game follows Frame Rate)
         r.push_back({"Menu Frame Rate", [&c, h]() {
                          return c.menuFps > 0 ? std::to_string(c.menuFps) + " fps"
@@ -356,10 +365,22 @@ std::vector<Frontend::Extra> menuCategoryRows(int category, LaunchConfig& c, con
         r.push_back({"Vsync", [&c]() { return std::string(c.frameRate < 0 ? "Off" : c.vsync ? "On" : "Off"); },
                      [&c, save]() { c.vsync = !c.vsync; save(); },
                      "Wait for the display's refresh (no tearing)"});
-        r.back().off = [&c]() { return c.frameRate < 0 ? std::string("Vsync is off while Frame Rate is Unlimited") : std::string(); };
+        r.back().off = [&c]() {
+            return c.vrr ? std::string("Off while VRR is On")
+                         : c.frameRate < 0 ? std::string("Vsync is off while Frame Rate is Unlimited") : std::string();
+        };
         r.push_back({"Smooth Motion", [&c]() { return onOff(c.smooth); },
                      [&c, save]() { c.smooth = !c.smooth; save(); },
                      "Blend the 3D picture between game frames (smoother; the game itself is unchanged)"});
+        r.back().off = [&c]() { return c.vrr ? std::string("Off while VRR is On") : std::string(); };
+        // bugs4 (GitHub #20): G-Sync / FreeSync. Off: as before (Borderless one pixel taller than the display, so the
+        // driver keeps it in the desktop's compositor and screen recorders' window capture works). On: Borderless
+        // exactly the display (the driver's own fullscreen flip, where VRR engages), V-Sync off, each game frame shown
+        // once at the game's rate (57.52 / 60 Hz) for the display to follow (no blend: Smooth Motion off)
+        r.push_back({"VRR (G-Sync / FreeSync)", [&c]() { return onOff(c.vrr); },
+                     [&c, save]() { c.vrr = !c.vrr; save(); },
+                     "For a G-Sync / FreeSync display: each game frame shown once at the game's own rate (57.5 or 60 Hz). "
+                     "Vsync and Smooth Motion off; Borderless covers the display exactly (screen recorders: capture the display, not the window)"});
         r.push_back({"Hit Sparks", [&c]() { return onOff(c.hitSparks); },
                      [&c, save]() { c.hitSparks = !c.hitSparks; save(); },
                      "The bright spark bursts where your bullets hit (draw only; the game itself is unchanged)"});
@@ -462,6 +483,26 @@ std::vector<Frontend::Extra> menuCategoryRows(int category, LaunchConfig& c, con
             r.back().barSet = [setG](int v) { setG(kGammaMin + (v + kGammaStep / 2) / kGammaStep * kGammaStep); };
             r.back().barMax = kGammaMax - kGammaMin;
             r.back().barStep = kGammaStep;
+        }
+        // bugs4 (GitHub #23, render/gamma.h kBlack*): the arcade picture's black point in MAME's output curve, 64 (MAME's,
+        // the default) down to 0 in steps of 4, as a bar; menu.cfg + save only (the frames pick it up, the live
+        // background shows it at once). The PC models have no such curve: grey there
+        {
+            auto setB = [&c, save](int v) { c.blackLevel = std::clamp(v, int(kBlackMin), int(kBlackMax)); save(); };
+            r.push_back({"Black Level", [&c]() { return std::to_string(c.blackLevel); },
+                         [&c, setB]() { setB(c.blackLevel >= kBlackMax ? kBlackMin : c.blackLevel + kBlackStep); },
+                         "The arcade picture's black point: 64 is MAME's (the original's deep shadows); lower brings the "
+                         "detail in the dark areas back instead of turning it grey"});
+            r.back().clickBack = [&c, setB]() { setB(c.blackLevel <= kBlackMin ? kBlackMax : c.blackLevel - kBlackStep); };
+            constexpr int n = (kBlackMax - kBlackMin) / kBlackStep + 1;
+            indexed(r, namesOf(n, [](int i) { return std::to_string(kBlackMin + i * kBlackStep); }),
+                    [&c]() { return (c.blackLevel - kBlackMin) % kBlackStep == 0 ? (c.blackLevel - kBlackMin) / kBlackStep : -1; },
+                    [setB](int k) { setB(kBlackMin + k * kBlackStep); });
+            r.back().barGet = [&c]() { return c.blackLevel - kBlackMin; };
+            r.back().barSet = [setB](int v) { setB(kBlackMin + (v + kBlackStep / 2) / kBlackStep * kBlackStep); };
+            r.back().barMax = kBlackMax - kBlackMin;
+            r.back().barStep = kBlackStep;
+            r.back().off = [&c]() { return c.models == 1 ? std::string("The arcade models only (the PC models have no black level)") : std::string(); };
         }
         // crt (render/crt.h, worker "crt"): the preset here, the rest on its page; menu.cfg + save only (the frames
         // pick cfg.crt up)
@@ -629,19 +670,21 @@ std::vector<Frontend::Extra> menuCategoryRows(int category, LaunchConfig& c, con
                     [&c, save](int k) { c.gyroCursor = k; save(); });
             r.back().clickBack = [&c, save]() { c.gyroCursor = (c.gyroCursor + 2) % 3; save(); };
             // GitHub #36: the touchpad's and the gyro's cursor speed apart (was one Cursor Speed for both; the sticks /
-            // d-pad move the menus' selection, not the hand)
-            r.push_back({"Touchpad Cursor Speed", [&c]() { return std::to_string(std::clamp(c.cursorSpeed, 1, 10)); },
-                         [&c, save]() { c.cursorSpeed = c.cursorSpeed % 10 + 1; save(); },
-                         "How fast the touchpad moves the hand in the menus"});
-            indexed(r, {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}, [&c]() { return std::clamp(c.cursorSpeed, 1, 10) - 1; },
-                    [&c, save](int k) { c.cursorSpeed = k + 1; save(); });
-            r.back().clickBack = [&c, save]() { c.cursorSpeed = (c.cursorSpeed + 8) % 10 + 1; save(); };
-            r.push_back({"Gyro Cursor Speed", [&c]() { return std::to_string(std::clamp(c.gyroCursorSpeed, 1, 10)); },
-                         [&c, save]() { c.gyroCursorSpeed = c.gyroCursorSpeed % 10 + 1; save(); },
-                         "How fast tilting a pad with a gyro moves the hand in the menus"});
-            indexed(r, {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}, [&c]() { return std::clamp(c.gyroCursorSpeed, 1, 10) - 1; },
-                    [&c, save](int k) { c.gyroCursorSpeed = k + 1; save(); });
-            r.back().clickBack = [&c, save]() { c.gyroCursorSpeed = (c.gyroCursorSpeed + 8) % 10 + 1; save(); };
+            // d-pad move the menus' selection, not the hand). sens36: each its own % (100 %: the old speed 5), a bar
+            using L = LaunchConfig;
+            auto cursorSens = [&r, save](const char* name, int& v, const char* help) {
+                static constexpr int lo = L::kCursorSensLo, hi = L::kCursorSensHi, st = L::kCursorSensStep;
+                r.push_back({name, [&v]() { return std::to_string(std::clamp(v, lo, hi)) + "%"; },
+                             [&v, save]() { v = v >= hi ? lo : std::min(hi, (v / st + 1) * st); save(); }, help});
+                indexed(r, namesOf((hi - lo) / st + 1, [](int i) { return std::to_string(lo + i * st) + "%"; }),
+                        [&v]() { return (std::clamp(v, lo, hi) - lo) / st; }, [&v, save](int k) { v = lo + k * st; save(); });
+                r.back().clickBack = [&v, save]() { v = v <= lo ? hi : std::max(lo, ((v + st - 1) / st - 1) * st); save(); };
+                r.back().barGet = [&v]() { return std::clamp(v, lo, hi); };
+                r.back().barSet = [&v, save](int n) { v = std::clamp((n + st / 2) / st * st, lo, hi); save(); };
+                r.back().barMax = hi;
+            };
+            cursorSens("Touchpad Cursor Sensitivity", c.touchCursorSens, "How fast the touchpad moves the hand in the menus");
+            cursorSens("Gyro Cursor Sensitivity", c.gyroCursorSens, "How fast tilting a pad with a gyro moves the hand in the menus");
         }
         // GitHub #36: players 1 / 2's mouse sensitivity (100 %: the desktop cursor's own speed, as before)
         for (int p = 0; p < 2; ++p) {
@@ -656,22 +699,8 @@ std::vector<Frontend::Extra> menuCategoryRows(int category, LaunchConfig& c, con
             r.back().barSet = [&v, save](int n) { v = std::clamp((n + 5) / 10, 5, 20); save(); };
             r.back().barMax = 200;
         }
-        // padfix (user 2026-10-30: "players should have a sensitivity option for this"): each player's pad's aim speed
-        // (the sticks, the gyro, the trackpad: PadProfile::aimSens), a bar of 50 .. 200 %
-        for (int p = 0; p < 4; ++p) {
-            int& v = c.pad[p].aimSens;
-            r.push_back({"Aim Sensitivity: Player " + std::to_string(p + 1) + (p >= 2 ? " (4P)" : ""),
-                         [&v]() { return std::to_string(std::clamp(v, 5, 20) * 10) + "%"; },
-                         [&v, save, h]() { v = v >= 20 ? 5 : std::max(5, v + 1); save(); if (h.padsChanged) h.padsChanged(); },
-                         "How fast player " + std::to_string(p + 1) + "'s gamepad aims (its sticks, gyro and trackpad). 100%: as tuned"});
-            indexed(r, namesOf(16, [](int i) { return std::to_string((i + 5) * 10) + "%"; }), [&v]() { return std::clamp(v, 5, 20) - 5; },
-                    [&v, save, h](int k) { v = k + 5; save(); if (h.padsChanged) h.padsChanged(); });
-            r.back().clickBack = [&v, save, h]() { v = v <= 5 ? 20 : std::min(20, v - 1); save(); if (h.padsChanged) h.padsChanged(); };
-            r.back().barGet = [&v]() { return std::clamp(v, 5, 20) * 10; };
-            r.back().barSet = [&v, save, h](int n) { v = std::clamp((n + 5) / 10, 5, 20); save(); if (h.padsChanged) h.padsChanged(); };
-            r.back().barMax = 200;
-            if (p >= 2) experimental(r);
-        }
+        // (padfix's Aim Sensitivity: Player 1-4 rows are gone, sens36 / GitHub #36: a master speed over the sticks, the
+        // gyro and the trackpad doubled them by accident; each input's own speed is on the player's Controller page)
         for (int p = 0; p < 4; ++p) {
             r.push_back({"Controller: Player " + std::to_string(p + 1) + (p >= 2 ? " (4P)" : ""), []() { return page("Settings"); },
                          [h, p]() { if (h.padPage) h.padPage(p); },
@@ -1431,11 +1460,14 @@ const char* padFieldHelp(const char* key)
 {
     static const struct { const char* key; const char* help; } k[] = {
         {"style", "How the pad aims: a stick, the gyro, the gyro + a stick, or the touchpad"},
-        {"speed", "How fast the aim moves (the stick's top speed, the gyro's sensitivity)"},
+        // sens36 (GitHub #36): each input its own whole speed (was speed / fine / aimsens / sticksens / gyrosens / touchsens)
+        {"aimstick", "How fast the aiming stick moves the crosshair, on its own (100%: the default)"},
+        {"aimfine", "How fast the fine-aim stick moves the crosshair, on its own (100%: the default)"},
+        {"aimgyro", "How far the crosshair moves as you turn the pad, on its own (100%: the default)"},
+        {"aimtouch", "How fast the trackpad moves the crosshair, on its own (100%: the default)"},
         {"vert", "The vertical sensitivity against the horizontal"},
         {"invert", "Turn the aim's horizontal or vertical direction around"},
         {"stick", "Which stick aims (or fine-aims)"},
-        {"fine", "The fine-aim stick's speed against the aiming speed"},
         {"dead", "The sticks' dead zone in the middle"},
         {"curve", "The stick's response curve (Linear: no acceleration)"},
         {"smooth", "Smooth the gyro's tiny jitter (adds a little lag)"},
@@ -1443,10 +1475,6 @@ const char* padFieldHelp(const char* key)
         {"shoot", "The button that shoots"},
         {"touch", "The touchpad: off, a pointer, or a trackpad"},
         {"touchclick", "The touchpad's click: reload or shoot"},
-        {"aimsens", "How fast this player's pad aims: the sticks, the gyro and the trackpad (100%: as tuned)"},
-        {"sticksens", "The sticks' aim alone, on top of Sensitivity and Aim Sensitivity (100%: as tuned)"},
-        {"gyrosens", "The gyro's aim alone, on top of Sensitivity and Aim Sensitivity (100%: as tuned)"},
-        {"touchsens", "The trackpad's aim alone, on top of Sensitivity and Aim Sensitivity (100%: as tuned)"},
         {"trigger", "How far the trigger goes in before it fires"},
         {"adaptive", "DualSense: the trigger's gun-like resistance"},
         {"rumblehit", "Vibration when you are hit"},
