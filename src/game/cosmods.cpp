@@ -239,6 +239,29 @@ uint16_t magicianAfterimageWord(uint16_t word, uint32_t frame)
     return rgb555(rgb[i % 6]);
 }
 
+uint16_t magicianAfterimageItemWord(const Runtime& rt, uint32_t model, uint32_t task)
+{
+    const MagicianAfterimageSettings& s = magicianAfterimageSettings();
+    if (!s.on || model != 0x1C20 || task == 0 || !rt.mem.mapped(0x180248E) || !rt.mem.mapped(task + 0x2E0))
+        return 0;
+    const uint16_t word = rt.mem.at<uint16_t>(0x180248E);
+    const int c = (word & 0x7FFF) == 0x7EC0 ? s.phase1 : (word & 0x7FFF) == 0x001F ? s.phase2 : -1;
+    if (c != -2)
+        return 0;   // (Original / one colour: the palette entry's)
+    // the frame it appeared: its fade starts at the Magician's (0xFF drawn normally) and drops 5 a frame
+    const int fade = rt.mem.at<int16_t>(task + 0x2E0);
+    const uint32_t age = uint32_t(std::clamp((0xFF - fade) / 5, 0, 60));
+    const uint64_t now = uint64_t(rt.frameCount);
+    const uint32_t born = uint32_t(now - std::min<uint64_t>(age, now));
+    // the computer screens' table steps per frame of its birth (Slow / Normal / Fast): the next afterimage, a few frames
+    // later, a clearly different colour
+    const uint32_t step = s.speed < 0.15f ? 2u : s.speed > 0.5f ? 9u : 5u;
+    const uint32_t i = (born * step) % 90u;
+    if (rt.mem.mapped(0xAB120 + 2u * 89u))
+        return uint16_t(rt.mem.at<uint16_t>(0xAB120 + 2u * i) | 0x8000u);
+    return magicianAfterimageWord(0x801F, born * 7u);   // (no table: a plain hue)
+}
+
 bool bigHeadTypeOn(int type)
 {
     const BigHeadSettings& s = bigHeadSettings();

@@ -291,7 +291,9 @@ draws them in one polygon palette colour (entry 583) that it sets itself: blue (
 - **Phase 1** / **Phase 2**: Original (the game's), Rainbow, Red, Orange, Yellow, Green, Cyan, Blue, Purple, Pink,
   White, or **any colour** as `#RRGGBB` (in `launcher.ini`: `modset.magician-afterimages.phase1=#FF00FF`, or
   `--mod-set magician-afterimages.phase1=#FF00FF`).
-- **Rainbow Speed**: Slow, Normal, Fast (one colour at a time: every afterimage on the screen shares it).
+- **Rainbow**: each afterimage its own colour, the next one the next, from the Chapter 4 computer screens' colours
+  (palette_animation's 90-colour table 0xAB120), kept as it fades. **Rainbow Speed**: Slow, Normal, Fast (how far apart
+  the colours of two afterimages are).
 
 Arcade models (the PC models draw the afterimages from their own textures). Visual only. Its texts come from
 `data\mods\magician-afterimages\mod.ini`.

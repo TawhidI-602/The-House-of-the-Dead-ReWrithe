@@ -63,6 +63,7 @@ uniform float uRainbowPhase;
 uniform vec3 uRainbowTable[90];  // cosmods: the game's rainbow (the Chapter 4 screens: palette_animation, 0xAB120), 0..1
 uniform int uRainbowGame;       // 1: vRainbow from uRainbowTable, 0: a plain hue
 uniform int uRainbowSync;       // cosmods: the animated palette entry the blood takes (the screens' own colour), -1 none
+uniform int uPalOver;           // v1.3.1: DrawItem::palOver (entry 583's colour for this item; 0 none)
 uniform float uBodyHue;         // cosmods: DrawItem::bloodHue (-1 none; 0..1 a creature's own hue; 2..3 cycling with an offset; 4..5 the same, blood rows only; 6..7 the same, wounds as painted)
 flat out vec3 vRainbow;         // cosmods: the rainbow colour of this item (PC: the marked blood texels times it)
 flat out float vRainbowPal;     // cosmods: 1 = this polygon is the blood entry 1023 in the rainbow colour (fragment: no row lookup)
@@ -281,6 +282,7 @@ R"(
         // cosmods: Rainbow Blood in step with the Chapter 4 screens (Fast): the blood entry takes their animated entry
         int palIdx = uRainbowSync >= 0 && uRainbow != 0 && uRainbow != 3 && pal == 1023u ? uRainbowSync : int(pal);
         uint p = texelFetch(uPalAnim, ivec2(palIdx, 0), 0).r;
+        if (uPalOver != 0 && pal == 583u) p = uint(uPalOver);   // (v1.3.1: this afterimage's own colour, DrawItem::palOver)
         if ((p & 0x8000u) != 0u) vColor.rgb = uvec3(p & 31u, (p >> 5) & 31u, (p >> 10) & 31u);
     }
     // cosmods: Rainbow Blood (RenderOptions::rainbow): the hue now, per draw item (its place) or one for all; arcade the
@@ -1636,7 +1638,7 @@ void Renderer::draw(const std::vector<DrawItem>& items, const Camera& cam, int w
         int n = -1;   // -1: not sent yet in this draw
     };
     enum { kOffset, kRot, kBias, kFloorY, kFloorPull, kPush, kFade, kRamp, kBodyHue, kFlat, kUV, kShading, kM2Known, kM2Light, kGrey, kHasRepl,
-           kClampUV, kSortItem, kHybrid, kKeyless, kSideOnly, kSlots };
+           kClampUV, kSortItem, kHybrid, kKeyless, kSideOnly, kPalOver, kSlots };
     Cache cache[kSlots];
     auto changed = [&](int slot, const float* v, int n) {
         Cache& c = cache[slot];
@@ -1697,8 +1699,9 @@ void Renderer::draw(const std::vector<DrawItem>& items, const Camera& cam, int w
         unitTex[unit] = tex;
         unitKnown[unit] = true;
     };
-    static gl::GLint uRamp = -2, uStops = -2, uBodyHue = -2;
+    static gl::GLint uRamp = -2, uStops = -2, uBodyHue = -2, uPalOver = -2;
     if (uRamp == -2) {
+        uPalOver = gl::GetUniformLocation(program_, "uPalOver");   // (v1.3.1: the afterimages' own colours)
         uRamp = gl::GetUniformLocation(program_, "uRamp");
         uStops = gl::GetUniformLocation(program_, "uRampStops");
         uBodyHue = gl::GetUniformLocation(program_, "uBodyHue");   // (cosmods: Rainbow Blood's creature colour)
@@ -1794,6 +1797,7 @@ void Renderer::draw(const std::vector<DrawItem>& items, const Camera& cam, int w
         set1i(kSideOnly, uSideOnly_, it.sideOnly ? 1 : 0);
         set1i(kRamp, uRamp, it.ramp >= 0 && it.ramp < 2 ? it.ramp : -1);
         set1f(kBodyHue, uBodyHue, it.bloodHue);   // cosmods
+        set1i(kPalOver, uPalOver, int(it.palOver));   // (v1.3.1)
         if (it.ramp >= 0 && it.ramp < 2 && rampStopsSent != it.ramp) {
             gl::Uniform3fv(uStops, 5, &rampStops[it.ramp][0][0]);
             rampStopsSent = it.ramp;

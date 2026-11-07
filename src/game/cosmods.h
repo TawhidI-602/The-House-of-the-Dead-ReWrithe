@@ -78,6 +78,11 @@ void magicianAfterimageConfigure(bool on, const std::map<std::string, std::strin
 // the colour word to draw for the game's `word` at `frame` (RGB555 with bit 15, R in the low bits): the game's own
 // unless the mod changes that phase
 uint16_t magicianAfterimageWord(uint16_t word, uint32_t frame);
+// the DrawItem::palOver of a model drawn by the task `task` (v1.3.1: "each afterimage its own colour", user
+// 2026-11-07): the Magician's afterimage (model 0x1C20) in a Rainbow phase: the Chapter 4 computer screens' colours
+// (palette_animation's 90-colour table 0xAB120) by the frame it appeared, so each one keeps its colour and the next one
+// takes the next; 0 none (the palette entry's colour)
+uint16_t magicianAfterimageItemWord(const Runtime& rt, uint32_t model, uint32_t task);
 // whether a creature type gets a big head with the settings now (the mod on; Heads: the people; Bosses). Also the
 // Gallery's (relfix: it follows the Mods page's Big Head)
 bool bigHeadTypeOn(int type);

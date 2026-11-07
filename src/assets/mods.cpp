@@ -434,7 +434,7 @@ static ModPack builtinCosmetic(const std::string& type)
         p.description = "The colour of the Magician's afterimages in each phase: as in the game, the rainbow, or a colour of your choice (visual only; any colour: #RRGGBB in its mod.ini)";
         settings = {{"phase1", "Phase 1 | Original | Original, Rainbow, Red, Orange, Yellow, Green, Cyan, Blue, Purple, Pink, White | The afterimages as he flies around (the game: blue)"},
                     {"phase2", "Phase 2 | Original | Original, Rainbow, Red, Orange, Yellow, Green, Cyan, Blue, Purple, Pink, White | The afterimages of his swoops and lunges (the game: red)"},
-                    {"speed", "Rainbow Speed | Normal | Slow, Normal, Fast | How fast the rainbow changes"}};
+                    {"speed", "Rainbow Speed | Normal | Slow, Normal, Fast | How different the colours of two afterimages in a row are"}};
     } else {
         p.id = "big-head";
         p.name = "Big Head";
