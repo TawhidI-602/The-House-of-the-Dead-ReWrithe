@@ -282,6 +282,20 @@ Both mods' texts and settings come from `data\mods\rainbow-blood\mod.ini` and `d
 has the same built-in values without them). Pictures for checking: `tools\cosmods_shots.ps1` (Chapter 1 offscreen, no
 mods / each mod / both, arcade and PC models).
 
+## The Magician Afterimages mod (built in)
+
+The colour of the Magician's afterimages (Chapter 4's boss), one setting per phase (v1.3.1, GitHub #54). The game
+draws them in one polygon palette colour (entry 583) that it sets itself: blue (0xFEC0) as he flies around, red
+(0x801F) for his swoops and lunges. The mod replaces either colour:
+
+- **Phase 1** / **Phase 2**: Original (the game's), Rainbow, Red, Orange, Yellow, Green, Cyan, Blue, Purple, Pink,
+  White, or **any colour** as `#RRGGBB` (in `launcher.ini`: `modset.magician-afterimages.phase1=#FF00FF`, or
+  `--mod-set magician-afterimages.phase1=#FF00FF`).
+- **Rainbow Speed**: Slow, Normal, Fast (one colour at a time: every afterimage on the screen shares it).
+
+Arcade models (the PC models draw the afterimages from their own textures). Visual only. Its texts come from
+`data\mods\magician-afterimages\mod.ini`.
+
 ## Custom crosshairs
 
 Your own crosshair pictures: put PNG files in the **crosshairs** folder in the settings folder (next to `launcher.ini`;

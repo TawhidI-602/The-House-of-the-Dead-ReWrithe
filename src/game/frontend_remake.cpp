@@ -263,6 +263,7 @@ void Frontend::remakeBegin(int screen, const std::string& key)
 {
     screen_ = screen;
     freeTree();
+    rPrvRows_.clear(), rRowWidgets_.clear();   // (v1.3.1: the settings rows' marks: only that page's)
     texts_.clear();
     cw_ = wideW_;
     sc_ = 2;
@@ -476,8 +477,10 @@ void Frontend::remakeSettings(const std::string& title, std::vector<Extra>* rows
     const int screen = current == 0 ? 2 : 100;
     remakeBegin(screen, "set|" + title);
     rPreviewRow_.clear();
+    rPrvRows_.clear();
+    rRowWidgets_.clear();
     if (remakeFirstFocus_)
-        remakeScroll_ = 0;
+        remakeScroll_ = 0, rPrvFocus_ = false;   // (a new page: every row until a row with pictures has the focus)
     rebuild_ = [this, title, rows, current, back]() { remakeSettings(title, rows, current, back); };
     root_->user = 1;
     // (the panel leaves the prompts' column free at the right where the screen is wide enough)
@@ -532,6 +535,8 @@ void Frontend::remakeSettings(const std::string& title, std::vector<Extra>* rows
     for (const Extra& e : *rows)
         anyPreview = anyPreview || (e.preview && e.choices.size() >= 2);
     constexpr int kPrvRows = 4;
+    const bool pagePreview = anyPreview;
+    anyPreview = anyPreview && rPrvFocus_;   // (v1.3.1: the strip only while such a row has the focus)
     const int rowTop = py + 12, rowH = 26, fullRows = narrow ? 11 : 12, maxRows = fullRows - (anyPreview ? kPrvRows : 0);
     const int n = int(rows->size());
     remakeScroll_ = std::clamp(remakeScroll_, 0, std::max(0, n - maxRows));
@@ -556,7 +561,11 @@ void Frontend::remakeSettings(const std::string& title, std::vector<Extra>* rows
         w->draw = &Frontend::drawRRow;
         w->flags |= 0x100;
         w->help = !off.empty() ? off : (exp && e.help.rfind("Experimental", 0) != 0 ? "Experimental: " + e.help : e.help);
-        if (e.preview && on && !dd && e.choices.size() >= 2) {   // fix28: the comparison pictures, shown with the focus
+        rRowWidgets_.insert(w);
+        // (v1.3.1: a row with pictures that stays shown with the strip: its focus asks for the strip)
+        if (pagePreview && e.preview && on && e.choices.size() >= 2 && r < fullRows - kPrvRows)
+            rPrvRows_.insert(w);
+        if (anyPreview && e.preview && on && !dd && e.choices.size() >= 2) {   // fix28: the comparison pictures, shown with the focus
             // relfix2: in the strip under the rows (below the "more" arrow, above the help line), its whole width; the
             // pictures sized and centred in it by drawRPreview (relfix's beside-the-labels placement: the rows now free)
             const int by = rowTop + maxRows * rowH + 14, bh = kPrvRows * rowH - 16;
@@ -2896,6 +2905,13 @@ void Frontend::remakeRender()
     const int PW = rpw(), PH = rph();
     const size_t bytes = size_t(PW) * size_t(PH) * 4;
     rOffX_ = rOffY_ = 0, rW_ = PW, rH_ = PH;
+    if (rPrvPending_) {   // (v1.3.1: the pictures' strip on / off: the settings page laid out again, before it is drawn)
+        rPrvPending_ = false;
+        if (rebuild_) {
+            const auto f = rebuild_;
+            f();
+        }
+    }
     bloodHue_ = bloodColour();
     bool dirty = rBackground();
     // the widgets under the hand / the focus (the hover walk's marks), then the marks off (the draw walk's clearing)
@@ -2912,6 +2928,15 @@ void Frontend::remakeRender()
         }
     };
     collect(root_);
+    // v1.3.1: a settings row has the focus: the pictures' strip wanted when it is a row with pictures (no row lit, e.g.
+    // the frame after a layout, or the hand on empty space: kept as it is)
+    if (!rRowWidgets_.empty()) {
+        bool any = false, want = false;
+        for (const Widget* w : lit)
+            if (rRowWidgets_.count(w)) any = true, want = want || rPrvRows_.count(w) != 0;
+        if (any && want != rPrvFocus_)
+            rPrvFocus_ = want, rPrvPending_ = true;
+    }
     const std::string ssig = std::to_string(treeGen_) + "|" + std::to_string(PW) + "x" + std::to_string(PH) + (padPrompts_ ? "p" + std::to_string(padType_) : std::string("k")) + "b" + std::to_string(buttonStyle) + (iconOutline ? "o" : "") +
                              std::to_string(bloodHue_) + (gpuLayers ? "g" : "s" + std::to_string(splatSeed)) +
                              (lang::active() ? "L" + std::to_string(lang::gen()) : std::string());

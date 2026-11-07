@@ -181,6 +181,64 @@ void bigHeadConfigure(bool on, const std::map<std::string, std::string>& values)
     bigHeadSettings() = s;
 }
 
+MagicianAfterimageSettings& magicianAfterimageSettings()
+{
+    static MagicianAfterimageSettings s;
+    return s;
+}
+
+namespace {
+int afterimageColour(const std::string& v)
+{
+    if (v == "Rainbow") return -2;
+    if (v.size() == 7 && v[0] == '#') {
+        char* end = nullptr;
+        const long c = std::strtol(v.c_str() + 1, &end, 16);
+        if (end && *end == 0) return int(c & 0xFFFFFF);
+    }
+    static const std::pair<const char*, int> named[] = {
+        {"Red", 0xFF0000}, {"Orange", 0xFF8000}, {"Yellow", 0xFFFF00}, {"Green", 0x00FF00}, {"Cyan", 0x00FFFF},
+        {"Blue", 0x0040FF}, {"Purple", 0x9000FF}, {"Pink", 0xFF40C0}, {"White", 0xFFFFFF}};
+    for (const auto& [n, c] : named)
+        if (v == n) return c;
+    return -1;   // Original (or anything unknown)
+}
+uint16_t rgb555(int rgb)
+{
+    const int r = (rgb >> 16) & 255, g = (rgb >> 8) & 255, b = rgb & 255;
+    return uint16_t(0x8000 | (r >> 3) | ((g >> 3) << 5) | ((b >> 3) << 10));
+}
+} // namespace
+
+void magicianAfterimageConfigure(bool on, const std::map<std::string, std::string>& values)
+{
+    MagicianAfterimageSettings s;
+    s.on = on;
+    s.phase1 = afterimageColour(valueOf(values, "phase1", "Original"));
+    s.phase2 = afterimageColour(valueOf(values, "phase2", "Original"));
+    const std::string sp = valueOf(values, "speed", "Normal");
+    s.speed = sp == "Slow" ? 0.1f : sp == "Fast" ? 0.6f : 0.25f;
+    magicianAfterimageSettings() = s;
+}
+
+uint16_t magicianAfterimageWord(uint16_t word, uint32_t frame)
+{
+    const MagicianAfterimageSettings& s = magicianAfterimageSettings();
+    if (!s.on) return word;
+    // the game's two words: 0xFEC0 (blue: phase 1, flying) and 0x801F (red: phase 2, swoops / lunges)
+    const int c = (word & 0x7FFF) == 0x7EC0 ? s.phase1 : (word & 0x7FFF) == 0x001F ? s.phase2 : -1;
+    if (c == -1) return word;
+    if (c >= 0) return rgb555(c);
+    // the rainbow: a full-saturation hue from the frame
+    const double h = std::fmod(double(frame) * s.speed / 60.0, 1.0) * 6.0;
+    const int i = int(h);
+    const double f = h - i;
+    const int up = int(255 * f), down = int(255 * (1 - f));
+    const int rgb[6] = {0xFF0000 | (up << 8), (down << 16) | 0xFF00, 0xFF00 | up, (down << 8) | 0xFF, (up << 16) | 0xFF,
+                        0xFF0000 | down};
+    return rgb555(rgb[i % 6]);
+}
+
 bool bigHeadTypeOn(int type)
 {
     const BigHeadSettings& s = bigHeadSettings();

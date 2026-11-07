@@ -64,6 +64,20 @@ struct BigHeadSettings {
 BigHeadSettings& bigHeadSettings();
 // mod.ini [settings] keys size / who / bosses
 void bigHeadConfigure(bool on, const std::map<std::string, std::string>& values);
+
+// Magician Afterimages (user 2026-11-07, GitHub #54): the colour of his afterimages (polygon palette entry 583, which
+// the game sets 0xFEC0 blue as he flies, 0x801F red for the swoops and lunges) per phase: -1 Original, -2 Rainbow,
+// else 0xRRGGBB (a named colour or "#RRGGBB" in the mod.ini / launcher.ini). Draw only
+struct MagicianAfterimageSettings {
+    bool on = false;
+    int phase1 = -1, phase2 = -1;
+    float speed = 0.2f;   // rainbow hue cycles per second
+};
+MagicianAfterimageSettings& magicianAfterimageSettings();
+void magicianAfterimageConfigure(bool on, const std::map<std::string, std::string>& values);
+// the colour word to draw for the game's `word` at `frame` (RGB555 with bit 15, R in the low bits): the game's own
+// unless the mod changes that phase
+uint16_t magicianAfterimageWord(uint16_t word, uint32_t frame);
 // whether a creature type gets a big head with the settings now (the mod on; Heads: the people; Bosses). Also the
 // Gallery's (relfix: it follows the Mods page's Big Head)
 bool bigHeadTypeOn(int type);

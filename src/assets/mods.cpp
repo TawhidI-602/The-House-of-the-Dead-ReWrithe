@@ -428,6 +428,13 @@ static ModPack builtinCosmetic(const std::string& type)
                     {"creature", "Creature Blood | Rainbow Cycle | Rainbow Cycle, Own Colour Each, Off | The wounds painted on each creature: cycling with the rest, its own colour for its whole life, or as the game paints them"},
                     // rainbow2 (user 2026-11-03): the players' sights and / or HUD in the rainbow too
                     {"hud", "HUD & Crosshair | Off | Off, Crosshair, HUD, Both | The players' crosshairs (each player its own phase) and / or HUD (bullets, 1P / 2P, torches, the score) in the rainbow too"}};
+    } else if (type == "magician") {   // (user 2026-11-07, GitHub #54: the Magician's afterimages, any colour each phase)
+        p.id = "magician-afterimages";
+        p.name = "Magician Afterimages";
+        p.description = "The colour of the Magician's afterimages in each phase: as in the game, the rainbow, or a colour of your choice (visual only; any colour: #RRGGBB in its mod.ini)";
+        settings = {{"phase1", "Phase 1 | Original | Original, Rainbow, Red, Orange, Yellow, Green, Cyan, Blue, Purple, Pink, White | The afterimages as he flies around (the game: blue)"},
+                    {"phase2", "Phase 2 | Original | Original, Rainbow, Red, Orange, Yellow, Green, Cyan, Blue, Purple, Pink, White | The afterimages of his swoops and lunges (the game: red)"},
+                    {"speed", "Rainbow Speed | Normal | Slow, Normal, Fast | How fast the rainbow changes"}};
     } else {
         p.id = "big-head";
         p.name = "Big Head";
@@ -450,14 +457,14 @@ std::vector<ModPack> findMods(const std::vector<std::string>& roots)
     // the built-in's missing settings after its own
     // (cosmods: the same for Rainbow Blood / Big Head, e.g. Creature Blood)
     for (ModPack& p : all)
-        if (p.type == "ragdoll" || p.type == "rainbowblood" || p.type == "bighead")
+        if (p.type == "ragdoll" || p.type == "rainbowblood" || p.type == "bighead" || p.type == "magician")
             for (const ModSetting& b : (p.type == "ragdoll" ? builtinRagdoll() : builtinCosmetic(p.type)).settings)
                 if (std::none_of(p.settings.begin(), p.settings.end(), [&](const ModSetting& q) { return q.key == b.key; }))
                     p.settings.push_back(b);
     bool added = false;
     if (std::none_of(all.begin(), all.end(), [](const ModPack& p) { return p.type == "ragdoll"; }))
         all.push_back(builtinRagdoll()), added = true;
-    for (const char* t : {"rainbowblood", "bighead"})   // cosmods
+    for (const char* t : {"rainbowblood", "bighead", "magician"})   // cosmods
         if (std::none_of(all.begin(), all.end(), [t](const ModPack& p) { return p.type == t; }))
             all.push_back(builtinCosmetic(t)), added = true;
     if (added)
@@ -516,8 +523,8 @@ std::vector<ModPack> findModPacks(const std::vector<std::string>& roots)
                         p.targets = m == "pc" ? 1 : m == "arcade" ? 2 : 3;
                     } else if (k == "type") {
                         p.type = lower(v);
-                        if (p.type != "textures" && p.type != "ragdoll" && p.type != "rainbowblood" && p.type != "bighead")
-                            std::fprintf(stderr, "mods: %s: type = %s: textures, ragdoll, rainbowblood or bighead (docs/modding.md)\n",
+                        if (p.type != "textures" && p.type != "ragdoll" && p.type != "rainbowblood" && p.type != "bighead" && p.type != "magician")
+                            std::fprintf(stderr, "mods: %s: type = %s: textures, ragdoll, rainbowblood, bighead or magician (docs/modding.md)\n",
                                          p.id.c_str(), v.c_str());
                     } else if (k == "default") {
                         const std::string m = lower(v);
