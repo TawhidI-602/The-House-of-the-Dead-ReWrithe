@@ -39,9 +39,10 @@ void rainbowBloodConfigure(bool on, const std::map<std::string, std::string>& va
     const std::string sp = valueOf(values, "speed", "Normal");
     s.speed = sp == "Still" ? 0.0f : sp == "Slow" ? 0.1f : sp == "Fast" ? 60.0f / 135.0f : 0.2f;
     const std::string cr = valueOf(values, "creature", "Rainbow Cycle");
-    s.creature = cr == "Own Colour Each" ? 0 : cr == "Off" ? 2 : 1;
+    s.creature = cr == "Own Colour Each" || cr == "Own Color Each" ? 0 : cr == "Off" ? 2 : 1;   // (v1.3.1: US spelling; the old value kept)
     const std::string hud = valueOf(values, "hud", "Off");
     s.hud = hud == "Crosshair" ? 1 : hud == "HUD" ? 2 : hud == "Both" ? 3 : 0;
+    s.menu = valueOf(values, "menu", "Off") == "Rainbow";   // (v1.3.1: the menu's blood, Off by default)
     rainbowBloodSettings() = s;
 }
 
@@ -76,10 +77,11 @@ void rainbowTableCache(const Runtime& rt)
 bool rainbowMenuColour(double seconds, float rgb[3])
 {
     const RainbowBloodSettings& s = rainbowBloodSettings();
-    if (!s.on)
+    if (!s.on || !s.menu)
         return false;
-    double h = std::fmod(seconds * double(s.speed), 1.0);
-    h = std::floor(h * 45.0) / 45.0;   // (45 steps a cycle: the menu's pictures drawn again only that often)
+    // (user 2026-11-07: "extremely laggy": each change draws the whole Remake menu again, its blood art recoloured
+    // pixel by pixel; so one change every 3 s, 12 colours a cycle)
+    const double h = std::fmod(std::floor(seconds / 3.0) / 12.0, 1.0);
     if (menuTableKnown()) {
         const int i = int(h * 90.0) % 90;
         for (int k = 0; k < 3; ++k) rgb[k] = menuTable()[i][k];

@@ -30,6 +30,7 @@ struct RainbowBloodSettings {
     // "HUD & Crosshair" (user 2026-11-03, rainbow2): 0 Off (default), 1 Crosshair (the players' sights cycle, each
     // player a phase of their own), 2 HUD (the player HUD: bullets, 1P / 2P, torches, the score, its prompts), 3 Both
     int hud = 0;
+    bool menu = false;   // v1.3.1 "Menu Blood: Rainbow": the menus' blood too (Off by default: each change redraws the menu)
 };
 RainbowBloodSettings& rainbowBloodSettings();
 // rainbow2: the rainbow colour now (0..1 RGB) at hue offset `offset` (added to the phase; "Together" leaves it out
