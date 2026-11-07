@@ -282,21 +282,20 @@ Both mods' texts and settings come from `data\mods\rainbow-blood\mod.ini` and `d
 has the same built-in values without them). Pictures for checking: `tools\cosmods_shots.ps1` (Chapter 1 offscreen, no
 mods / each mod / both, arcade and PC models).
 
-## The Magician Afterimages mod (built in)
+### Rainbow Blood: the Magician's afterimages
 
-The colour of the Magician's afterimages (Chapter 4's boss), one setting per phase (v1.3.1, GitHub #54). The game
-draws them in one polygon palette colour (entry 583) that it sets itself: blue (0xFEC0) as he flies around, red
-(0x801F) for his swoops and lunges. The mod replaces either colour:
+Rainbow Blood also colours the Magician's afterimages (Chapter 4's boss; v1.3.1, GitHub #54), one setting per phase:
+**Magician Afterimages 1** (as he flies around) and **2** (his swoops and lunges). The arcade game draws them in one
+polygon palette colour (entry 583) that it sets itself: blue (0xFEC0), then red (0x801F); the PC game keeps them blue
+(its own textured model).
 
-- **Phase 1** / **Phase 2**: Original (the game's), Rainbow, Red, Orange, Yellow, Green, Cyan, Blue, Purple, Pink,
-  White, or **any colour** as `#RRGGBB` (in `launcher.ini`: `modset.magician-afterimages.phase1=#FF00FF`, or
-  `--mod-set magician-afterimages.phase1=#FF00FF`).
-- **Rainbow**: each afterimage its own colour, the next one the next, from the Chapter 4 computer screens' colours
-  (palette_animation's 90-colour table 0xAB120), kept as it fades. **Rainbow Speed**: Slow, Normal, Fast (how far apart
-  the colours of two afterimages are).
+- **Rainbow** (the default): each afterimage its own colour, the next one the next, from the Chapter 4 computer screens'
+  colours (palette_animation's 90-colour table 0xAB120), kept as it fades, as the creatures' own colours. Speed sets
+  how far apart two afterimages' colours are.
+- **Original** (the game's), Red, Orange, Yellow, Green, Cyan, Blue, Purple, Pink, White, or **any colour** as `#RRGGBB`
+  (`launcher.ini`: `modset.rainbow-blood.afterimage1=#FF00FF`, or `--mod-set rainbow-blood.afterimage1=#FF00FF`).
 
-Arcade models (the PC models draw the afterimages from their own textures). Visual only. Its texts come from
-`data\mods\magician-afterimages\mod.ini`.
+Arcade models: the palette entry per afterimage; PC models: their texels in that colour, at their own brightness.
 
 ## Custom crosshairs
 

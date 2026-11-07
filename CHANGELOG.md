@@ -22,8 +22,8 @@ Options > System > What's New.
     menu notes say what stays in English.
   - `es.txt` uses the Spanish CD's own terms (Guerrero, Gárgola, Científica, Ajustes ...).
 - Options > Gameplay > **Boss Names**: Full / Codenames Only (only "TYPE 27" ... on the boss cards).
-- The **Magician Afterimages** mod (built in, Mods page): his afterimages in any colour per phase, the rainbow, or as
-  the game (#54).
+- **Rainbow Blood** colours the Magician's afterimages too: each its own colour, as the creatures (both model sets), or
+  any colour per phase, or as the game (#54).
 
 ### Fixed
 - Every character uses only its own head and body parts in the cut-scenes and endings (another character's head on a

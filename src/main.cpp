@@ -4716,9 +4716,7 @@ int main(int argc, char* argv[])
         game::rainbowBloodConfigure(rainbowOn, rainbowValues);
         const bool bigHeadOn = codeMod("bighead", bigHeadValues);
         game::bigHeadConfigure(bigHeadOn, bigHeadValues);
-        std::map<std::string, std::string> magicianValues;   // (GitHub #54: Magician Afterimages)
-        const bool magicianOn = codeMod("magician", magicianValues);
-        game::magicianAfterimageConfigure(magicianOn, magicianValues);
+        game::magicianAfterimageConfigure(rainbowOn, rainbowValues);   // (GitHub #54: the Magician's afterimages, Rainbow Blood's)
         act.erase(std::remove_if(act.begin(), act.end(), [](const ModPack& p) { return p.type != "textures"; }), act.end());
         texturePacks().setActive(std::move(act));
     };

@@ -24,7 +24,8 @@ v1.3.0: the game offers the update itself (Update / Not now); your settings and 
     ["The House Of The Dead (PC) - Doblaje español ORIGINAL"](https://youtu.be/OVnjusRO1wk). More in
     [docs/spanish.md](../spanish.md).
 - **Boss Names**, Options > Gameplay: Full / Codenames Only.
-- **Magician Afterimages** mod (Mods page): his afterimages in any colour for each phase, or the rainbow (#54).
+- **Rainbow Blood** now colours the Magician's afterimages too, each its own colour like the creatures, or any colour
+  you pick for each phase (#54).
 
 ## Fixed
 

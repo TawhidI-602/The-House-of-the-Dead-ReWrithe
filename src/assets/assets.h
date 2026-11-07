@@ -198,6 +198,7 @@ struct DrawItem {
     // v1.3.1 (Magician Afterimages mod, GitHub #54): this item's own colour for the Magician's colour word (polygon palette
     // entry 583; RGB555 with bit 15, R in the low bits; 0 none): each afterimage its own rainbow colour
     uint16_t palOver = 0;
+    uint16_t pcTint = 0;   // (the same for a PC model: its texels in that colour; 0 none)
     float bloodHue = -1.0f;                  // cosmods: Rainbow Blood's creature colour (game/cosmods.h creatureBloodHue): -1 none,
                                              // 0..1 the hue of its wounds and blood texels, 2 the cycling per-item hue
     bool sideOnly = false;                   // endfloor: drawn only outside the centred 4:3 picture (widescreen's side strips)

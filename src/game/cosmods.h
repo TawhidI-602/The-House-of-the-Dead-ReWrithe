@@ -82,7 +82,8 @@ uint16_t magicianAfterimageWord(uint16_t word, uint32_t frame);
 // 2026-11-07): the Magician's afterimage (model 0x1C20) in a Rainbow phase: the Chapter 4 computer screens' colours
 // (palette_animation's 90-colour table 0xAB120) by the frame it appeared, so each one keeps its colour and the next one
 // takes the next; 0 none (the palette entry's colour)
-uint16_t magicianAfterimageItemWord(const Runtime& rt, uint32_t model, uint32_t task);
+uint16_t magicianAfterimageItemWord(const Runtime& rt, uint32_t model, uint32_t task, bool pc = false);
+// (pc: the PC models, whose afterimages are textured, always blue in the PC game: every colour the mod sets per item)
 // whether a creature type gets a big head with the settings now (the mod on; Heads: the people; Bosses). Also the
 // Gallery's (relfix: it follows the Mods page's Big Head)
 bool bigHeadTypeOn(int type);

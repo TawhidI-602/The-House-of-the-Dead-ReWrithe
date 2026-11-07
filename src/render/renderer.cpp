@@ -322,6 +322,7 @@ flat in float vKeyBand;
 in float vBandAdj;
 flat in vec3 vRainbow;
 flat in float vRainbowPal;
+uniform int uPcTint;   // v1.3.1: DrawItem::pcTint (RGB555, R low; 0 none): a PC model's texels in that colour (the afterimages)
 uniform int uRainbow;
 uniform float uBodyHue;
 uniform int uBloodRows;         // rainbow2: RenderOptions::bloodRowMask (bit = colour row 0..31)
@@ -727,6 +728,9 @@ void main() {
             if (c.a < 0.5) discard;
             // cosmods: Rainbow Blood's marked blood texels (alpha 250: white-tinted at the load), times the rainbow colour
             if (uRainbow != 0 && uRainbow != 3 && c.a > 0.95 && c.a < 0.999) c.rgb = mix(c.rgb, c.rgb * vRainbow, clamp((1.0 - c.a) * 51.0, 0.0, 1.0));
+            // v1.3.1 (the Magician Afterimages mod with PC models): the texel's brightness in the mod's colour
+            if (uPcTint != 0)
+                c.rgb = vec3(float(uPcTint & 31), float((uPcTint >> 5) & 31), float((uPcTint >> 10) & 31)) / 31.0 * max(c.r, max(c.g, c.b));
         } else {
             c = vec4(vColor) / 255.0;
         }
@@ -1638,7 +1642,7 @@ void Renderer::draw(const std::vector<DrawItem>& items, const Camera& cam, int w
         int n = -1;   // -1: not sent yet in this draw
     };
     enum { kOffset, kRot, kBias, kFloorY, kFloorPull, kPush, kFade, kRamp, kBodyHue, kFlat, kUV, kShading, kM2Known, kM2Light, kGrey, kHasRepl,
-           kClampUV, kSortItem, kHybrid, kKeyless, kSideOnly, kPalOver, kSlots };
+           kClampUV, kSortItem, kHybrid, kKeyless, kSideOnly, kPalOver, kPcTint, kSlots };
     Cache cache[kSlots];
     auto changed = [&](int slot, const float* v, int n) {
         Cache& c = cache[slot];
@@ -1699,9 +1703,10 @@ void Renderer::draw(const std::vector<DrawItem>& items, const Camera& cam, int w
         unitTex[unit] = tex;
         unitKnown[unit] = true;
     };
-    static gl::GLint uRamp = -2, uStops = -2, uBodyHue = -2, uPalOver = -2;
+    static gl::GLint uRamp = -2, uStops = -2, uBodyHue = -2, uPalOver = -2, uPcTint = -2;
     if (uRamp == -2) {
         uPalOver = gl::GetUniformLocation(program_, "uPalOver");   // (v1.3.1: the afterimages' own colours)
+        uPcTint = gl::GetUniformLocation(program_, "uPcTint");
         uRamp = gl::GetUniformLocation(program_, "uRamp");
         uStops = gl::GetUniformLocation(program_, "uRampStops");
         uBodyHue = gl::GetUniformLocation(program_, "uBodyHue");   // (cosmods: Rainbow Blood's creature colour)
@@ -1798,6 +1803,7 @@ void Renderer::draw(const std::vector<DrawItem>& items, const Camera& cam, int w
         set1i(kRamp, uRamp, it.ramp >= 0 && it.ramp < 2 ? it.ramp : -1);
         set1f(kBodyHue, uBodyHue, it.bloodHue);   // cosmods
         set1i(kPalOver, uPalOver, int(it.palOver));   // (v1.3.1)
+        set1i(kPcTint, uPcTint, int(it.pcTint));
         if (it.ramp >= 0 && it.ramp < 2 && rampStopsSent != it.ramp) {
             gl::Uniform3fv(uStops, 5, &rampStops[it.ramp][0][0]);
             rampStopsSent = it.ramp;

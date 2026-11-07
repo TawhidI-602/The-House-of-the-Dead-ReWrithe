@@ -214,8 +214,9 @@ void magicianAfterimageConfigure(bool on, const std::map<std::string, std::strin
 {
     MagicianAfterimageSettings s;
     s.on = on;
-    s.phase1 = afterimageColour(valueOf(values, "phase1", "Original"));
-    s.phase2 = afterimageColour(valueOf(values, "phase2", "Original"));
+    // (the Rainbow Blood mod's settings, user 2026-11-07 "this all should be in the rainbow mod": Rainbow by default)
+    s.phase1 = afterimageColour(valueOf(values, "afterimage1", "Rainbow"));
+    s.phase2 = afterimageColour(valueOf(values, "afterimage2", "Rainbow"));
     const std::string sp = valueOf(values, "speed", "Normal");
     s.speed = sp == "Slow" ? 0.1f : sp == "Fast" ? 0.6f : 0.25f;
     magicianAfterimageSettings() = s;
@@ -239,15 +240,17 @@ uint16_t magicianAfterimageWord(uint16_t word, uint32_t frame)
     return rgb555(rgb[i % 6]);
 }
 
-uint16_t magicianAfterimageItemWord(const Runtime& rt, uint32_t model, uint32_t task)
+uint16_t magicianAfterimageItemWord(const Runtime& rt, uint32_t model, uint32_t task, bool pc)
 {
     const MagicianAfterimageSettings& s = magicianAfterimageSettings();
     if (!s.on || model != 0x1C20 || task == 0 || !rt.mem.mapped(0x180248E) || !rt.mem.mapped(task + 0x2E0))
         return 0;
     const uint16_t word = rt.mem.at<uint16_t>(0x180248E);
     const int c = (word & 0x7FFF) == 0x7EC0 ? s.phase1 : (word & 0x7FFF) == 0x001F ? s.phase2 : -1;
+    if (c >= 0 && pc)
+        return rgb555(c);   // (the PC models: no palette entry, the colour per item)
     if (c != -2)
-        return 0;   // (Original / one colour: the palette entry's)
+        return 0;   // (Original: the game's; one colour, arcade models: the palette entry's)
     // the frame it appeared: its fade starts at the Magician's (0xFF drawn normally) and drops 5 a frame
     const int fade = rt.mem.at<int16_t>(task + 0x2E0);
     const uint32_t age = uint32_t(std::clamp((0xFF - fade) / 5, 0, 60));
