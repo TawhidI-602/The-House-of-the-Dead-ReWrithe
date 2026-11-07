@@ -30,6 +30,7 @@ void Runtime::palette_anim_copy()
     }
     if (mem.u32(G::texture_area) == 9) next[689] = 0x9854;
     next[211] = 0xEBDF;
+    rainbowTableCache(*this);   // (v1.3.1: the computer screens' colours for the menus' rainbow blood)
     // GitHub #54: the Magician's colour word (entry 583: his afterimages blue as he flies, red as he swoops / lunges),
     // from his first write while his area stays loaded (the renderer draws the asset palettes, not palette RAM)
     if (magicianColourArea_ != 0xFFFFFFFFu && mem.u32(G::texture_area) == magicianColourArea_ && mem.mapped(0x180248E))

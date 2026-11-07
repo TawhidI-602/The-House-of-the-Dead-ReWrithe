@@ -24,6 +24,8 @@ Options > System > What's New.
 - Options > Gameplay > **Boss Names**: Full / Codenames Only (only "TYPE 27" ... on the boss cards).
 - **Rainbow Blood** colours the Magician's afterimages too: each its own colour, as the creatures (both model sets), or
   any colour per phase, or as the game (#54).
+- Rainbow Blood's HUD option: only 1P and the torches, in the rainbow's shades as players 3 / 4's colours (not the
+  bullets, PRESS START or a subtitle's first letter); the main menu's blood in the rainbow too.
 
 ### Fixed
 - Every character uses only its own head and body parts in the cut-scenes and endings (another character's head on a

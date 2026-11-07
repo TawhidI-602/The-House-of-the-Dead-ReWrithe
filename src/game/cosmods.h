@@ -36,6 +36,10 @@ RainbowBloodSettings& rainbowBloodSettings();
 // unless `always`), the same as the renderer's (render/renderer.cpp uRainbowTable): the game's 90-colour table 0xAB120
 // blended, a plain hue if it is missing. false: the mod is off (rgb untouched)
 bool rainbowColour(const Runtime& rt, float offset, float rgb[3], bool always = false);
+// v1.3.1 (user 2026-11-07: "the rainbow blood mod to affect the main menu blood"): the colour for the menus' blood at
+// `seconds` (the computer screens' table once a game has read it, else a plain hue; 45 steps a cycle). false: mod off
+bool rainbowMenuColour(double seconds, float rgb[3]);
+void rainbowTableCache(const Runtime& rt);   // (the table read once from a runtime with the game loaded: palette_anim_copy)
 // The custom Blood Color on the arcade models (user 2026-11-03: the Rainbow Blood recolour with one colour): the
 // creatures' painted wounds take it too (RenderOptions::rainbow 3). 0xRRGGBB, -1 none; the view sets it each frame
 int& customWoundBlood();

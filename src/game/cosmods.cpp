@@ -47,6 +47,52 @@ void rainbowBloodConfigure(bool on, const std::map<std::string, std::string>& va
 
 // rainbow2: the renderer's colour on the CPU (the 2D blood, the HUD, the sights): phase from the game's frame, the
 // table 0xAB120 (palette_animation's Chapter 4 screens: RGB555, R in the low bits) blended between its steps
+namespace {
+float (&menuTable())[90][3]
+{
+    static float t[90][3] = {};
+    return t;
+}
+bool& menuTableKnown()
+{
+    static bool k = false;
+    return k;
+}
+} // namespace
+
+void rainbowTableCache(const Runtime& rt)
+{
+    if (menuTableKnown() || !rt.mem.mapped(0xAB120 + 2u * 89u))
+        return;
+    for (int i = 0; i < 90; ++i) {
+        const uint16_t v = rt.mem.at<uint16_t>(0xAB120 + 2u * uint32_t(i));
+        if (!((v & 31) == 31 || (v >> 5 & 31) == 31 || (v >> 10 & 31) == 31))
+            return;   // (not the table: not loaded yet)
+        for (int k = 0; k < 3; ++k) menuTable()[i][k] = float(v >> (5 * k) & 31) / 31.0f;
+    }
+    menuTableKnown() = true;
+}
+
+bool rainbowMenuColour(double seconds, float rgb[3])
+{
+    const RainbowBloodSettings& s = rainbowBloodSettings();
+    if (!s.on)
+        return false;
+    double h = std::fmod(seconds * double(s.speed), 1.0);
+    h = std::floor(h * 45.0) / 45.0;   // (45 steps a cycle: the menu's pictures drawn again only that often)
+    if (menuTableKnown()) {
+        const int i = int(h * 90.0) % 90;
+        for (int k = 0; k < 3; ++k) rgb[k] = menuTable()[i][k];
+        return true;
+    }
+    for (int k = 0; k < 3; ++k) {
+        double t = h + (k == 0 ? 0.0 : k == 1 ? 2.0 / 3.0 : 1.0 / 3.0);
+        t = std::fabs((t - std::floor(t)) * 6.0 - 3.0) - 1.0;
+        rgb[k] = float(std::clamp(t, 0.0, 1.0));
+    }
+    return true;
+}
+
 bool rainbowColour(const Runtime& rt, float offset, float rgb[3], bool always)
 {
     const RainbowBloodSettings& s = rainbowBloodSettings();
@@ -63,6 +109,8 @@ bool rainbowColour(const Runtime& rt, float offset, float rgb[3], bool always)
         for (int k = 0; k < 3; ++k) c[i][k] = float(ch[k]) / 31.0f;
     }
     if (table) {
+        std::copy(&c[0][0], &c[0][0] + 90 * 3, &menuTable()[0][0]);   // (v1.3.1: kept for the menus' blood)
+        menuTableKnown() = true;
         const double x = h * 90.0;
         const int i = int(x) % 90, j = (i + 1) % 90;
         const float f = float(x - std::floor(x));

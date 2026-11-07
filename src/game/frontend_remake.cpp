@@ -10,6 +10,7 @@
 //
 // Units: a Remake screen is 480 units high and cw_ wide (setViewAspect); the picture has ps_ (2 .. 3, setOutputHeight) pixels a unit.
 #include "game/frontend.h"
+#include "game/cosmods.h"
 #include "game/keybinds.h"
 #include "game/pad_prompts.h"
 #include "game/lang.h"
@@ -2112,6 +2113,12 @@ void Frontend::rChevron(float cx, float cy, float s, uint32_t rgb, float alpha)
 // ---- the blood colour (the Blood Color setting) ----
 uint32_t Frontend::bloodColour() const
 {
+    // v1.3.1 (user 2026-11-07): Rainbow Blood on: the menu's blood in the rainbow (the computer screens' colours), at
+    // the red's depth
+    if (float c[3]; rainbowMenuColour(double(nowMs_) / 1000.0, c)) {
+        const float m = std::max({c[0], c[1], c[2], 0.01f}), k = 176.0f / m;
+        return uint32_t(c[0] * k) << 16 | uint32_t(c[1] * k) << 8 | uint32_t(c[2] * k);
+    }
     if (bloodRgb >= 0) {   // the custom colour: its brightest channel at the red's (0xA0 + a little)
         const int r = (bloodRgb >> 16) & 255, g = (bloodRgb >> 8) & 255, b = bloodRgb & 255, m = std::max({r, g, b});
         if (m < 8)
