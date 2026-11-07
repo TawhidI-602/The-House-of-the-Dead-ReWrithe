@@ -12,7 +12,9 @@ Options > System > What's New.
   playthrough "The House Of The Dead (PC) - Doblaje español ORIGINAL" (https://youtu.be/OVnjusRO1wk). Details in
   `docs/spanish.md`.
   - Setup > **Extras** (also Options > System > Repair / Change Files): an optional box for the Spanish PC copy next to
-    your US / EU copy; the Spanish copy also works as the PC game itself.
+    your US / EU copy: an installed Spanish copy or the Spanish CD itself (its image, also in a .rar / .7z / .zip:
+    the game is unpacked from the CD's cabinet files); the Spanish copy also works as the PC game itself. A copy that
+    cannot be used is simply left out (the setup goes on).
   - Options > Audio > **Voice**: Auto / Spanish / English, in every mode and with both model sets and both sound
     sources; Options > Audio > **Reload Voice**: On / Off.
   - With the language Español: the Spanish CD's translated pictures (chapter cards, boss cards, RELOAD -> CARGA,

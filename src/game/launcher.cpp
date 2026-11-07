@@ -8,6 +8,7 @@
 #include "game/lives.h"
 #include "game/sights.h"
 #include "render/gamma.h"
+#include "util/cab_unpack.h"
 #include "util/disc_image.h"
 #include "util/file64.h"
 #include "util/fullscreen.h"
@@ -1123,6 +1124,36 @@ void Launcher::checkZone(int which, const std::string& path)
                 return;
             }
         }
+        // v1.3.1 (user 2026-11-07: "THotD Spanish.rar", the Spanish CD's image, was refused): a CD whose game is packed
+        // in cabinets (CAB\CAB1.CAB ..: the 2003 Spanish CD) unpacked into a folder of ours in the installed layout
+        // (util/cab_unpack.h), with the CD's loose VMC files and its ripped music; then checked there as a folder
+        if (which >= 1) {
+            if (const std::string cab1 = cab::gameCabinet(src); !cab1.empty()) {
+                stage(lang::tr("Unpacking the game from the CD's cabinets ..."), 0.82f);
+                const std::string game = discFolder(cache, which == 2 ? "pces_game" : "pc_game");
+                const std::string tmp = (fs::path(game) / "_cabinets").string();
+                std::string err;
+                bool noTool = false;
+                const bool ok = cab::extractSet(cab1, tmp, err, noTool);
+                std::error_code ec;
+                std::ofstream(fs::path(game) / "hotd_disc_copy.txt") << "Unpacked from " << path << " by the setup (removed with the next one).\n";
+                const int placed = ok ? cab::arrange(tmp, src, game, pcManifestPaths()) : 0;
+                fs::remove_all(fs::path(tmp), ec);
+                if (fs::exists(fs::path(src) / "Music", ec)) fs::rename(fs::path(src) / "Music", fs::path(game) / "Music", ec);
+                SDL_Log("[files] the CD's cabinets (%s): %s, %d file(s) laid out in %s", cab1.c_str(), ok ? "unpacked" : err.c_str(), placed, game.c_str());
+                if (fs::exists(fs::path(src) / "hotd_disc_copy.txt", ec)) fs::remove_all(fs::path(src), ec);   // (our CD copy: no longer needed)
+                if (!ok) {
+                    fs::remove_all(fs::path(game), ec);
+                    z.state = 4, z.line = lang::tr("The game on this CD could not be unpacked");
+                    z.more = {noTool ? lang::tr("This CD keeps the game in cabinet files: install cabextract (or bsdtar), or install the game from the CD and drop the installed folder here.")
+                                     : lang::tr("Install the game from the CD and drop the installed folder here."), err};
+                    std::lock_guard<std::mutex> l(zoneMutex_);
+                    if (zone_[which].path == path) zone_[which] = z;
+                    return;
+                }
+                src = z.checked = game;
+            }
+        }
         stage(lang::tr("Checking the files ..."), 0.9f);
         Verdict v;
         if (which == 0) {
@@ -1137,6 +1168,13 @@ void Launcher::checkZone(int which, const std::string& path)
             z.music = which == 1 ? musicTracks(src) : 0;
             // spanish2: the Extras page's box takes the Spanish release only (its manifest: pc_manifest_es.inc), and
             // says what it gives
+            // v1.3.1 (user 2026-11-07 "is it not supposed to be less harsh"): the optional box says plainly that it is not
+            // used, not the PC game's "the game needs the 1998 PC release's files"; Next stays allowed (extrasReady)
+            if (which == 2 && std::get<0>(v) == 4)
+                v = {4, lang::tr("Not a usable Spanish copy: it will not be used"),
+                     {std::get<1>(v),
+                      lang::tr("You can go on without it: everything else works, only the Spanish voices and pictures stay off."),
+                      lang::tr("Drop the installed Spanish game, or its CD image, here.")}};
             if (which == 2 && (std::get<0>(v) == 2 || std::get<0>(v) == 3)) {
                 if (!isSpanishRelease(src))
                     v = {4, lang::tr("This is not the Spanish PC release"),
@@ -1148,6 +1186,10 @@ void Launcher::checkZone(int which, const std::string& path)
             }
         }
         z.state = std::get<0>(v), z.line = std::get<1>(v), z.more = std::get<2>(v);
+        if (which == 2 && z.state == 4) {   // (v1.3.1: a refused copy's unpacked files are not kept in settings\)
+            std::error_code ec;
+            if (fs::exists(fs::path(src) / "hotd_disc_copy.txt", ec)) fs::remove_all(fs::path(src), ec);
+        }
         std::lock_guard<std::mutex> l(zoneMutex_);
         if (zone_[which].path == path) zone_[which] = z;
     });
@@ -1156,7 +1198,7 @@ void Launcher::checkZone(int which, const std::string& path)
 bool Launcher::extrasReady() const
 {
     std::lock_guard<std::mutex> l(zoneMutex_);
-    return zone_[2].state != 1 && zone_[2].state != 4;
+    return zone_[2].state != 1;   // (v1.3.1: a refused Spanish copy is simply not used; it no longer blocks Next)
 }
 
 bool Launcher::zonesReady() const

@@ -12,7 +12,8 @@ v1.3.0: the game offers the update itself (Update / Not now); your settings and 
 
 - **Spanish dub ("Doblaje español")** from your own copy of the 2003 Spanish PC CD. No Spanish file is included.
   - Add it on the setup's new **Extras** page (or Options > System > Repair / Change Files), next to your US / EU
-    copy. It also works as the PC game on its own.
+    copy: the installed Spanish game, or the Spanish CD image itself (also in a .rar / .7z / .zip). It also works as
+    the PC game on its own. A copy that can't be used is simply left out.
   - Options > Audio > **Voice**: Auto / Spanish / English, in every mode, with arcade or PC models and either sound
     source. Options > Audio > **Reload Voice**: On / Off.
   - With the language **Español**, the Spanish CD's translated pictures: chapter cards, boss cards, CARGA, CONTINUAR,

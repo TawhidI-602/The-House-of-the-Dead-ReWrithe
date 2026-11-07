@@ -330,6 +330,13 @@ bool isEuBigger(const std::string& rel, const std::vector<uint8_t>& d)
     return true;
 }
 
+std::vector<std::string> pcManifestPaths()
+{
+    std::vector<std::string> v;
+    for (const PcFile& f : kPcFiles) v.emplace_back(f.path);
+    return v;
+}
+
 bool isSpanishRelease(const std::string& folder)
 {
     static std::map<std::string, bool> known;

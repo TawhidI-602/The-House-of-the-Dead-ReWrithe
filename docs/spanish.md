@@ -12,8 +12,13 @@ of ReWrithe: the source only has file sizes and SHA-1 hashes (`src/game/pc_manif
 
 - **Next to a US / EU copy (recommended)**: the setup's **Extras** page (after Game files; also Options > System >
   Repair / Change Files) has the box "Spanish PC copy (Doblaje español)": drop or choose your installed Spanish copy
-  (a folder or a zip of it). It is checked like the PC game and must be the Spanish release (else red: "This is not
-  the Spanish PC release"); the box can stay empty. An install copies only what the Spanish features read, into
+  (a folder or a zip of it) or the Spanish CD itself (its image: .cue / .bin, a .rar / .7z / .zip of it, or the disc's
+  files): the CD keeps the game in Microsoft cabinets (`CAB\CAB1-8.CAB`, LZX, files continued across them), which the
+  setup unpacks (Windows: the system's cabinet.dll; Linux / macOS: `cabextract`, else `bsdtar`, which cannot follow
+  files continued across cabinets) into the installed layout (`util/cab_unpack.cpp`; v1.3.1: every file of an
+  installed copy, byte for byte). It is checked like the PC game and must be the Spanish release (else "This is not
+  the Spanish PC release"); a copy that cannot be used is simply not used ("Not a usable Spanish copy: it will not be
+  used", Next stays allowed, its unpacked files removed); the box can stay empty. An install copies only what the Spanish features read, into
   `data\pc_spanish`: `SOUND\*.RBH` (151 files: the dub, GAMESNDS.RBH) and `ART\STAGE1\CREATURE\BIGGER.VMC` (152 files,
   57 MB); the uninstaller removes them. A portable copy keeps the folder (`spanishpc=` in `launcher.ini`). By hand:
   the copy in `data\pc_spanish` (or a folder in it), or `spanishpc=<folder>` / `--spanish-pc <folder>`.

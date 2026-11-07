@@ -56,6 +56,9 @@ bool isEuBigger(const std::string& rel, const std::vector<uint8_t>& d);
 // spanish (docs/spanish.md): `folder` (a PC game folder or .zip) holds the Spanish release's voices: its
 // SOUND\O_VOC02.RBH is the Spanish CD's (size + SHA-1, pc_manifest_es.inc). Read once per folder (remembered)
 bool isSpanishRelease(const std::string& folder);
+// the checked PC files' install paths (pc_manifest.inc: "THOTD.EXE", "SOUND/O_AAAH.RBH" ...; v1.3.1: the CD
+// cabinets' files placed by name, util/cab_unpack.h)
+std::vector<std::string> pcManifestPaths();
 // the folder of the Spanish voices for Audio > Voice: `spanishPc` if it is one, else `pc` if it is, else
 // <packageRoot>\data\pc_spanish (or a folder in it) if it is; empty: none
 std::string spanishVoiceDir(const std::string& pc, const std::string& spanishPc, const std::string& packageRoot);

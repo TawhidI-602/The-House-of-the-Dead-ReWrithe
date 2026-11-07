@@ -297,6 +297,7 @@ add_library(hotd_engine STATIC
     src/util/window_icon.cpp
     src/util/win_shell.cpp
     src/util/update_check.cpp
+    src/util/cab_unpack.cpp
     src/util/disc_image.cpp
     src/util/game_exe.cpp
     src/util/steam_shortcut.cpp
