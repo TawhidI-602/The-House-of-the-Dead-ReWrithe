@@ -818,6 +818,51 @@ std::string Audio::describe(int n) const
     return buf;
 }
 
+// smallfix2 (HOTD_TOTD_SOUNDLIST=1, testing): every short bank sample / file cue as the typing sounds would play it
+// (brought to the peak as playExtra's normalize): its length, its RMS in dB below full scale and the pitch its zero
+// crossings suggest, loudest (by RMS) first, to pick a clearer miss sound from the game's own
+void Audio::reportCues(float peak)
+{
+    struct Row { double rms; std::string text; };
+    std::vector<Row> rows;
+    for (size_t n = 0; n < cues_.size(); ++n) {
+        const Cue& c = cues_[n];
+        std::vector<uint8_t> d;
+        uint32_t rate = 11025;
+        const int k = c.value & 0xFFFF;
+        if (c.type == 1 && k >= 0 && k < int(samples_.size()) && samples_[size_t(k)].source == 1 &&
+            samples_[size_t(k)].offset + samples_[size_t(k)].length <= bank_.size()) {
+            const SampleInfo& s = samples_[size_t(k)];
+            d.assign(bank_.begin() + s.offset, bank_.begin() + s.offset + s.length);
+            rate = s.rate ? s.rate : 11025;
+        } else if (c.type == 4) {
+            if (const auto* o = loadOneShot(c.name); o && k >= 0 && k < int(samples_.size())) {
+                d = *o;
+                rate = samples_[size_t(k)].rate ? samples_[size_t(k)].rate : 22050;
+            }
+        }
+        if (d.size() < 64)
+            continue;
+        int pk = 1;
+        for (uint8_t b : d) pk = std::max(pk, std::abs(int(b) - 128));
+        double sum = 0;
+        int zc = 0;
+        for (size_t i = 0; i < d.size(); ++i) {
+            const double v = (double(d[i]) - 128.0) / double(pk) * peak;
+            sum += v * v;
+            if (i && ((int(d[i]) - 128) < 0) != ((int(d[i - 1]) - 128) < 0)) ++zc;
+        }
+        const double ms = 1000.0 * double(d.size()) / double(rate), rms = std::sqrt(sum / double(d.size()));
+        char b[200];
+        std::snprintf(b, sizeof b, "cue %3zu %-28s %6.0f ms  rms %6.1f dB  ~%5.0f Hz", n, describe(int(n)).c_str(), ms,
+                      20.0 * std::log10(std::max(rms, 1e-6)), double(zc) * double(rate) / (2.0 * double(d.size())));
+        rows.push_back({rms, b});
+    }
+    std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.rms > b.rms; });
+    for (const Row& r : rows)
+        std::printf("SOUNDLIST %s\n", r.text.c_str());
+}
+
 void Audio::cue(uint32_t arcadeCode)
 {
     // (testing / trailer: HOTD_MUTE_CODE=0xA01472 leaves that one code out, e.g. the attract's white flash)

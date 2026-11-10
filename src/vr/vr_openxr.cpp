@@ -22,6 +22,7 @@
 #ifdef HOTD_OPENXR
 
 #include "vr/vr.h"
+#include "vr/vr_aim.h"
 #include "vr/vr_math.h"
 
 #include "render/gl.h"
@@ -53,6 +54,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <utility>
@@ -105,7 +107,9 @@ std::string reason(XrInstance inst, XrResult r)
     case XR_ERROR_FORM_FACTOR_UNSUPPORTED: return "the runtime has no head-mounted display";
     case XR_ERROR_EXTENSION_NOT_PRESENT: return "the runtime has no OpenGL support (XR_KHR_opengl_enable)";
     case XR_ERROR_API_VERSION_UNSUPPORTED: return "the runtime does not support OpenXR 1.0";
-    case XR_ERROR_GRAPHICS_DEVICE_INVALID: return "the game's graphics card / context is not one the runtime can use";
+    case XR_ERROR_GRAPHICS_DEVICE_INVALID:   // (vrship: the usual cause on a laptop: the game on the integrated GPU)
+        return "the game's graphics card / context is not one the runtime can use (a laptop: give hotd.exe the dedicated "
+               "graphics card in Windows Settings > System > Display > Graphics)";
     case XR_ERROR_GRAPHICS_REQUIREMENTS_CALL_MISSING: return "graphics requirements not queried (a bug)";
     default: break;
     }
@@ -120,6 +124,14 @@ public:
     ~OpenXr() override { shutdown(); }
     const char* name() const override { return "openxr"; }
     bool lost() const override { return lost_; }
+    bool pacesFrames() const override { return true; }
+    // vrnull (testing): --vr-head yaw,pitch,roll turns the seat at the first frame (as HOTD_XR_HEAD): a fixed virtual
+    // headset (SteamVR's null driver) looks around
+    void scriptHead(const float ypr[3], const float[3]) override
+    {
+        std::copy(ypr, ypr + 3, headYpr_);
+        headSet_ = true;
+    }
 
     bool init(const Settings& settings, std::string& err) override
     {
@@ -149,10 +161,19 @@ public:
         if (XR_FAILED(r)) return fail(err, "no runtime", r);
         std::vector<XrExtensionProperties> exts(n, XrExtensionProperties{XR_TYPE_EXTENSION_PROPERTIES});
         xrEnumerateInstanceExtensionProperties(nullptr, n, &n, exts.data());
-        if (std::none_of(exts.begin(), exts.end(), [](const XrExtensionProperties& e) {
-                return std::strcmp(e.extensionName, kGlExtension) == 0;
-            }))
+        auto hasExt = [&](const char* name) {
+            return std::any_of(exts.begin(), exts.end(), [&](const XrExtensionProperties& e) { return std::strcmp(e.extensionName, name) == 0; });
+        };
+        {   // vrship (2026-11-09): the runtime's extensions in the log (each runtime differs: Meta, SteamVR, WMR)
+            std::string l;
+            for (const auto& e : exts) l += std::string(l.empty() ? "" : " ") + e.extensionName;
+            SDL_Log("openxr: extensions: %s", l.c_str());
+        }
+        if (!hasExt(kGlExtension))
             return fail(err, "extensions", XR_ERROR_EXTENSION_NOT_PRESENT);
+        // vrship: optional extensions, enabled only when the runtime has them: the HP Reverb G2's controllers (SteamVR,
+        // Windows Mixed Reality; without it the runtime maps them onto another profile)
+        hpControllers_ = hasExt(XR_EXT_HP_MIXED_REALITY_CONTROLLER_EXTENSION_NAME);
 #if defined(_WIN32)
         // the GL binding needs a WGL context: the DirectX renderer (ANGLE) has none
         hdc_ = wglGetCurrentDC();
@@ -163,14 +184,29 @@ public:
             return false;
         }
 #endif
+        // vr4 (docs/quest.md "Refresh rate"): the optional ones, enabled when the runtime has them: the display's rate
+        // (XR_FB_display_refresh_rate: the Quest's 72 / 90 / 120 Hz) and the performance levels
+        // (XR_EXT_performance_settings: sustained high)
+        auto has = [&](const char* name) {
+            return std::any_of(exts.begin(), exts.end(), [name](const XrExtensionProperties& e) { return std::strcmp(e.extensionName, name) == 0; });
+        };
+        hasRefresh_ = has(XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
+        hasPerf_ = has(XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME);
+        std::vector<const char*> ext = {kGlExtension};
 #if defined(__ANDROID__)
-        const char* ext[] = {kGlExtension, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME};
+        ext.push_back(XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME);
         XrInstanceCreateInfoAndroidKHR android{XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR};
         android.applicationVM = vm_;
         android.applicationActivity = activity_;
-#else
-        const char* ext[] = {kGlExtension};
 #endif
+        if (hpControllers_) ext.push_back(XR_EXT_HP_MIXED_REALITY_CONTROLLER_EXTENSION_NAME);
+        if (hasRefresh_) ext.push_back(XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
+        if (hasPerf_) ext.push_back(XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME);
+        refreshWant_ = settings.refreshRate;
+        perfWanted_ = settings.sustainedPerformance;
+        autoRecentre_ = settings.autoRecentre;
+        SDL_Log("openxr: display refresh rate extension %s, performance settings %s", hasRefresh_ ? "there" : "missing",
+                hasPerf_ ? "there" : "missing");
         XrInstanceCreateInfo ici{XR_TYPE_INSTANCE_CREATE_INFO};
 #if defined(__ANDROID__)
         ici.next = &android;
@@ -179,8 +215,8 @@ public:
         ici.applicationInfo.applicationVersion = 1;
         std::strncpy(ici.applicationInfo.engineName, "hotd", XR_MAX_ENGINE_NAME_SIZE - 1);
         ici.applicationInfo.apiVersion = XR_API_VERSION_1_0;   // (all this needs; 1.1 runtimes take 1.0 applications)
-        ici.enabledExtensionCount = uint32_t(sizeof ext / sizeof ext[0]);
-        ici.enabledExtensionNames = ext;
+        ici.enabledExtensionCount = uint32_t(ext.size());
+        ici.enabledExtensionNames = ext.data();
         if (r = xrCreateInstance(&ici, &instance_); XR_FAILED(r)) return fail(err, "xrCreateInstance", r);
         XrInstanceProperties ip{XR_TYPE_INSTANCE_PROPERTIES};
         if (XR_SUCCEEDED(xrGetInstanceProperties(instance_, &ip)))
@@ -190,8 +226,17 @@ public:
         sgi.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
         if (r = xrGetSystem(instance_, &sgi, &system_); XR_FAILED(r)) return fail(err, "xrGetSystem", r);
         XrSystemProperties sp{XR_TYPE_SYSTEM_PROPERTIES};
-        if (XR_SUCCEEDED(xrGetSystemProperties(instance_, system_, &sp)))
+        if (XR_SUCCEEDED(xrGetSystemProperties(instance_, system_, &sp))) {
             SDL_Log("openxr: headset %s", sp.systemName);
+            // vrnull (2026-11-09): SteamVR's null driver (a virtual headset, "SteamVR/OpenXR : null") reports its fixed
+            // head rolled 180 degrees (orientation 0 0 -1 0): drawn as told, the world came out upside down in the
+            // runtime's view and the mirror; its fixed pose is levelled at the first frame (seatFix_)
+            nullHmd_ = std::strstr(sp.systemName, ": null") != nullptr;
+        }
+        // (testing: HOTD_XR_HEAD=yaw,pitch,roll degrees turns the seat so the head looks that way: a fixed virtual
+        // headset looks around; +yaw left, +pitch up, as the preview's --vr-head)
+        if (const char* h = std::getenv("HOTD_XR_HEAD"))
+            headSet_ = std::sscanf(h, "%f,%f,%f", &headYpr_[0], &headYpr_[1], &headYpr_[2]) >= 1;
         // XR_KHR_opengl_enable: its requirements call is mandatory before xrCreateSession
         PFN_GraphicsRequirements req = nullptr;
         xrGetInstanceProcAddr(instance_, kGlRequirements, reinterpret_cast<PFN_xrVoidFunction*>(&req));
@@ -243,6 +288,11 @@ public:
         rs.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;   // seated: the arcade's on-rails view around the head
         rs.poseInReferenceSpace.orientation.w = 1;
         if (r = xrCreateReferenceSpace(session_, &rs, &space_); XR_FAILED(r)) return fail(err, "xrCreateReferenceSpace", r);
+        // vr2 (2026-11-09): the recentre's spaces: the runtime's LOCAL itself and the head (VIEW); space_ becomes LOCAL
+        // moved to the head's place and heading when a thumbstick is held (recentre)
+        xrCreateReferenceSpace(session_, &rs, &baseSpace_);
+        rs.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+        xrCreateReferenceSpace(session_, &rs, &viewSpace_);
         if (!makeActions(err)) return false;
         if (!makeSwapchains(err)) return false;
         makeMirror();
@@ -275,6 +325,9 @@ public:
         }
         if (actions_) xrDestroyActionSet(actions_);   // (its actions with it)
         if (space_) xrDestroySpace(space_);
+        if (baseSpace_) xrDestroySpace(baseSpace_);
+        if (viewSpace_) xrDestroySpace(viewSpace_);
+        baseSpace_ = viewSpace_ = XR_NULL_HANDLE;
         if (session_) xrDestroySession(session_);
         if (instance_) xrDestroyInstance(instance_);
         instance_ = XR_NULL_HANDLE, session_ = XR_NULL_HANDLE, space_ = XR_NULL_HANDLE, actions_ = XR_NULL_HANDLE;
@@ -285,12 +338,83 @@ public:
         pollEvents();
         fs = FrameState{};
         frameBegun_ = acquired_ = false;
+        bool waited = false;
         if (running_ && !lost_) {
             XrFrameWaitInfo wi{XR_TYPE_FRAME_WAIT_INFO};
             frameState_ = XrFrameState{XR_TYPE_FRAME_STATE};
-            if (XR_SUCCEEDED(xrWaitFrame(session_, &wi, &frameState_))) {
+            const uint64_t w0 = SDL_GetTicksNS();
+            if (ok(xrWaitFrame(session_, &wi, &frameState_), "xrWaitFrame")) {
+                waited = true;
                 XrFrameBeginInfo bi{XR_TYPE_FRAME_BEGIN_INFO};
-                frameBegun_ = XR_SUCCEEDED(xrBeginFrame(session_, &bi));   // (FRAME_DISCARDED is a success code)
+                frameBegun_ = ok(xrBeginFrame(session_, &bi), "xrBeginFrame");   // (FRAME_DISCARDED is a success code)
+            }
+            // vrnull (2026-11-09): SteamVR's compositor gone (it crashed / was closed) leaves the session VISIBLE and
+            // every xrWaitFrame blocking ~200 ms with no error: the game ran at 5 frames / s. While shown (VISIBLE /
+            // FOCUSED: a runtime may throttle the others), 30 waits in a row over 100 ms (~3 s) drop VR (flat play)
+            const uint64_t waitNs = SDL_GetTicksNS() - w0;
+            const bool shown = state_ == XR_SESSION_STATE_VISIBLE || state_ == XR_SESSION_STATE_FOCUSED;
+            slowWaits_ = shown && waitNs > 100000000 ? slowWaits_ + 1 : 0;
+            if (slowWaits_ >= 30 && !lost_) {
+                SDL_Log("openxr: the runtime stopped answering (xrWaitFrame %.0f ms a frame, %d frames): leaving VR",
+                        double(waitNs) / 1e6, slowWaits_);
+                lost_ = true;
+            }
+        }
+        // vr2: no xrWaitFrame (the headset idle / off, not READY yet): our own ~90 Hz wait, as main.cpp's frame limiter
+        // is off while this backend paces the loop (pacesFrames)
+        if (!waited) {
+            constexpr uint64_t kIdleNs = 11111111;
+            const uint64_t now = SDL_GetTicksNS();
+            if (idleLast_ && now > idleLast_ && now - idleLast_ < kIdleNs) SDL_DelayPrecise(kIdleNs - (now - idleLast_));
+            idleLast_ = SDL_GetTicksNS();
+        }
+        // vrnull: the null driver's fixed head levelled (and / or HOTD_XR_HEAD's look) once, at the first frame
+        if (frameBegun_ && !seatFixDone_ && (nullHmd_ || headSet_)) {
+            XrSpaceLocation l{XR_TYPE_SPACE_LOCATION};
+            const bool have = XR_SUCCEEDED(xrLocateSpace(viewSpace_, baseSpace_, frameState_.predictedDisplayTime, &l)) &&
+                              (l.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT);
+            if (have || !nullHmd_) {
+                seatFixDone_ = true;
+                // the seat's orientation S: the views in it are S^-1 H; wanted: the look L (identity without
+                // HOTD_XR_HEAD), so S = H L^-1 (the null driver's H; a real headset's own H is left to it: S = L^-1)
+                float look[4], inv[4], head[4] = {0, 0, 0, 1};
+                quatFromYawPitchRoll(headYpr_[0] * 0.01745329f, headYpr_[1] * 0.01745329f, headYpr_[2] * 0.01745329f, look);
+                inv[0] = -look[0], inv[1] = -look[1], inv[2] = -look[2], inv[3] = look[3];
+                if (nullHmd_) {
+                    const XrQuaternionf& q = l.pose.orientation;
+                    head[0] = q.x, head[1] = q.y, head[2] = q.z, head[3] = q.w;
+                }
+                quatMul(head, inv, seatFix_);
+                XrPosef identity{};
+                identity.orientation.w = 1;
+                setPlaySpace(identity);
+                SDL_Log("openxr: the seat turned for %s (orientation %.3f %.3f %.3f %.3f)",
+                        nullHmd_ ? "SteamVR's null driver (its fixed head levelled)" : "HOTD_XR_HEAD", double(seatFix_[0]),
+                        double(seatFix_[1]), double(seatFix_[2]), double(seatFix_[3]));
+            }
+        }
+        // vr2: a thumbstick held down 1 s (either hand; last frame's buttons) recentres: the seat's origin and heading
+        // to the head's now (before the eyes are located, so this frame's views and its layer share the space)
+        // vr4: the headset back after more than auto_recentre seconds away (taken off: the session stopped / not
+        // visible; the runtime's dashboard over the game keeps it VISIBLE: not away): recentred by itself
+        {
+            const bool shown = running_ && (state_ == XR_SESSION_STATE_VISIBLE || state_ == XR_SESSION_STATE_FOCUSED);
+            if (away_.update(shown, double(SDL_GetTicksNS()) / 1e9, double(autoRecentre_))) autoRecentrePending_ = true;
+        }
+        if (frameBegun_ && autoRecentrePending_) {
+            autoRecentrePending_ = false;
+            SDL_Log("openxr: the headset is back after more than %.0f s away: recentring", double(autoRecentre_));
+            recentre(frameState_.predictedDisplayTime);
+        }
+        if (frameBegun_) {
+            const bool hold = hands_[0].stickClick || hands_[1].stickClick;
+            if (!hold) {
+                holdFrom_ = 0, recentred_ = false;
+            } else if (!holdFrom_) {
+                holdFrom_ = frameState_.predictedDisplayTime;
+            } else if (!recentred_ && frameState_.predictedDisplayTime - holdFrom_ > 1000000000) {
+                recentred_ = true;
+                recentre(frameState_.predictedDisplayTime);
             }
         }
         // the eyes at the predicted display time (the last known when not running)
@@ -303,8 +427,20 @@ public:
             XrViewState vs{XR_TYPE_VIEW_STATE};
             XrView v[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}};
             uint32_t n = 0;
-            viewsOk = XR_SUCCEEDED(xrLocateViews(session_, &li, &vs, 2, &n, v)) && n == 2 &&
+            viewsOk = ok(xrLocateViews(session_, &li, &vs, 2, &n, v), "xrLocateViews") && n == 2 &&
                       (vs.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT);
+            if (viewsOk && !viewsLogged_) {   // (vrnull 2026-11-09: the runtime's eyes once, for the first-test log)
+                viewsLogged_ = true;
+                for (int i = 0; i < 2; ++i)
+                    SDL_Log("openxr: eye %d: fov left %.1f right %.1f up %.1f down %.1f deg, at %.3f %.3f %.3f m, "
+                            "orientation %.3f %.3f %.3f %.3f", i, double(v[i].fov.angleLeft) * 57.29578,
+                            double(v[i].fov.angleRight) * 57.29578, double(v[i].fov.angleUp) * 57.29578,
+                            double(v[i].fov.angleDown) * 57.29578, double(v[i].pose.position.x),
+                            double(v[i].pose.position.y), double(v[i].pose.position.z), double(v[i].pose.orientation.x),
+                            double(v[i].pose.orientation.y), double(v[i].pose.orientation.z),
+                            double(v[i].pose.orientation.w));
+                SDL_Log("openxr: the headset's frame period %.2f ms", double(frameState_.predictedDisplayPeriod) / 1e6);
+            }
             if (viewsOk) {
                 views_[0] = v[0], views_[1] = v[1];
                 haveViews_ = true;
@@ -338,7 +474,7 @@ public:
             XrActionsSyncInfo si{XR_TYPE_ACTIONS_SYNC_INFO};
             si.countActiveActionSets = 1;
             si.activeActionSets = &active;
-            if (XR_SUCCEEDED(xrSyncActions(session_, &si))) {
+            if (ok(xrSyncActions(session_, &si), "xrSyncActions")) {
                 for (int h = 0; h < 2; ++h) {
                     Controller& c = hands_[h];
                     c = Controller{};
@@ -349,6 +485,7 @@ public:
                     c.primary = getBool(primary_, hand_[h]);
                     c.secondary = getBool(secondary_, hand_[h]);
                     c.menu = getBool(menu_, hand_[h]);
+                    c.stickClick = getBool(recentre_, hand_[h]);
                 }
             }
         } else if (state_ != XR_SESSION_STATE_FOCUSED) {
@@ -407,14 +544,22 @@ public:
 #else
         if (toHeadset_ && blit_) {
 #endif
-            const Chain& c = chains_[0];
-            gl::BindFramebuffer(kReadFramebuffer, c.images[c.current].fbo);
+            // vrnull (2026-11-09): its shape kept (was squeezed into 1024 x 1024: a 1852 x 2056 eye came out wider);
+            // vr.ini desktop_view both / --vr-eye: the right eye beside it (the mirror holds two eye slots)
             gl::BindFramebuffer(kDrawFramebuffer, mirrorFbo_);
-            const int w = std::min<int>(c.w, kMirrorSize), h = std::min<int>(c.h, kMirrorSize);
-            blit_(0, 0, c.w, c.h, 0, 0, w, h, gl::COLOR_BUFFER_BIT, gl::LINEAR);
-            mirrorW_ = w, mirrorH_ = h;
+            for (int i = 0; i < 2; ++i) {
+                if (i == 1 && display == 0) break;
+                const Chain& c = chains_[size_t(i)];
+                const float s = std::min(1.0f, float(kMirrorSize) / float(std::max(c.w, c.h)));
+                const int w = std::max(1, int(float(c.w) * s)), h = std::max(1, int(float(c.h) * s));
+                gl::BindFramebuffer(kReadFramebuffer, c.images[c.current].fbo);
+                blit_(0, 0, c.w, c.h, i * kMirrorSize, 0, i * kMirrorSize + w, h, gl::COLOR_BUFFER_BIT, gl::LINEAR);
+                mirrorW_ = w, mirrorH_ = h;
+            }
+            mirrorBoth_ = display != 0;
         } else {
             mirrorW_ = mirrorH_ = kMirrorSize;
+            mirrorBoth_ = false;   // (not shown in the headset: the scene drew one picture into the first slot)
         }
         for (Chain& ch : chains_) {
             if (!ch.held) continue;
@@ -442,6 +587,7 @@ public:
         ei.layerCount = toHeadset_ && acquired_ ? 1 : 0;   // (not rendered: an empty frame, as the spec asks)
         ei.layers = layers;
         const XrResult r = xrEndFrame(session_, &ei);
+        ok(r, "xrEndFrame");   // (vr2: a lost session drops VR)
         if (XR_FAILED(r) && !endFailLogged_) {
             endFailLogged_ = true;
             SDL_Log("openxr: xrEndFrame: %s", reason(instance_, r).c_str());
@@ -451,17 +597,28 @@ public:
 
     void present(unsigned fbo, int width, int height) override
     {
-        // the desktop mirror: the left eye, its shape kept, centred on black
+        // the desktop mirror (vr.ini desktop_view, vrnull 2026-11-09): eye = the left eye (--vr-eye right: the right)
+        // filling the window, the eye's middle cropped to the window's shape (never stretched); both = the two eyes
+        // side by side, each cropped to its half. (Was: the left eye letterboxed, squeezed square)
         gl::BindFramebuffer(gl::FRAMEBUFFER, fbo);
         gl::Viewport(0, 0, width, height);
         gl::ClearColor(0, 0, 0, 1);
         gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
         if (!blit_ || !mirrorFbo_ || width <= 0 || height <= 0) return;
-        const float s = std::min(float(width) / float(mirrorW_), float(height) / float(mirrorH_));
-        const int w = int(float(mirrorW_) * s), h = int(float(mirrorH_) * s), x = (width - w) / 2, y = (height - h) / 2;
         gl::BindFramebuffer(kReadFramebuffer, mirrorFbo_);
         gl::BindFramebuffer(kDrawFramebuffer, fbo);
-        blit_(0, 0, mirrorW_, mirrorH_, x, y, x + w, y + h, gl::COLOR_BUFFER_BIT, gl::LINEAR);
+        const bool both = display == 2;
+        const int n = both ? 2 : 1, dw = width / n;
+        for (int k = 0; k < n; ++k) {
+            const int slot = mirrorBoth_ ? (both ? k : display == 1 ? 1 : 0) : 0;
+            // the largest part of the eye with the target's shape, centred
+            const float want = float(dw) / float(height), have = float(mirrorW_) / float(mirrorH_);
+            int sw = mirrorW_, sh = mirrorH_;
+            if (have > want) sw = std::max(1, int(float(mirrorH_) * want));
+            else sh = std::max(1, int(float(mirrorW_) / want));
+            const int sx = slot * kMirrorSize + (mirrorW_ - sw) / 2, sy = (mirrorH_ - sh) / 2;
+            blit_(sx, sy, sx + sw, sy + sh, k * dw, 0, k * dw + dw, height, gl::COLOR_BUFFER_BIT, gl::LINEAR);
+        }
         gl::BindFramebuffer(gl::FRAMEBUFFER, fbo);
     }
 
@@ -494,6 +651,17 @@ private:
     XrSessionState state_ = XR_SESSION_STATE_UNKNOWN;
     bool running_ = false, lost_ = false;
     bool frameBegun_ = false, toHeadset_ = false, acquired_ = false, haveViews_ = false, endFailLogged_ = false;
+    bool viewsLogged_ = false, mirrorBoth_ = false;
+    int slowWaits_ = 0;   // (vrnull: xrWaitFrame over 100 ms in a row while shown: the runtime gone)
+    bool nullHmd_ = false, headSet_ = false, seatFixDone_ = false;   // (vrnull: the seat's fixed turn, setPlaySpace)
+    float headYpr_[3] = {0, 0, 0}, seatFix_[4] = {0, 0, 0, 1};
+    static void quatMul(const float a[4], const float b[4], float o[4])   // (x y z w: a then b, as vr_math.h's)
+    {
+        o[0] = a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1];
+        o[1] = a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0];
+        o[2] = a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3];
+        o[3] = a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2];
+    }
     XrFrameState frameState_{XR_TYPE_FRAME_STATE};
     XrView views_[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}};
     std::vector<Chain> chains_;
@@ -501,6 +669,11 @@ private:
     XrActionSet actions_ = XR_NULL_HANDLE;
     XrAction trigger_ = XR_NULL_HANDLE, squeeze_ = XR_NULL_HANDLE, gripPose_ = XR_NULL_HANDLE, aimPose_ = XR_NULL_HANDLE;
     XrAction primary_ = XR_NULL_HANDLE, secondary_ = XR_NULL_HANDLE, menu_ = XR_NULL_HANDLE, haptic_ = XR_NULL_HANDLE;
+    XrAction recentre_ = XR_NULL_HANDLE;   // vr2: a thumbstick's click (held 1 s: recentre)
+    XrSpace baseSpace_ = XR_NULL_HANDLE, viewSpace_ = XR_NULL_HANDLE;   // vr2: LOCAL unmoved, the head (the recentre)
+    XrTime holdFrom_ = 0;
+    bool recentred_ = false, lostLogged_ = false;
+    uint64_t idleLast_ = 0;
     XrPath hand_[2] = {};
     XrSpace gripSpace_[2] = {}, aimSpace_[2] = {};
     Controller hands_[2];
@@ -508,7 +681,16 @@ private:
     int mirrorW_ = kMirrorSize, mirrorH_ = kMirrorSize;
     PFN_Blit blit_ = nullptr;
     bool srgbWanted_ = true, srgbControl_ = true;
+    bool hpControllers_ = false;   // vrship: XR_EXT_hp_mixed_reality_controller enabled (its bindings suggested)
     float resolutionScale_ = 1.0f;
+    // vr4: the optional extensions (XR_FB_display_refresh_rate, XR_EXT_performance_settings) and their vr.ini values;
+    // the auto-recentre (the headset away and back) and the play space's offset now (the heading-only recentre keeps
+    // its place)
+    bool hasRefresh_ = false, hasPerf_ = false, perfWanted_ = true, autoRecentrePending_ = false;
+    int refreshWant_ = 0;
+    float autoRecentre_ = 3.0f;
+    AwayClock away_;
+    XrPosef playOffset_{{0, 0, 0, 1}, {0, 0, 0}};
 #if defined(_WIN32)
     HDC hdc_ = nullptr;
     HGLRC hglrc_ = nullptr;
@@ -551,6 +733,98 @@ private:
         shutdown();   // (what was made so far; the game goes on flat)
         return false;
     }
+    // vr2 (2026-11-09): a frame call's result; the session / instance lost (the runtime crashed or quit, the headset
+    // unplugged) drops VR as EXITING does (was: the error ignored, the game drawing for a dead session)
+    bool ok(XrResult r, const char* what)
+    {
+        if (r == XR_ERROR_SESSION_LOST || r == XR_ERROR_INSTANCE_LOST) {
+            if (!lostLogged_) SDL_Log("openxr: %s: %s: leaving VR", what, reason(instance_, r).c_str());
+            lostLogged_ = lost_ = true;
+        }
+        return XR_SUCCEEDED(r);
+    }
+    // vr4 (docs/quest.md "Refresh rate"): after xrBeginSession: the display's rate (vr.ini refresh_rate; the offered
+    // ones logged) and the performance levels (sustained high for the CPU and the GPU: the arcade's world drawn twice
+    // a frame); both optional, skipped when the runtime lacks them
+    void applyDisplaySettings()
+    {
+        if (hasRefresh_) {
+            PFN_xrEnumerateDisplayRefreshRatesFB list = nullptr;
+            PFN_xrRequestDisplayRefreshRateFB request = nullptr;
+            PFN_xrGetDisplayRefreshRateFB current = nullptr;
+            xrGetInstanceProcAddr(instance_, "xrEnumerateDisplayRefreshRatesFB", reinterpret_cast<PFN_xrVoidFunction*>(&list));
+            xrGetInstanceProcAddr(instance_, "xrRequestDisplayRefreshRateFB", reinterpret_cast<PFN_xrVoidFunction*>(&request));
+            xrGetInstanceProcAddr(instance_, "xrGetDisplayRefreshRateFB", reinterpret_cast<PFN_xrVoidFunction*>(&current));
+            uint32_t n = 0;
+            std::vector<float> rates;
+            if (list && XR_SUCCEEDED(list(session_, 0, &n, nullptr)) && n > 0) {
+                rates.resize(n);
+                if (XR_FAILED(list(session_, n, &n, rates.data()))) rates.clear();
+            }
+            std::string offered;
+            for (float f : rates) offered += (offered.empty() ? "" : " / ") + std::to_string(int(std::lround(f)));
+            float now = 0;
+            if (current) current(session_, &now);
+#if defined(__ANDROID__)
+            const bool standalone = true;
+#else
+            const bool standalone = false;
+#endif
+            const float want = chooseRefreshRate(rates.data(), int(rates.size()), refreshWant_, standalone);
+            const bool asked = request && want > 0 && std::abs(want - now) > 0.5f && XR_SUCCEEDED(request(session_, want));
+            SDL_Log("openxr: display %.0f Hz (offered %s; refresh_rate %s)%s", double(now), offered.empty() ? "none" : offered.c_str(),
+                    refreshWant_ ? std::to_string(refreshWant_).c_str() : "auto",
+                    asked ? (" -> asked " + std::to_string(int(std::lround(want))) + " Hz").c_str() : "");
+        }
+        if (hasPerf_ && perfWanted_) {
+            PFN_xrPerfSettingsSetPerformanceLevelEXT set = nullptr;
+            xrGetInstanceProcAddr(instance_, "xrPerfSettingsSetPerformanceLevelEXT", reinterpret_cast<PFN_xrVoidFunction*>(&set));
+            const bool cpu = set && XR_SUCCEEDED(set(session_, XR_PERF_SETTINGS_DOMAIN_CPU_EXT, XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT));
+            const bool gpu = set && XR_SUCCEEDED(set(session_, XR_PERF_SETTINGS_DOMAIN_GPU_EXT, XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT));
+            SDL_Log("openxr: performance level sustained high: CPU %s, GPU %s", cpu ? "set" : "failed", gpu ? "set" : "failed");
+        }
+    }
+    // vr2: the play space (space_) = LOCAL moved to `offset`; the old one destroyed after the new one exists
+    void setPlaySpace(const XrPosef& offset)
+    {
+        XrReferenceSpaceCreateInfo rs{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
+        rs.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+        rs.poseInReferenceSpace = offset;
+        {   // (vrnull: the seat's fixed turn on top: the null driver's levelling, HOTD_XR_HEAD; identity otherwise)
+            const float o[4] = {offset.orientation.x, offset.orientation.y, offset.orientation.z, offset.orientation.w};
+            float q[4];
+            quatMul(o, seatFix_, q);
+            rs.poseInReferenceSpace.orientation = XrQuaternionf{q[0], q[1], q[2], q[3]};
+        }
+        XrSpace s = XR_NULL_HANDLE;
+        if (XR_FAILED(xrCreateReferenceSpace(session_, &rs, &s)) || !s) return;
+        if (space_) xrDestroySpace(space_);
+        space_ = s;
+        playOffset_ = offset;
+    }
+    // vr2: recentre: the seat's origin to the head's place now, its heading the head's (yaw only: the horizon stays level)
+    void recentre(XrTime t)
+    {
+        if (!baseSpace_ || !viewSpace_) return;
+        XrSpaceLocation l{XR_TYPE_SPACE_LOCATION};
+        if (XR_FAILED(xrLocateSpace(viewSpace_, baseSpace_, t, &l)))
+            return;
+        // vr4: the head's position not valid (a 3DoF moment, a Quest without a boundary): the heading alone, the seat's
+        // place kept (was: nothing happened); vr_aim.h recentrePose (unit-tested)
+        Pose head, out;
+        toPose(l.pose, head, true);
+        const bool posOk = (l.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0;
+        const float keep[3] = {playOffset_.position.x, playOffset_.position.y, playOffset_.position.z};
+        if (!recentrePose(head, (l.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0, posOk, keep, out))
+            return;
+        XrPosef o{};
+        o.orientation.x = out.rot[0], o.orientation.y = out.rot[1], o.orientation.z = out.rot[2], o.orientation.w = out.rot[3];
+        o.position.x = out.pos[0], o.position.y = out.pos[1], o.position.z = out.pos[2];
+        setPlaySpace(o);
+        SDL_Log("openxr: recentred (heading %.0f degrees, %s %.2f %.2f %.2f m)", double(2.0f * std::atan2(out.rot[1], out.rot[3]) * 57.29578f),
+                posOk ? "the head at" : "heading only (no head position), the seat kept at", double(o.position.x),
+                double(o.position.y), double(o.position.z));
+    }
     static void toPose(const XrPosef& p, Pose& o, bool valid)
     {
         o.pos[0] = p.position.x, o.pos[1] = p.position.y, o.pos[2] = p.position.z;
@@ -591,14 +865,44 @@ private:
                     XrSessionBeginInfo b{XR_TYPE_SESSION_BEGIN_INFO};
                     b.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
                     running_ = XR_SUCCEEDED(xrBeginSession(session_, &b));
+                    if (running_) applyDisplaySettings();   // vr4: the refresh rate, the performance levels
                 } else if (state_ == XR_SESSION_STATE_STOPPING) {
                     xrEndSession(session_);   // (the headset taken off / the app hidden: back to IDLE, READY again later)
                     running_ = false;
                 } else if (state_ == XR_SESSION_STATE_EXITING || state_ == XR_SESSION_STATE_LOSS_PENDING) {
                     lost_ = true;   // the runtime quits us / the headset is gone: the game drops VR (main.cpp vrFrame)
                 }
+            } else if (ev.type == XR_TYPE_EVENT_DATA_DISPLAY_REFRESH_RATE_CHANGED_FB) {   // vr4 (the log)
+                const auto& c = reinterpret_cast<const XrEventDataDisplayRefreshRateChangedFB&>(ev);
+                SDL_Log("openxr: display refresh rate %.0f -> %.0f Hz", double(c.fromDisplayRefreshRate), double(c.toDisplayRefreshRate));
+            } else if (ev.type == XR_TYPE_EVENT_DATA_PERF_SETTINGS_EXT) {   // vr4: the headset too warm: its level changed
+                const auto& p = reinterpret_cast<const XrEventDataPerfSettingsEXT&>(ev);
+                SDL_Log("openxr: performance notification: domain %d sub-domain %d level %d -> %d", int(p.domain), int(p.subDomain),
+                        int(p.fromLevel), int(p.toLevel));
             } else if (ev.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) {
                 lost_ = true;
+            } else if (ev.type == XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED) {
+                // vr2: which bindings the runtime chose for each hand (the first headset test's log: docs/vr.md)
+                for (int h = 0; h < 2; ++h) {
+                    XrInteractionProfileState st{XR_TYPE_INTERACTION_PROFILE_STATE};
+                    char path[XR_MAX_PATH_LENGTH] = {};
+                    uint32_t len = 0;
+                    if (XR_SUCCEEDED(xrGetCurrentInteractionProfile(session_, hand_[h], &st)) && st.interactionProfile != XR_NULL_PATH &&
+                        XR_SUCCEEDED(xrPathToString(instance_, st.interactionProfile, XR_MAX_PATH_LENGTH, &len, path)))
+                        SDL_Log("openxr: %s hand: %s", h ? "right" : "left", path);
+                    else
+                        SDL_Log("openxr: %s hand: no controller", h ? "right" : "left");
+                }
+            } else if (ev.type == XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING) {
+                // vr2: the runtime's own recentre (Quest: hold the Meta button; SteamVR: Reset Seated Position) moved
+                // LOCAL to the head: our recentre's offset is dropped, the runtime's new origin is the seat
+                const auto& c = reinterpret_cast<const XrEventDataReferenceSpaceChangePending&>(ev);
+                if (c.referenceSpaceType == XR_REFERENCE_SPACE_TYPE_LOCAL) {
+                    XrPosef identity{};
+                    identity.orientation.w = 1;
+                    setPlaySpace(identity);
+                    SDL_Log("openxr: the runtime recentred the seat");
+                }
             }
             ev = XrEventDataBuffer{XR_TYPE_EVENT_DATA_BUFFER};
         }
@@ -627,7 +931,8 @@ private:
             !make(primary_, XR_ACTION_TYPE_BOOLEAN_INPUT, "primary", "Start (left) / reload (right)") ||
             !make(secondary_, XR_ACTION_TYPE_BOOLEAN_INPUT, "secondary", "Reload") ||
             !make(menu_, XR_ACTION_TYPE_BOOLEAN_INPUT, "menu", "Pause") ||
-            !make(haptic_, XR_ACTION_TYPE_VIBRATION_OUTPUT, "haptic", "Recoil")) {
+            !make(haptic_, XR_ACTION_TYPE_VIBRATION_OUTPUT, "haptic", "Recoil") ||
+            !make(recentre_, XR_ACTION_TYPE_BOOLEAN_INPUT, "recentre", "Recentre (hold)")) {
             return fail(err, "xrCreateAction", XR_ERROR_VALIDATION_FAILURE);
         }
         // suggested bindings per interaction profile (the runtime remaps other controllers to one of these). A path the
@@ -665,12 +970,14 @@ private:
                      {squeeze_, "/user/hand/left/input/squeeze/value"}, {squeeze_, "/user/hand/right/input/squeeze/value"},
                      {primary_, "/user/hand/left/input/x/click"}, {primary_, "/user/hand/right/input/a/click"},
                      {secondary_, "/user/hand/left/input/y/click"}, {secondary_, "/user/hand/right/input/b/click"},
-                     {menu_, "/user/hand/left/input/menu/click"}}));
+                     {menu_, "/user/hand/left/input/menu/click"},
+                     {recentre_, "/user/hand/left/input/thumbstick/click"}, {recentre_, "/user/hand/right/input/thumbstick/click"}}));
         bind("/interaction_profiles/valve/index_controller",   // (no menu button: the left B)
              common({{trigger_, "/user/hand/left/input/trigger/value"}, {trigger_, "/user/hand/right/input/trigger/value"},
                      {squeeze_, "/user/hand/left/input/squeeze/value"}, {squeeze_, "/user/hand/right/input/squeeze/value"},
                      {primary_, "/user/hand/left/input/a/click"}, {primary_, "/user/hand/right/input/a/click"},
-                     {secondary_, "/user/hand/right/input/b/click"}, {menu_, "/user/hand/left/input/b/click"}}));
+                     {secondary_, "/user/hand/right/input/b/click"}, {menu_, "/user/hand/left/input/b/click"},
+                     {recentre_, "/user/hand/left/input/thumbstick/click"}, {recentre_, "/user/hand/right/input/thumbstick/click"}}));
         bind("/interaction_profiles/htc/vive_controller",
              common({{trigger_, "/user/hand/left/input/trigger/value"}, {trigger_, "/user/hand/right/input/trigger/value"},
                      {squeeze_, "/user/hand/left/input/squeeze/click"}, {squeeze_, "/user/hand/right/input/squeeze/click"},
@@ -680,7 +987,16 @@ private:
              common({{trigger_, "/user/hand/left/input/trigger/value"}, {trigger_, "/user/hand/right/input/trigger/value"},
                      {squeeze_, "/user/hand/left/input/squeeze/click"}, {squeeze_, "/user/hand/right/input/squeeze/click"},
                      {primary_, "/user/hand/left/input/trackpad/click"}, {primary_, "/user/hand/right/input/trackpad/click"},
-                     {menu_, "/user/hand/left/input/menu/click"}, {menu_, "/user/hand/right/input/menu/click"}}));
+                     {menu_, "/user/hand/left/input/menu/click"}, {menu_, "/user/hand/right/input/menu/click"},
+                     {recentre_, "/user/hand/left/input/thumbstick/click"}, {recentre_, "/user/hand/right/input/thumbstick/click"}}));
+        if (hpControllers_)   // vrship: HP Reverb G2 (XR_EXT_hp_mixed_reality_controller; the Touch layout: X / Y, A / B)
+            bind("/interaction_profiles/hp/mixed_reality_controller",
+                 common({{trigger_, "/user/hand/left/input/trigger/value"}, {trigger_, "/user/hand/right/input/trigger/value"},
+                         {squeeze_, "/user/hand/left/input/squeeze/value"}, {squeeze_, "/user/hand/right/input/squeeze/value"},
+                         {primary_, "/user/hand/left/input/x/click"}, {primary_, "/user/hand/right/input/a/click"},
+                         {secondary_, "/user/hand/left/input/y/click"}, {secondary_, "/user/hand/right/input/b/click"},
+                         {menu_, "/user/hand/left/input/menu/click"}, {menu_, "/user/hand/right/input/menu/click"},
+                         {recentre_, "/user/hand/left/input/thumbstick/click"}, {recentre_, "/user/hand/right/input/thumbstick/click"}}));
         for (int h = 0; h < 2; ++h) {
             XrActionSpaceCreateInfo sc{XR_TYPE_ACTION_SPACE_CREATE_INFO};
             sc.poseInActionSpace.orientation.w = 1;
@@ -707,6 +1023,11 @@ private:
         xrEnumerateSwapchainFormats(session_, 0, &fc, nullptr);
         std::vector<int64_t> formats(fc);
         xrEnumerateSwapchainFormats(session_, fc, &fc, formats.data());
+        {   // vrship: the runtime's formats in the log (GL enums, its preferred first)
+            std::string l;
+            for (int64_t f : formats) l += (l.empty() ? "0x" : " 0x") + [](int64_t v) { char b[20]; std::snprintf(b, sizeof b, "%llX", static_cast<unsigned long long>(v)); return std::string(b); }(f);
+            SDL_Log("openxr: swapchain formats: %s (0x8C43 = SRGB8_ALPHA8, 0x8058 = RGBA8)", l.c_str());
+        }
         // the game writes sRGB-encoded colours: SRGB8_ALPHA8 (stored as written, shown as sRGB: the flat game's look).
         // RGBA8 only when the runtime lacks it: the runtime then takes the values as linear (a paler picture; logged)
         // OpenGL ES (quest): an sRGB image is always encoded on write unless GL_EXT_sRGB_write_control turns that off;
@@ -774,13 +1095,14 @@ private:
         gl::BindFramebuffer(gl::FRAMEBUFFER, mirrorFbo_);
         gl::GenTextures(1, &mirrorTex_);
         gl::BindTexture(gl::TEXTURE_2D, mirrorTex_);
-        gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, kMirrorSize, kMirrorSize, 0, gl::RGBA, gl::UNSIGNED_BYTE, nullptr);
+        // (two eye slots side by side: desktop_view both; the scene's own pictures go into the first)
+        gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, 2 * kMirrorSize, kMirrorSize, 0, gl::RGBA, gl::UNSIGNED_BYTE, nullptr);
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR);
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR);
         gl::FramebufferTexture2D(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, mirrorTex_, 0);
         gl::GenRenderbuffers(1, &mirrorDepth_);
         gl::BindRenderbuffer(gl::RENDERBUFFER, mirrorDepth_);
-        gl::RenderbufferStorage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT24, kMirrorSize, kMirrorSize);
+        gl::RenderbufferStorage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT24, 2 * kMirrorSize, kMirrorSize);
         gl::FramebufferRenderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, mirrorDepth_);
         gl::framebufferOk("openxr mirror");
         gl::BindFramebuffer(gl::FRAMEBUFFER, 0);

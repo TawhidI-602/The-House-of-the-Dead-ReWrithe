@@ -45,6 +45,7 @@ struct Controller {
     float trigger = 0.0f;       // 0..1
     float squeeze = 0.0f;       // 0..1 (the grip button)
     bool primary = false, secondary = false, menu = false, stickClick = false;   // A / B (X / Y), menu, thumbstick press
+                                                                                 // (openxr: held 1 s recentres)
     float stick[2] = {0, 0};
 };
 
@@ -62,7 +63,7 @@ struct Settings {
     // the arcade's framing), 1 level horizon (the game camera's position and heading only: its pitch is not forced on
     // the player's head; comfortable on the arcade's steep looks up / down)
     int follow = 0;
-    bool vignette = true;           // darken the view's edges while the game camera turns / moves fast
+    bool vignette = false;          // (off by default, user 2026-11-10) darken the view's edges while the game camera turns / moves fast
     float vignetteStrength = 0.7f;  // 0..1 at the fastest
     float vignetteTurn = 60.0f;     // degrees / second where the vignette starts
     float unitsPerMetre = 10.0f;    // game units per metre (the world's scale; docs/vr.md "Scale")
@@ -70,9 +71,62 @@ struct Settings {
     bool panelDepthTest = false;    // the HUD hidden behind nearer walls (off: always on top, the usual VR HUD)
     float aimDistance = 8.0f;       // metres: the aim's distance when the ray hits nothing the eye's depth knows
     bool laser = true;              // a faint laser from the muzzle to the crosshair
+    bool crosshair = true;          // vrsight (user 2026-11-10): the 3D crosshair (off: none drawn, the aim still works)
     float crosshairDegrees = 2.5f;  // the 3D crosshair's angular size (the same size at any distance)
     bool reloadDown = true;         // pointing the gun steeply down reloads (as a shot off the screen)
     float reloadPitch = 55.0f;      // degrees below the horizon for reloadDown / the off-screen state
+    // vr4 (2026-11-09, docs/vr.md "Off the screen"): what a pull off the arcade's 4:3 screen does. 0 below (the
+    // default): only aimed below the screen (or the gun pointed down) it reloads; at the world beside / behind / above
+    // the screen it does nothing (the crosshair greyed: the world all around is drawn, and shooting a creature beside
+    // you reloaded). 1 any: every pull off the screen reloads (the light gun's rule, as before)
+    int offscreenReload = 0;
+    // vr4 (docs/vr.md "The HUD and close creatures"): 1 adaptive (the default): the HUD's screen plane eases from
+    // panel_distance to just in front of the nearest creature inside it (never nearer than hudMinDistance metres; its
+    // angular size kept); 0 fixed at panel_distance (as before)
+    int hudDistance = 1;
+    float hudMinDistance = 0.7f;
+    // vr4 (docs/vr.md "Aim depth"): how far the gun's ray goes: 0 auto (the eye's depth where it can be read, else the
+    // CPU ray test: OpenGL ES / ANGLE), 1 depth (the eye's depth only; the fixed aim_distance where unreadable), 2 cpu
+    // (the CPU ray against the stage's triangles and the creatures' parts; a desktop test of the Quest's path), 3 fixed
+    // (aim_distance always: OpenGL ES before vr4, the tests' baseline)
+    int aimDepth = 0;
+    // vr4 (docs/vr.md "Shot flash"): the game's shot flash / spark (drawn 1 unit = 10 cm in front of the game camera:
+    // the size the flat picture wants; in VR before your eyes) moved out to where the shot's ray meets the world, the
+    // same size to the game camera
+    bool shotFlashAtHit = true;
+    // vr4 (docs/quest.md "Refresh rate"): the display's refresh rate asked of the runtime (XR_FB_display_refresh_rate,
+    // when it has it): 0 auto (on the Quest 90, or the highest under it; on a PC the runtime's own), or 72 / 90 / 120
+    // (the nearest offered). sustainedPerformance: XR_EXT_performance_settings' sustained high for the CPU and the GPU
+    int refreshRate = 0;
+    bool sustainedPerformance = true;
+    // vr4 (docs/vr.md "Recentre"): the headset back after more than this many seconds away (taken off, the app hidden;
+    // not the runtime's dashboard over the game): the seat recentred by itself; 0 never
+    float autoRecentre = 3.0f;
+    // shake-to-reload (user 2026-11-09; docs/vr.md "Shake to reload"): a back-and-forth shake of a gun controller
+    // reloads. shakeSensitivity: the muzzle's speed (m/s) both swings must pass (lower: easier). On by default since
+    // user 2026-11-10
+    bool shakeReload = true;
+    float shakeSensitivity = 3.5f;
+    // wrist-flick reload (user 2026-11-10; docs/vr.md "Wrist flick to reload", vr_aim.h FlickDetector): one sharp
+    // upward snap of the gun's muzzle reloads. flickSensitivity: the pitch rate (deg/s) the snap must reach (lower:
+    // easier). The shake's and the flick's 0.7 s cooldown is shared (one gesture = one reload)
+    bool flickReload = true;
+    float flickSensitivity = 600.0f;
+    // vr3 (user 2026-11-09, docs/vr.md "All around you"): the world in every direction: the neighbouring draw zones'
+    // pieces outside the game camera's view (GameView::vrAround). Off: only what the arcade's zone list draws
+    bool around = true;
+    // vr3 (user 2026-11-09, docs/vr.md "Cut-scenes"): 0 world (you stand where the game's camera is and look around
+    // freely, the default), 1 cinema (the flat picture, bars and captions as the arcade shows them, on a big screen
+    // in front of you while a cut-scene plays: for comfort when the camera cuts fast); cinemaDistance / cinemaWidth:
+    // its place (metres ahead of the seat, its width)
+    int cutscenes = 0;
+    float cinemaDistance = 3.0f;
+    float cinemaWidth = 4.0f;
+    // vrnull (user 2026-11-09, docs/vr.md "The desktop window"): the game's window during VR: 0 eye (one eye, the
+    // left, filling the window cropped to its shape), 1 both (the two eyes side by side), 2 spectator (the flat game's
+    // picture from the game camera with the HUD and player 1's sight: for watching / streaming). The preview's own
+    // picture stays --vr-eye's (spectator works there too)
+    int desktopView = 0;
     bool leftHand = true;           // draw the left hand (when tracked)
     // dual pistols (player request 2026-11-04; docs/vr.md "Dual pistols"): a gun in each hand, each controller aims and
     // fires for itself (its own laser, crosshair, trigger, rumble), one magazine for the pair; the left gun is the
@@ -109,6 +163,7 @@ struct Settings {
 #endif
     bool srgbSwapchain = true;
     bool load(const std::string& path);   // missing keys keep their defaults; false: no file
+    void set(const std::string& key, const std::string& value);   // one vr.ini key (vr3: also --vr-set key=value)
 };
 
 // the per-frame interface every backend implements (GL context current on the calling thread)
@@ -136,6 +191,10 @@ public:
     // openxr: the runtime ended the session for good (EXITING / LOSS_PENDING: quit from its dashboard, the headset
     // unplugged): the game drops VR and goes on flat (main.cpp vrFrame)
     virtual bool lost() const { return false; }
+    // openxr: the headset paces the loop (xrWaitFrame; the backend's own ~90 Hz wait while the headset shows nothing):
+    // main.cpp applyPresentation drops its frame limiter and the window's vsync then (vr2 2026-11-09: they capped a
+    // 90 Hz headset at the monitor's 60)
+    virtual bool pacesFrames() const { return false; }
 
     // ---- the desktop preview's extras (a headset backend leaves them alone) ----
     // the window's size before beginFrame (the preview sizes its eyes from it)

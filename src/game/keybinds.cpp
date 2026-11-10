@@ -182,6 +182,7 @@ const char* keyFixed(SDL_Scancode sc)
     case SDL_SCANCODE_ESCAPE: return "the pause";
     case SDL_SCANCODE_F1: return "developer lines";
     case SDL_SCANCODE_F3: return "network stats";
+    case SDL_SCANCODE_F8: return "photo mode";   // (photomode)
     case SDL_SCANCODE_F9: return "light-gun calibration";
     case SDL_SCANCODE_F11: return "fullscreen";
     case SDL_SCANCODE_F12: return "screenshot";

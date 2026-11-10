@@ -485,6 +485,7 @@ bool GameView::finish(std::unique_ptr<Prepared> p, std::string& err)
     for (const Placement& p : stage_->placements) {
         arcadeWorldIds_.insert(p.id);
         romIndexById_.emplace(p.id, p.romIndex);
+        romIndicesById_.emplace(p.id, p.romIndex);
         arcadePlacementById_.emplace(p.id, &p);
     }
     for (const std::vector<int>& list : stage_->zoneLists) {
@@ -909,28 +910,67 @@ void GameView::draw(const Runtime& rt, int width, int height, const FrameSnapsho
     // (DrawItem::sideOnly: the 4:3 picture stays as it was), none at a placement position the zone already draws (the
     // alternate states: the mansion entrance 0x9E3 / 0x9E4 / 0x9E5, ...). Draw-only. HOTD_WIDE_ZONES=0: off
     static const int wideReach = std::getenv("HOTD_WIDE_ZONES") ? std::atoi(std::getenv("HOTD_WIDE_ZONES")) : 1;
-    const bool wideExtra = !pcStage_ && !pcAlt && !useMemZone && wideReach > 0 && zone >= 0 && zone < int(zoneIndices_.size()) &&
-                           float(width) * 3.0f > float(height) * 4.0f + 1.0f;
-    std::vector<const Placement*> zonePlaced;
+    // vr3 (vrAround, view.h): the eyes look every way: the neighbouring zones' pieces wholly outside the game camera's
+    // 4:3 view (beside, behind) are added too, as DrawItem::around (eyes only, depth-tested with the zone), also with
+    // PC models (the PC world's pieces by their IDs in the neighbouring zones' lists). Reach: HOTD_VR_ZONES (default 2)
+    static const int aroundReach = std::getenv("HOTD_VR_ZONES") ? std::atoi(std::getenv("HOTD_VR_ZONES")) : 2;
+    const bool vrWide = vrAround && !pcAlt && !useMemZone && aroundReach > 0 && zone >= 0 && zone < int(zoneIndices_.size());
+    const bool wideExtra = vrWide || (!pcStage_ && !pcAlt && !useMemZone && wideReach > 0 && zone >= 0 && zone < int(zoneIndices_.size()) &&
+                                        float(width) * 3.0f > float(height) * 4.0f + 1.0f);
+    const int reach = vrWide ? std::max(wideReach, aroundReach) : wideReach;
+    // a world item in draw zone z's list (the arcade's by its placement index, the PC world's by its ID)
+    auto inZone = [&](const DrawItem& it, int z) {
+        return it.stage == stage_.get() ? it.placement->romIndex >= 0 && zoneIndices_[size_t(z)].count(it.placement->romIndex) > 0
+                                        : zoneIds_[size_t(z)].count(it.placement->id) > 0;
+    };
+    // a piece's place for "the zone already draws one there": its placement's position (the arcade's; vr3: the PC
+    // world's pieces all sit at the origin, their vertices in world space: the middle of their bounds then)
+    using Place = std::array<float, 3>;
+    auto placeOf = [&](const DrawItem& it) {
+        const Placement& p = *it.placement;
+        Place o = {p.pos[0], p.pos[1], p.pos[2]};
+        if (vrWide && it.stage != stage_.get())
+            for (int k = 0; k < 3; ++k) o[size_t(k)] += 0.5f * (it.model->boundsMin[k] + it.model->boundsMax[k]);
+        return o;
+    };
+    std::vector<Place> zonePlaced;
     M34 wideView{};
     float wideHalf = 0.0f;
     if (wideExtra) {
         for (const DrawItem& it : world_)
-            if (it.stage == stage_.get() && it.placement->romIndex >= 0 && zoneIndices_[size_t(zone)].count(it.placement->romIndex))
-                zonePlaced.push_back(it.placement);
+            if (vrWide ? inZone(it, zone)
+                         : it.stage == stage_.get() && it.placement->romIndex >= 0 && zoneIndices_[size_t(zone)].count(it.placement->romIndex))
+                zonePlaced.push_back(placeOf(it));
         wideView = fromCopro(rt.camera);
         wideHalf = kHalfH * float(width) / float(height);
     }
-    auto wideSide = [&](const DrawItem& it) {
+    // 0: not drawn; 1: in the side strips (sideOnly); 2: vr3: wholly outside the 4:3 view (around)
+    // vr3: a piece of any other zone far away (its nearest point past HOTD_VR_FAR units, default 400: 40 m) too: the
+    // landmarks (Chapter 1's mansion seen back from the bridge); never one near you (a zone's alternate dressing of the
+    // room you stand in). And one piece per place among the added ones (zones repeat pieces)
+    static const float aroundFar = std::getenv("HOTD_VR_FAR") ? float(std::atof(std::getenv("HOTD_VR_FAR"))) : 400.0f;
+    std::vector<Place> aroundPlaced;
+    auto samePlace = [](const Place& q, const Place& p) {
+        return std::abs(q[0] - p[0]) < 0.5f && std::abs(q[1] - p[1]) < 0.5f && std::abs(q[2] - p[2]) < 0.5f;
+    };
+    auto wideSide = [&](const DrawItem& it) -> int {
         const Placement& p = *it.placement;
-        bool near = false;
-        for (int z = std::max(0, zone - wideReach); z <= std::min(int(zoneIndices_.size()) - 1, zone + wideReach) && !near; ++z)
-            near = z != zone && zoneIndices_[size_t(z)].count(p.romIndex);
-        if (!near)
-            return false;
-        for (const Placement* q : zonePlaced)
-            if (std::abs(q->pos[0] - p.pos[0]) < 0.5f && std::abs(q->pos[1] - p.pos[1]) < 0.5f && std::abs(q->pos[2] - p.pos[2]) < 0.5f)
-                return false;
+        bool near = false, far = false;
+        for (int z = std::max(0, zone - reach); z <= std::min(int(zoneIndices_.size()) - 1, zone + reach) && !near; ++z)
+            near = z != zone && (vrWide ? inZone(it, z) : zoneIndices_[size_t(z)].count(p.romIndex) > 0);
+        if (!near && vrWide && aroundFar > 0.0f)
+            for (int z = 0; z < int(zoneIndices_.size()) && !far; ++z)
+                far = z != zone && inZone(it, z);
+        if (!near && !far)
+            return 0;
+        const Place here = placeOf(it);
+        for (const Place& q : zonePlaced)
+            if (samePlace(q, here))
+                return 0;
+        if (vrWide)
+            for (const Place& q : aroundPlaced)
+                if (samePlace(q, here))
+                    return 0;
         // the model's bounding sphere in camera space (x right, y up, z ahead)
         float lc[3], w[3], c[3];
         for (int k = 0; k < 3; ++k)
@@ -942,35 +982,49 @@ void GameView::draw(const Runtime& rt, int width, int height, const FrameSnapsho
             w[k] = p.rot[k * 3] * lc[0] + p.rot[k * 3 + 1] * lc[1] + p.rot[k * 3 + 2] * lc[2] + p.pos[k];
         for (int k = 0; k < 3; ++k)
             c[k] = wideView.r[k * 3] * w[0] + wideView.r[k * 3 + 1] * w[1] + wideView.r[k * 3 + 2] * w[2] + wideView.t[k];
-        if (c[2] < -r)
-            return false;   // behind the eye
         auto out = [&](float a, float half) { return (focal * a - half * c[2]) / std::sqrt(focal * focal + half * half); };
+        if (vrWide) {   // the arcade's 4:3 view decides what its zone shows: only what lies wholly outside it is ours
+            if (!near && std::sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]) - r < aroundFar)
+                return 0;
+            int side = 0;
+            if (c[2] < -r || out(c[0], kHalfW) > r || out(-c[0], kHalfW) > r || out(c[1], kHalfH) > r || out(-c[1], kHalfH) > r)
+                side = 2;
+            else if (near && it.stage == stage_.get() &&
+                     !(out(c[0], kHalfW) < -r && out(-c[0], kHalfW) < -r && out(c[1], kHalfH) < -r && out(-c[1], kHalfH) < -r))
+                side = 1;   // (across the 4:3 edge: the strips' rule)
+            if (side != 0) aroundPlaced.push_back(here);
+            return side;
+        }
+        if (c[2] < -r)
+            return 0;   // behind the eye
         if (out(c[0], wideHalf) > r || out(-c[0], wideHalf) > r || out(c[1], kHalfH) > r || out(-c[1], kHalfH) > r)
-            return false;   // outside the wide view
-        return !(out(c[0], kHalfW) < -r && out(-c[0], kHalfW) < -r);   // (wholly inside the 4:3 picture: nothing for the strips)
+            return 0;   // outside the wide view
+        return !(out(c[0], kHalfW) < -r && out(-c[0], kHalfW) < -r) ? 1 : 0;   // (wholly inside the 4:3 picture: nothing for the strips)
     };
     for (const DrawItem& it : pcAlt ? altWorld_ : world_) {
-        bool sideOnly = false;
+        bool sideOnly = false, around = false;
         if (altByTable) {
             if (!altZoneIds.count(it.placement->id))
                 continue;
         } else if (useMemZone) {
-            const int ri = it.stage == stage_.get() ? it.placement->romIndex : romIndexOf(it.placement->id);
+            const int ri = it.stage == stage_.get() ? it.placement->romIndex : romIndexOf(it.placement->id, zone);
             if (ri >= 0 && !memZone.count(ri))
                 continue;
         } else if (zone >= 0 && zone < int(zoneIndices_.size())) {
             if (it.stage == stage_.get() ? it.placement->romIndex >= 0 && !zoneIndices_[size_t(zone)].count(it.placement->romIndex)
                                          : arcadeWorldIds_.count(it.placement->id) && !zoneIds_[size_t(zone)].count(it.placement->id)) {
-                if (!(wideExtra && it.stage == stage_.get() && wideSide(it)))
+                const int side = wideExtra && (vrWide || it.stage == stage_.get()) ? wideSide(it) : 0;
+                if (side == 0)
                     continue;
-                sideOnly = true;
+                sideOnly = side == 1, around = side == 2;
             }
         }
-        if (!wallOf_.empty() && !pcAlt && !sideOnly)
+        if (!wallOf_.empty() && !pcAlt && !sideOnly && !around)   // (vr3: the eyes' extra pieces are no ragdoll walls)
             if (const auto wo = wallOf_.find(it.placement); wo != wallOf_.end())
                 walls_.active.push_back(wo->second);
         DrawItem d = it;
         d.sideOnly = sideOnly;
+        d.around = around;
         if (haveWorldLight && it.stage == stage_.get()) {
             d.hasLight = true;
             std::copy(worldLight, worldLight + 3, d.light);
@@ -978,7 +1032,7 @@ void GameView::draw(const Runtime& rt, int width, int height, const FrameSnapsho
         // world_draw_task (0x4B300, s1 ported its state part): a placement with a model list (+0x14) draws the list's
         // entry its counter (0x5430D0 + i x 4, already advanced this frame) points past; a placement whose +0x10 is not
         // 0xFF fades in through 0x543210 + i x 4 (draw_fade_begin, 0 .. 0xFF). UNVERIFIED (teaser)
-        const int ri = it.stage == stage_.get() ? it.placement->romIndex : romIndexOf(it.placement->id);
+        const int ri = it.stage == stage_.get() ? it.placement->romIndex : romIndexOf(it.placement->id, zone);
         if (plTable != 0 && ri >= 0 && ri < 0x50) {
             const uint32_t pl = plTable + uint32_t(ri) * 0x18;
             if (const uint32_t list = rt.mem.u32(pl + 0x14)) {
@@ -1192,6 +1246,12 @@ void GameView::draw(const Runtime& rt, int width, int height, const FrameSnapsho
                     SDL_Log("view: actor model %#x (area %d) has no texture set: extra stage %d loaded %d, model there %d",
                             id, aa->second, extraStage_, int(extra_ != nullptr), int(extra_ && extra_->models.count(id)));
             }
+        // the Hermit Fly Head mod (game/cosmods.h, user 2026-11-09): the arcade models' Hermit head drawn as the game's
+        // unused second head (draw only), from the same model source: the 1998 PC files have no 0x1AC6, so the PC
+        // models keep their head
+        if (id == kHermitHeadModel && hermitHeadSettings().on)
+            if (auto fh = from->models.find(kHermitFlyHeadModel); fh != from->models.end() && fh->second.triangleCount() > 0)
+                id = kHermitFlyHeadModel;
         auto m = from->models.find(id);
         if (m == from->models.end() || m->second.triangleCount() == 0) {
             if (pcStage_) logPcGap(id, "drawn by the game");
@@ -1276,6 +1336,19 @@ void GameView::draw(const Runtime& rt, int width, int height, const FrameSnapsho
         d.fade = std::clamp(drawFade(dm, 0), 0.0f, 1.0f);
         d.flat = drawFlat(dm, 0);
         d.ramp = dm.ramp;
+        // vr4: the VR frame's kinds (assets.h DrawItem::vrKind; read only, the flat draw ignores it): the shot's flash /
+        // spark by their tasks, a body's parts (not the blood bursts / drips its body draws: by model, as hideBlood)
+        if (!dm.shadow && !dm.background) {
+            const uint32_t rtn = dm.task != 0 ? rt.mem.u32(dm.task) : 0;
+            const bool blood = (dm.model >= 7 && dm.model <= 0x23) || (dm.model >= 0x46B && dm.model <= 0x4A3) ||
+                               (dm.model >= 0x1AF && dm.model <= 0x1BF);
+            d.vrKind = rtn == A::F::shot_effect_flash ? 2
+                       : rtn == A::F::shot_effect_debris && (dm.model == 0x660 || dm.model == 0x661) ? 3
+                       : (dm.body != 0 || dm.bossPart != 0) && !blood ? 1 : 0;
+        }
+        // pcsky (GitHub #55): the PC models keep the storm sky after the Magician explodes, as the real PC game does:
+        // THOTD.EXE's death 0x4D1EE4 steps 0x12 / 0x13 are empty (the arcade's color_row_set rows 0 / 6 are not
+        // there) and Chapter 4 event 4 has no SKYKD / SKYTB / TEXCHG after the fight (sky index 5, PN_skyuvst4a 0x1D20)
         // cosmods: Rainbow Blood's creature colour, for the body's own parts only (a splash or a pool drawn with a body
         // took that frame's body: its colour jumped every frame, user's clip 2026-11-03)
         d.bloodHue = dm.shadow ? -1.0f : dm.part != 0 ? creatureBloodHue(dm.body) : creatureBloodKeepsRows(dm.body) ? 6.0f : -1.0f;
@@ -1693,6 +1766,7 @@ void GameView::draw(const Runtime& rt, int width, int height, const FrameSnapsho
         pickVariant(d);
         if (skinSet >= 0)
             d.variant = skinSet;
+        d.flat = sd.flat;   // magflash: the hit flash (skin_draw's header 0x802400)
         items.push_back(d);
     }
     if (std::getenv("HOTD_NO_CULL")) opt.cull = false;   // debugging

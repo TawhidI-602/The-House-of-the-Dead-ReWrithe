@@ -22,7 +22,11 @@ struct Camera {
     float yaw = 0, pitch = 0;   // radians; yaw 0 looks along +z, positive yaw turns toward +x (left-handed world)
     float fovY = 0.80f;         // vertical field of view (radians); about 46 degrees like the arcade picture
     float nearZ = 1.0f;         // the perspective's near plane (depth clamp keeps what is nearer; the viewer's Free Cam: less)
-    bool perPixelDepth = false; // Depth Buffer whatever Draw Depth says (the viewer's Free Cam: SceneView::freeCamToggle)
+    bool perPixelDepth = false; // Depth Buffer whatever Draw Depth says (the free camera: FreeCam::start, game/free_cam.h)
+    // vrnull (user 2026-11-09: "the first zombie and researcher sink into the pavement" in VR): >= 0: the Depth
+    // Buffer's key band (kKeyBand ...) instead of perPixelDepth's narrow kKeyBandFreeCam, and the mods' depth modes
+    // kept: the VR eyes (per pixel, the game's own band: the feet stay over the opening's kerb as in the flat game)
+    float keyBand = -1.0f;
     float shift[2] = {0, 0};    // the picture moved by (x, y) in normalised device units, the view unchanged (a moved
                                 // projection centre: the hit screen shake, GameView::draw); not for the VR eyes
     void basis(float right[3], float up[3], float fwd[3]) const;
@@ -188,6 +192,10 @@ private:
     gl::GLint uCull_ = -1, uMip_ = -1, uPcCullSign_ = -1, uClampUV_ = -1, uDepthBias_ = -1, uFloorY_ = -1, uFloorPull_ = -1, uPush_ = -1, uFade_ = -1, uSideOnly_ = -1, uSideClip_ = -1, uFlat_ = -1, uGrey_ = -1, uSepia_ = -1, uRainbow_ = -1, uRainbowPhase_ = -1, uBloodRgb_ = -1, uRainbowTable_ = -1, uRainbowGame_ = -1, uRainbowSync_ = -1, uBloodRows_ = -1, uTie_ = -1, uTieItem_ = -1, uIdMode_ = -1;
     gl::GLint uCamPos_ = -1, uM2Known_ = -1, uM2Light_ = -1, uM2Diffuse_ = -1, uM2Ambient_ = -1, uM2SpecScale_ = -1, uM2SpecCtl_ = -1, uCamFwd_ = -1, uM2Gamma_ = -1, uM2Black_ = -1;
     gl::GLint uHasRepl_ = -1, uPcFilter_ = -1, uGreyRepl_ = -1, uSort_ = -1, uSortItem_ = -1, uPrepass_ = -1, uHybrid_ = -1, uKeyless_ = -1, uProj_ = -1, uBiasScale_ = -1;
+    // render5: the zone's coverage (alpha) copied after its passes, for the neighbouring zones' side-strip pieces (draw)
+    gl::GLuint coverTex_ = 0;
+    int coverW_ = 0, coverH_ = 0;
+    gl::GLint uSideCover_ = -1, uCover_ = -1;
     bool sortFragDepth_ = false;   // earlyz: Arcade Sort through gl_FragDepth (HOTD_SORT_FRAGDEPTH / _EXACT), else vertex depth
     std::vector<size_t> order_, orderArcade_;   // draw: the items' order in the depth-writing passes (kept: no allocation)
     void uploadReplacements(const StageReplacements& rp, GpuStage& g);

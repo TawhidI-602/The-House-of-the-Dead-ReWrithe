@@ -82,6 +82,7 @@ public:
     uint64_t frameNo = 0;                    // set by the frame loop (the cue trace's frame numbers)
     bool traceCues = false;                  // HOTD_TRACE_SOUND: every cue with its frame
     std::string describe(int cue) const;     // "type name / value" of a PC cue (the report)
+    void reportCues(float peak);             // (testing, HOTD_TOTD_SOUNDLIST: the cues by loudness at that peak)
     int pcCueOf(uint32_t arcadeCode) const;  // -1: none
     bool isMusicCode(uint32_t arcadeCode) const;   // its PC cue starts a music track or turns the music off
     bool isMusicStart(uint32_t arcadeCode) const;  // its PC cue starts a music track

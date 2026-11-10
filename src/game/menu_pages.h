@@ -39,6 +39,10 @@ struct MenuHooks {
     std::function<void(int page)> resetPage;            // menufb: a page's Reset to Defaults (ask, then menuReset)
     std::function<void()> languagePage;                 // menufb: System > Language's page (menuLanguageRows)
     std::function<void()> advancedPage;                 // advopt: the Advanced page (Gameplay's last row)
+    std::function<void()> totdPage;                     // totdex: Gameplay > Typing of the Dead 0's page (null: no row)
+    std::function<bool()> vrDualDefault;                // vr4: a VR run: vr.ini's dual_pistols (null: flat, no Dual Pistols row)
+    std::function<bool()> vrLaserDefault;               // vrsight: a VR run: vr.ini's laser (null: flat, no Laser (VR) row)
+    std::function<bool()> vrCrosshairDefault;           // vrsight: a VR run: vr.ini's crosshair (null: no Crosshair (VR) row)
     std::function<void()> filesCheck;                   // the text launcher (files check, data folders)
     std::function<void()> whatsNew;                     // setup2: the What's New page (the setup window)
     std::function<void()> shortcut;                     // create the desktop shortcut
@@ -78,6 +82,7 @@ struct MenuHooks {
     std::function<int()> gunWaiting;
     std::function<int()> gunWaitLeft;
     std::function<bool(const std::string& key)> gunConnected;
+    std::function<std::string()> gunNote;   // linuxmice: why no gun / mouse can be read (Linux: the input group), "": fine
 };
 
 // the rows of a category's page

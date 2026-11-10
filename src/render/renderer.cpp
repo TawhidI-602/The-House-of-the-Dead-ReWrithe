@@ -366,6 +366,8 @@ uniform int uMip;                // Model 2 texture mip levels
 uniform float uFade;             // DrawItem::fade
 uniform int uSideOnly;           // DrawItem::sideOnly: no pixels inside the centred 4:3 picture
 uniform vec2 uSideClip;          // its centre x and half width in pixels
+uniform int uSideCover;          // render5: 1 = uCover holds the zone's coverage (alpha > 0: drawn) for the sideOnly items
+uniform sampler2D uCover;
 uniform int uRamp;              // DrawItem::ramp (-1 off)
 uniform vec3 uRampStops[5];
 uniform int uGrey;               // RenderOptions::grey (the game's palette_grey_build look)
@@ -552,6 +554,23 @@ void main() {
 #endif
     if ((vFL.x & CHECKER) != 0u && ((int(gl_FragCoord.x) + int(gl_FragCoord.y)) & 1) != 0) discard;
     if (uSideOnly == 1 && abs(gl_FragCoord.x - uSideClip.x) < uSideClip.y) discard;
+    // render5 (the player's list: "background areas not culled through empty doors"): a neighbouring zone's piece fills
+    // only a hole of the side strip itself. Where the zone drew nothing in the 4:3 picture's edge column and nothing
+    // between it and this pixel (a doorway / opening the original shows black running out of the picture), it stays
+    // black as the picture's own part of that opening; the zone's own pixels are never covered (uCover: its alpha)
+    if (uSideCover == 1 && uSideOnly == 1) {
+        ivec2 p = ivec2(gl_FragCoord.xy);
+        if (texelFetch(uCover, p, 0).a > 0.0) discard;
+        int dir = gl_FragCoord.x < uSideClip.x ? -1 : 1;
+        int xe = int(floor(uSideClip.x + float(dir) * (uSideClip.y - 0.5)));   // the picture's last column on this side
+        bool open = texelFetch(uCover, ivec2(xe, p.y), 0).a == 0.0;
+        int d = abs(p.x - xe), st = max(1, d / 96);
+        for (int k = st; k < d && open; k += st)
+            if (texelFetch(uCover, ivec2(xe + dir * k, p.y), 0).a > 0.0) open = false;
+        if (open) discard;
+    }
+)"  // (MSVC: the raw string's size limit)
+R"(
     if (uPrepass == 1) {   // (colour writes off)
         prepassDiscards();
         oColor = vec4(0.0);
@@ -1054,6 +1073,7 @@ bool Renderer::init(std::string& err)
         gl::Uniform1i(gl::GetUniformLocation(pr, "uRepl"), 6);
         gl::Uniform1i(gl::GetUniformLocation(pr, "uReplRef"), 7);
         gl::Uniform1i(gl::GetUniformLocation(pr, "uSortKeys"), 8);
+        gl::Uniform1i(gl::GetUniformLocation(pr, "uCover"), 9);   // (render5: the zone's coverage)
         return pr;
     };
     // depthfix: Depth Buffer's key band per pixel (KEY_BAND_FRAG: gl_FragDepth, so its own program: the other modes
@@ -1137,6 +1157,15 @@ bool Renderer::init(std::string& err)
     uM2SpecScale_ = gl::GetUniformLocation(program_, "uM2SpecScale");
     uM2SpecCtl_ = gl::GetUniformLocation(program_, "uM2SpecCtl");
     uCamFwd_ = gl::GetUniformLocation(program_, "uCamFwd");
+    uSideCover_ = gl::GetUniformLocation(program_, "uSideCover");
+    uCover_ = gl::GetUniformLocation(program_, "uCover");
+    gl::GenTextures(1, &coverTex_);   // render5: resized by draw when it is used; 1 x 1 until then (a complete texture)
+    gl::BindTexture(gl::TEXTURE_2D, coverTex_);
+    gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, 1, 1, 0, gl::RGBA, gl::UNSIGNED_BYTE, nullptr);
+    gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST);
+    gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST);
+    gl::BindTexture(gl::TEXTURE_2D, 0);
+    coverW_ = coverH_ = 1;
     return true;
 }
 
@@ -1579,11 +1608,13 @@ void Renderer::draw(const std::vector<DrawItem>& items, const Camera& cam, int w
     // HOTD_KEY_BAND=x sets it (0: the plain per-pixel depth, comparisons)
     const bool sort = drawDepth() == kArcadeSort && !cam.perPixelDepth;
     static const char* bandEnv = std::getenv("HOTD_KEY_BAND");
-    const float band = sort ? 0.0f : bandEnv ? std::max(0.0f, float(std::atof(bandEnv))) : cam.perPixelDepth ? kKeyBandFreeCam : kKeyBand;
+    const float band = sort ? 0.0f : bandEnv ? std::max(0.0f, float(std::atof(bandEnv))) : cam.keyBand >= 0.0f ? cam.keyBand : cam.perPixelDepth ? kKeyBandFreeCam : kKeyBand;
     const bool bandFrag = band > 0.0f && programBand_ != 0;
     gl::UseProgram(bandFrag ? programBand_ : program_);
     gl::ActiveTexture(gl::TEXTURE0 + 3);
     gl::BindTexture(gl::TEXTURE_2D, palAnim_);
+    gl::ActiveTexture(gl::TEXTURE0 + 9);   // (render5: uCover, a complete texture under its sampler)
+    gl::BindTexture(gl::TEXTURE_2D, coverTex_);
     gl::ActiveTexture(gl::TEXTURE0);
     gl::UniformMatrix4fv(uViewProj_, 1, gl::FALSE_, vp);
     gl::Uniform1i(uLighting_, opt.lighting ? 1 : 0);
@@ -1734,11 +1765,43 @@ void Renderer::draw(const std::vector<DrawItem>& items, const Camera& cam, int w
     // zone's own room where a zone swaps a space's dressing (the ending room after the Magician: the fight's panels a
     // few metres from the camera, over the floor and the sky's window). Now they go first, then the depth is cleared and
     // the sky and the zone's items draw over them: they show only where neither drew (the holes they were added for)
+    // render5 (the player's list: rooms seen through the doorways at the widescreen sides): the zone first now, its
+    // coverage in the alpha (cleared to 0, its pixels write 1) copied to uCover, then the depth cleared and the pieces
+    // drawn where the zone drew nothing and the opening does not run on from the 4:3 picture (the fragment shader).
+    // Before, a doorway cut by the picture's edge was black inside it and showed the next room beside it
     bool hasSide = false;
     for (const DrawItem& it : items)
         hasSide = hasSide || it.sideOnly;
-    for (int phase = hasSide ? 0 : 1; phase < 2; ++phase) {
-    if (phase == 1 && hasSide) {
+    static const bool sideOld = std::getenv("HOTD_SIDE_OLD") != nullptr;   // (comparisons: the visfix order, no cover test)
+    const bool cover = hasSide && !sideOld && !eye;
+    auto clearAlpha = [&](float a) {
+        gl::ColorMask(gl::FALSE_, gl::FALSE_, gl::FALSE_, gl::TRUE_);
+        gl::ClearColor(0.0f, 0.0f, 0.0f, a);
+        gl::Clear(gl::COLOR_BUFFER_BIT);
+        gl::ColorMask(gl::TRUE_, gl::TRUE_, gl::TRUE_, gl::TRUE_);
+        gl::ClearColor(opt.clear[0], opt.clear[1], opt.clear[2], 1.0f);
+    };
+    gl::Uniform1i(uSideCover_, 0);
+    if (cover) clearAlpha(0.0f);
+    const int phases[2] = {cover ? 1 : 0, cover ? 0 : 1};
+    for (int pi = hasSide ? 0 : 1; pi < 2; ++pi) {
+    const int phase = phases[pi];
+    if (cover && phase == 0) {   // the zone is drawn: its coverage for the pieces
+        if (coverW_ != width || coverH_ != height) {
+            gl::ActiveTexture(gl::TEXTURE0 + 9);
+            gl::BindTexture(gl::TEXTURE_2D, coverTex_);
+            gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, width, height, 0, gl::RGBA, gl::UNSIGNED_BYTE, nullptr);
+            coverW_ = width, coverH_ = height;
+        }
+        gl::ActiveTexture(gl::TEXTURE0 + 9);
+        gl::BindTexture(gl::TEXTURE_2D, coverTex_);
+        gl::CopyTexSubImage2D(gl::TEXTURE_2D, 0, 0, 0, 0, 0, width, height);
+        gl::ActiveTexture(gl::TEXTURE0 + gl::GLenum(activeUnit));
+        gl::Uniform1i(uSideCover_, 1);
+        gl::DepthMask(gl::TRUE_);
+        gl::Clear(gl::DEPTH_BUFFER_BIT);
+    }
+    if (phase == 1 && hasSide && !cover) {
         gl::DepthMask(gl::TRUE_);
         gl::Clear(gl::DEPTH_BUFFER_BIT);
     }
@@ -1765,6 +1828,7 @@ void Renderer::draw(const std::vector<DrawItem>& items, const Camera& cam, int w
         const DrawItem& it = items[ii];
         if (it.background != (pass == 0)) continue;
         if (hasSide && it.sideOnly != (phase == 0)) continue;
+        if (it.around && !eye) continue;   // (vr3: a VR eye's piece outside the game camera's view; never in a flat picture)
         // PC models fading out are blended: after the opaque pass, without depth writes (with the decals). Arcade
         // Sort: the arcade decals in the opaque pass, in their list order (their polygons' sort keys place them)
         const bool late = (it.decal && !(sort && it.stage->source == Source::Arcade)) || (it.fade < 1.0f && it.stage->source == Source::PC);
@@ -1789,7 +1853,7 @@ void Renderer::draw(const std::vector<DrawItem>& items, const Camera& cam, int w
         // depth from its own z, in the sort's depth scale: the arcade polygons around it keep their order); under the
         // Depth Buffer a "sort" item takes its polygons' keys whole (an unlimited key band), a "buffer" one no band
         int itemMode = -1;
-        if (!g.modelDepth.empty() && !cam.perPixelDepth)
+        if (!g.modelDepth.empty() && (!cam.perPixelDepth || cam.keyBand >= 0.0f))   // (vrnull: the VR eyes keep them)
             if (auto md = g.modelDepth.find(it.model->key); md != g.modelDepth.end()) itemMode = md->second;
         const float itemBand = sort || itemMode < 0 ? band : itemMode == kArcadeSort ? 1e6f : 0.0f;
         set1i(kKeyless, uKeyless_, sort && itemMode == kDepthBuffer ? 1 : 0);
@@ -1907,6 +1971,7 @@ void Renderer::draw(const std::vector<DrawItem>& items, const Camera& cam, int w
     }
     if (activeUnit != 0)
         gl::ActiveTexture(gl::TEXTURE0);
+    if (cover) clearAlpha(1.0f);   // (render5: the alpha as before for what reads the picture)
     if (keyedRange) gl::DepthRange(0.0, 1.0);
     gl::DepthMask(gl::TRUE_);
     gl::Disable(gl::BLEND);
