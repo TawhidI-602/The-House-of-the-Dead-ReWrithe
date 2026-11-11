@@ -165,14 +165,16 @@ TEST(net, mock_stun_and_punch)
     auto step = [&]() { na.tick(); nb.tick(); pump(a, na); pump(b, nb); };
     CHECK(waitFor([&]() { step(); return na.stun() == net::NatTraversal::Stun::Done && nb.stun() == net::NatTraversal::Stun::Done; }, 5000));
     CHECK(na.mapped() == a.local());
-    CHECK(nb.mapped() == b.local());
+    // (B asks two servers at once and keeps the first answer: s1's (its own port) or s3's (7 off), whichever comes
+    // first; the macOS runner's loopback answered s3 first. Both are right for a symmetric NAT)
+    CHECK(nb.mapped() == b.local() || (nb.mapped().ip == b.local().ip && nb.mapped().port == uint16_t(b.local().port + 7)));
     CHECK_EQ(na.answers(), 2);
     CHECK(!na.symmetric());
     CHECK(nb.symmetric());   // (the two servers saw two ports)
 
     // A punches B first: B's NAT drops it (B never sent to A); then B punches A (A pasted B's reply code / B the
     // host's code): both hear each other
-    na.punch(nb.mapped(), 2.0);
+    na.punch(b.local(), 2.0);   // (B's socket itself: its first answer may be the symmetric server's 7-off port)
     for (int i = 0; i < 30; ++i) { step(); std::this_thread::sleep_for(std::chrono::milliseconds(10)); }
     CHECK(nb.simDropped > 0);
     CHECK(!nb.reached().ip);
