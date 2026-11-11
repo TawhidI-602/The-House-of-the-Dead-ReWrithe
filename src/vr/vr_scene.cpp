@@ -1359,13 +1359,26 @@ void Scene::frame(const Frame& f)
         if ((settings.shakeReload || settings.flickReload) && (h == 1 || dual) && c.active) {
             if (gestures_[h].update(c.grip, gestureTime, settings.shakeReload, settings.shakeSensitivity,
                                     settings.flickReload, settings.flickSensitivity)) {
-                pending_.reload = pending_.reloadHand[h] = true;
-                SDL_Log("vr: %s reload (the %s gun), frame %llu", gestures_[h].last(), h ? "right" : "left",
-                        (unsigned long long)rt.frameCount);
+                // noshakeskip (user 2026-11-11: "shaking to reload should NOT skip cut-scenes"): a reload is an
+                // off-screen pull, which the arcade's skippable scenes take as a skip: shakes / flicks count only
+                // while player 1 is in control (playerInControl), not in cut-scenes, cards or the attract
+                if (controlRun_ >= 1) {
+                    pending_.reload = pending_.reloadHand[h] = true;
+                    SDL_Log("vr: %s reload (the %s gun), frame %llu", gestures_[h].last(), h ? "right" : "left",
+                            (unsigned long long)rt.frameCount);
+                } else {
+                    SDL_Log("vr: %s ignored (a cut-scene: no skip), frame %llu", gestures_[h].last(), (unsigned long long)rt.frameCount);
+                }
             }
         } else {
             gestures_[h].reset();
         }
+    }
+    // vrweapon: the right stick (the gun hand's) flicked past 0.7 left / right, back under 0.3 before the next
+    {
+        const float sx = fs_.hand[1].stick[0], sy = fs_.hand[1].stick[1];
+        if (!stickHeld_ && std::abs(sx) > 0.7f && std::abs(sx) > std::abs(sy)) pending_.weaponStep = sx > 0 ? 1 : -1, stickHeld_ = true;
+        else if (stickHeld_ && std::abs(sx) < 0.3f) stickHeld_ = false;
     }
     if (fs_.hand[0].primary && !wasStart_) pending_.start = true;
     wasStart_ = fs_.hand[0].primary;
@@ -1594,6 +1607,7 @@ Scene::Aim Scene::takeAim()
     pending_.reload = pending_.reloadHand[0] = pending_.reloadHand[1] = false;
     pending_.start = false;
     pending_.press = false;
+    pending_.weaponStep = 0;
     pending_.left.pulls = 0;
     return a;
 }

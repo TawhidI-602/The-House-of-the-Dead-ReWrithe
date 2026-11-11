@@ -1185,8 +1185,10 @@ void GameView::draw(const Runtime& rt, int width, int height, const FrameSnapsho
     placements_.reserve(2 * (rt.drawList.size() + overlay.size()) + stage_->skies.size() + rt.skinDraws.size() + 16);
     // the models the game drew: camera space -> world through the view's inverse
     const M34 inv = invRigid(fromCopro(rt.camera));
-    struct PullTop { size_t item; uint32_t body; float top; };
+    struct PullTop { size_t item; uint32_t body; float top; float lo[3], hi[3]; };
     std::vector<PullTop> pullTops;
+    struct HeldDecal { size_t item; float c[3]; uint32_t model; };   // sinkvr: a flat model outside the shadows (the photograph)
+    std::vector<HeldDecal> heldDecals;
     auto addModel = [&](uint32_t id, const M34& w, const DrawModel& dm) {
         // model source PC: the PC's model of the same ID (THOTD.EXE draws by ID too: geo_draw_model 0x43D7F8 ->
         // DAT_00d53080[id], filled by ID from CREAT1 / CREAT2 / WORLDn.RBH by 0x419CAC / 0x419CF4; an empty entry draws
@@ -1394,19 +1396,33 @@ void GameView::draw(const Runtime& rt, int width, int height, const FrameSnapsho
                 // floor) would get every low part pulled over his own face
                 const Model& mo = m->second;
                 float top = -1e30f, bot = 1e30f;
+                PullTop pt{items.size(), dm.body ? dm.body : ~uint32_t(0) - uint32_t(pullTops.size()), 0, {1e30f, 1e30f, 1e30f},
+                           {-1e30f, -1e30f, -1e30f}};
                 for (int c = 0; c < 8; ++c) {
                     const float x = (c & 1) ? mo.boundsMax[0] : mo.boundsMin[0], y = (c & 2) ? mo.boundsMax[1] : mo.boundsMin[1],
                           z = (c & 4) ? mo.boundsMax[2] : mo.boundsMin[2];
                     top = std::max(top, w.r[3] * x + w.r[4] * y + w.r[5] * z + w.t[1]);
                     bot = std::min(bot, w.r[3] * x + w.r[4] * y + w.r[5] * z + w.t[1]);
+                    for (int k = 0; k < 3; ++k) {
+                        const float v = w.r[k * 3] * x + w.r[k * 3 + 1] * y + w.r[k * 3 + 2] * z + w.t[k];
+                        pt.lo[k] = std::min(pt.lo[k], v), pt.hi[k] = std::max(pt.hi[k], v);
+                    }
                 }
+                pt.top = top;
                 // feet4: HOTD_FEET_DEBUG=1 lists each pulled part's world height range against the floor
                 if (std::getenv("HOTD_FEET_DEBUG"))
                     std::fprintf(stderr, "feet body %08x model %x floor %.2f bot %.2f top %.2f\n", dm.body, dm.model, d.floorY, bot, top);
                 // feet2: by the whole body (every part body_draw drew), not by each part model: a standing creature's
                 // per-part models (foot, shin) never reach 6 units on their own, so the opening's zombie and researcher
                 // lost the pull and their feet sank into the kerb again. Decided after the loop (pullTops)
-                pullTops.push_back({items.size(), dm.body ? dm.body : ~uint32_t(0) - uint32_t(pullTops.size()), top});
+                pullTops.push_back(pt);
+            } else if (d.floorPull == 2 && !dm.shadow) {
+                const Model& mo = m->second;
+                HeldDecal hd{items.size(), {0, 0, 0}, dm.model};
+                const float c[3] = {(mo.boundsMin[0] + mo.boundsMax[0]) * 0.5f, (mo.boundsMin[1] + mo.boundsMax[1]) * 0.5f,
+                                    (mo.boundsMin[2] + mo.boundsMax[2]) * 0.5f};
+                for (int k = 0; k < 3; ++k) hd.c[k] = w.r[k * 3] * c[0] + w.r[k * 3 + 1] * c[1] + w.r[k * 3 + 2] * c[2] + w.t[k];
+                heldDecals.push_back(hd);
             }
         }
         // the geometrizer's light when the game drew it (camera space, R4's light records) -> world space
@@ -1675,15 +1691,41 @@ void GameView::draw(const Runtime& rt, int width, int height, const FrameSnapsho
                         dm.model, dm.task, dm.task ? rt.mem.u32(dm.task) : 0u, (walls_.objs.back().tris.size() + walls_.objs.back().floors.size()) / 12);
         }
     // the floor pull only for a body that stands (its parts reach 6+ units over the floor), decided per body
+    std::map<uint32_t, float> lyingFloor;   // sinkvr: each lying body's floor height (its skins below)
     {
         std::map<uint32_t, float> bodyTop;
         for (const PullTop& p : pullTops) {
             auto [it, fresh] = bodyTop.emplace(p.body, p.top);
             if (!fresh) it->second = std::max(it->second, p.top);
         }
+        // sinkvr: a lying body's world box (its real body only), for the flat models it holds
+        std::map<uint32_t, std::pair<std::array<float, 3>, std::array<float, 3>>> lyingBox;
         for (const PullTop& p : pullTops)
-            if (bodyTop[p.body] < items[p.item].floorY + 6.0f)
+            if (bodyTop[p.body] < items[p.item].floorY + 6.0f) {
                 items[p.item].floorPull = 3;   // feet3: a lying body, the short pull (renderer.cpp)
+                if (p.body >= ~uint32_t(0) - uint32_t(pullTops.size())) continue;   // (a lone model: no body)
+                lyingFloor[p.body] = items[p.item].floorY;
+                auto [it, fresh] = lyingBox.try_emplace(p.body);
+                for (int k = 0; k < 3; ++k) {
+                    it->second.first[k] = fresh ? p.lo[k] : std::min(it->second.first[k], p.lo[k]);
+                    it->second.second[k] = fresh ? p.hi[k] : std::max(it->second.second[k], p.hi[k]);
+                }
+            }
+        // sinkvr: a flat model (not a shadow) inside a lying body's box takes his whole pull too: the opening's dying
+        // researcher holds the photograph (model 0x7C4, drawn by its own task, no body). With the pull on his hand
+        // only (the VR eyes' / Depth Buffer's key band keeps the lying pull now, renderer.cpp) his palm hid it;
+        // under the same pull the band orders them as the arcade does (the photograph over his hand)
+        for (const HeldDecal& h : heldDecals)
+            for (const auto& [body, box] : lyingBox) {
+                bool in = true;
+                for (int k = 0; k < 3; ++k) in = in && h.c[k] >= box.first[k] - 0.5f && h.c[k] <= box.second[k] + 0.5f;
+                if (in) {
+                    if (std::getenv("HOTD_FEET_DEBUG"))
+                        std::fprintf(stderr, "feet held model %x at %.2f %.2f %.2f (body %08x)\n", h.model, h.c[0], h.c[1], h.c[2], body);
+                    items[h.item].floorPull = 3;
+                    break;
+                }
+            }
     }
     // the skins: corners from node A's space into node B's (B^-1 A), the model rebuilt and drawn with B. Arcade only:
     // the PC's body_draw (THOTD.EXE 0x477B00) calls no skin_draw / sophie_skin_draw (arcade 0x214F0 / 0x21C30); the
@@ -1772,6 +1814,12 @@ void GameView::draw(const Runtime& rt, int width, int height, const FrameSnapsho
             d.variant = skinSet;
         d.flat = sd.flat;   // magflash: the hit flash (skin_draw's header 0x802400)
         d.vrKind = 4;   // questsim: a creature's skin (the joints between its parts: VR's CPU aim ray tests it too)
+        // sinkvr: a lying body's skins take its whole pull as its parts do (without it the dying researcher's chest
+        // joint stayed under the opening's slab while his arms lay over it, Depth Buffer / VR)
+        if (auto lf = lyingFloor.find(sd.body); sd.body != 0 && lf != lyingFloor.end()) {
+            d.floorY = lf->second;
+            d.floorPull = 3;
+        }
         items.push_back(d);
     }
     if (std::getenv("HOTD_NO_CULL")) opt.cull = false;   // debugging

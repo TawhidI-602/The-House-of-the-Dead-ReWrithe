@@ -52,6 +52,10 @@ SteamVR, but not on other headsets, and rough edges remain (menus, prompts, some
 Link / Air Link / SteamVR) is the recommended way for now**; the standalone Quest build below is much rougher. Reports
 with `settings\hotd.log` are very welcome.
 
+**VR players: please try the VR settings** (Options > Gameplay, the rows marked VR: View (Immersive / Screen), Screen
+Distance, Screen Size, Cut-scenes, Comfort Vignette, Laser, Crosshair, Hands in Menus, Dual Pistols) **and tell us
+which ones feel best**: we are not sure yet what the defaults should be, and your feedback decides them.
+
 - **The VR launcher**: `The House of the Dead ReWrithe VR.exe` starts straight in VR; `VR Check.bat` tests your
   headset setup. Works with SteamVR and Meta Quest Link.
 - **The main menu first, in the headset**: the attract's trigger / A / X opens the main menu on a big screen (point
@@ -72,14 +76,15 @@ with `settings\hotd.log` are very welcome.
 - The HUD comes forward in front of close creatures; the shot flash sits on the target.
 - Shake the gun or flick its nose up to reload (both on by default); recentre and auto-recentre.
 - Hands, lasers and crosshairs while you're playing and in first-person cut-scenes (not in the attract or third-person
-  cut-scenes); **Laser (VR)** and **Crosshair (VR)** switches in Options > Gameplay. **Hands in Menus (VR)** (on by
+  cut-scenes); **Laser (VR)** and **Crosshair (VR)** switches in Options > Gameplay. Survival / Horde: **flick the right
+  thumbstick left / right to switch weapons**; shaking to reload never skips a cut-scene. **Hands in Menus (VR)** (on by
   default): your hands and gun in front of the menus' big screen.
 - Full-screen fades and flashes cover your whole view; the comfort vignette is off by default (vr.ini `vignette = on`).
 - Chapter cards, the staff roll, the title and Game Over show on a big screen in the dark.
 - The desktop window: vr.ini `desktop_view = eye | both | spectator` (record it with OBS: no capture card needed).
 - **Meta Quest 3 standalone (EXTREMELY BUGGY, EXPERIMENTAL)**: `hotd-rewrithe-v1.4.0-quest3-experimental.apk` runs the
   game on the headset itself, no PC needed. It is a first test build: expect bugs, frame drops in busy scenes and
-  missing polish (the resolution drops a little only when the headset's GPU falls behind). **For now, playing on your PC with a headset (Quest Link / Air Link / SteamVR) is the recommended way
+  missing polish (the resolution drops a little only when the headset's GPU falls behind; the sound through OpenSL ES). **For now, playing on your PC with a headset (Quest Link / Air Link / SteamVR) is the recommended way
   to play in VR.** Install: developer mode on, sideload the APK (SideQuest or `adb install`), then copy your own game
   files into the app's folder (docs/quest.md "Install on your Quest 3"). Bug reports with `settings\hotd.log` welcome.
 - VR is single player only: no Online Co-op and no 2 / 4 players (Co-op is greyed, "Not available in VR").
@@ -103,7 +108,7 @@ with `settings\hotd.log` are very welcome.
 - Online: the Magician's Hand no longer desyncs; up to 8 Hand explosions at once; with 3-4 PCs a player is no longer
   dropped at the very end of a game.
 - Korean: Curien's name (#77).
-- VR: the opening's zombie and researcher no longer sink into the pavement (on the Quest too); the picture upright on SteamVR's virtual
+- VR: the opening's zombie and researcher no longer sink into the pavement, standing or lying (on the Quest too); the picture upright on SteamVR's virtual
   headset; closing SteamVR mid-game drops back to the flat game instead of freezing.
 
 ## Known issues

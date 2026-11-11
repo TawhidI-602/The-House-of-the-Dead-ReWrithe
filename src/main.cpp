@@ -1007,6 +1007,14 @@ static void vrGunInput(game::Runtime& rt, const vr::Scene::Aim& va, bool keyRelo
     vrUpdateDual(rt);
     rt.secondGun[0].fire = false;
     gVrShotHand = -1;
+    // vrweapon (user 2026-11-11): the right thumbstick flicked left / right: player 1's previous / next weapon
+    // (Survival / Horde; the mouse wheel's request; VR is single player, offline)
+    if (va.weaponStep != 0 && rt.weapons.live) {
+        const int s = rt.soloSeat == 1 ? 1 : 0;
+        rt.weapons.request[s] = va.weaponStep;
+        SDL_Log("vr: weapon %s (the right stick; in the hand: weapon %d)", va.weaponStep > 0 ? "next" : "previous",
+                rt.weapons.seat[s].cur);
+    }
     if (!va.valid)
         return;
     if (rt.vrLeft.on && va.dual) {   // vr4: dual pistols with a magazine each
@@ -8114,6 +8122,10 @@ int main(int argc, char* argv[])
     if (!netMsg.init(err)) { SDL_Log("%s", err.c_str()); return 1; }
     netMsg.setStyle(200, 255, 230, 150);
     std::unique_ptr<game::GameView> view;
+    // questfb2 (user 2026-11-11: "the hands don't show in standalone Quest"): the Quest has no live attract behind the
+    // menus (questperf), so the menus' hands (Hands in Menus (VR)) keep the last game's view (the attract's too) for
+    // their models, freed when the next game loads its own
+    std::unique_ptr<game::GameView> vrMenuView;
     int viewChapter = -1;   // select: the chapter whose world the view has loaded
 
     // menuart: Menu = the PC port's own front end (game/frontend.h), after the files check; the text launcher only on
@@ -8564,10 +8576,13 @@ int main(int argc, char* argv[])
             SDL_Log("live background: %s (%s): %s", liveGpuName.c_str(), liveWeak ? "integrated / software graphics" : "a graphics card",
                     menu.cfg.liveBackground == 1 ? "On" : menu.cfg.liveBackground == 2 ? "Off" : liveWeak ? "Auto: off" : "Auto: on");
         }
-#if defined(__ANDROID__)
         // questperf (user 2026-11-10: "extremely clunky on Meta Quest"): never live in the headset: a second game and
         // its 3D behind the menu on a phone's GPU (it fell to Auto's "runs slow" anyway); the stills instead
+        // (questfb2: --quest-sim too, as the Quest)
+#if defined(__ANDROID__)
         if (gVr) return false;
+#else
+        if (gVr && gQuestSim) return false;
 #endif
         return menu.cfg.liveBackground == 1 || (menu.cfg.liveBackground == 0 && liveWeak == 0 && !liveSlow);
     };
@@ -9536,6 +9551,10 @@ int main(int argc, char* argv[])
             return false;
         }
         const uint64_t s3 = SDL_GetTicksNS();
+        if (vrMenuView) {   // (questfb2: the menus' hands' view: the new game loads its own)
+            vrMenuView->shutdown();
+            vrMenuView.reset();
+        }
         view = std::make_unique<game::GameView>();
         viewChapter = int(host.mem().at<uint8_t>(game::A::G::chapter));
         if (viewChapter >= 4)   // the slots past Chapter 4 use a chapter's world (0xC0BB0: 4 / 5 Chapter 1's, 6 the ending Chapter 4's)
@@ -9643,8 +9662,12 @@ int main(int argc, char* argv[])
     auto leaveGame = [&]() {
         gPhoto.leave();    // (photomode: never carried into the menus or the next game)
         audio.silence();   // Esc to the main menu: the game's music and sounds end there (user, 2026-10-16)
-        if (view)
+        if (gVr && view) {   // questfb2: kept for the menus' hands in VR (freed when the next game starts)
+            if (vrMenuView) vrMenuView->shutdown();
+            vrMenuView = std::move(view);
+        } else if (view) {
             view->shutdown();
+        }
         view.reset();
         if ((relMice || p1RelMouse) && inputTestFile.empty())
             SDL_SetWindowRelativeMouseMode(window, false);   // the launcher's own cursor back
@@ -15380,7 +15403,7 @@ int main(int argc, char* argv[])
                     tourFrame = 0;
             }
             drawGunAids(menu.cfg, ww, wh, false);   // padpass: a Sinden's white border on the menus too
-            gVrPanelView = liveView ? liveView.get() : view.get();   // (questfb: the menus' hands)
+            gVrPanelView = liveView ? liveView.get() : view ? view.get() : vrMenuView.get();   // (questfb / questfb2: the menus' hands)
             vrFlatFrame(window, "menu");   // (quest: on the big screen in VR)
             gVrPanelView = nullptr;
             menuPace();   // (menuperf: on the display's beat, was a 16 ms sleep)
@@ -15657,7 +15680,7 @@ int main(int argc, char* argv[])
                 if (!shotAt.empty())   // a scripted run ends here
                     running = false;
             }
-            gVrPanelView = view.get();   // (questfb: the hands)
+            gVrPanelView = view ? view.get() : vrMenuView.get();   // (questfb / questfb2: the hands)
             vrFlatFrame(window, "end screen");   // (quest: on the big screen in VR)
             gVrPanelView = nullptr;
             menuPace();   // (menuperf: on the display's beat, was a 16 ms sleep)

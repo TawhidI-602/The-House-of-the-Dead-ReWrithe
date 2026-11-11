@@ -88,6 +88,9 @@ public:
         // vrflow (user 2026-11-10): a trigger or A / X pressed on either hand, wherever it points (the attract: on to
         // the main menu, as a key or a click in the flat game)
         bool press = false;
+        // vrweapon (user 2026-11-11: "a button for Horde / Survival to switch weapons"): the right thumbstick flicked
+        // left (-1) / right (+1): the previous / next weapon, as the pad's d-pad (Vive: the trackpad)
+        int weaponStep = 0;
         // dual pistols (docs/vr.md "Dual pistols"): the fields above are the right gun's; the left gun's own here
         bool dual = false;
         struct Gun {
@@ -230,6 +233,7 @@ private:
     // are taken as held (the trigger that left the attract never clicks a menu item; the click on Arcade never shoots)
     bool lastPanel_ = false;
     bool pressHeld_ = false;   // (Aim::press's edge)
+    bool stickHeld_ = false;   // (vrweapon: Aim::weaponStep's edge: the stick back near the middle first)
     uint64_t lastBeginNs_ = 0;   // (where's frame gaps)
     void noteFrame();
     // vr3: the cinema screen's picture (drawCinema)

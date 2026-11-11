@@ -37,11 +37,12 @@ off, and where.
   Comfort options in Options > Gameplay: View (VR) Immersive / Screen (the whole game, play too, on a big screen at a
   distance, aimed through it: against motion sickness), Screen Distance (VR) and Screen Size (VR), Cut-scenes (VR)
   World / Screen and Comfort Vignette (VR); not set, vr.ini decides (nothing changes until you pick one).
-  Hands in Menus (VR) (on by default): your hands and gun in front of the menus' big screen.
+  Hands in Menus (VR) (on by default): your hands and gun in front of the menus' big screen. Survival / Horde: flick
+  the right thumbstick left / right to switch weapons. Shaking or flicking to reload never skips a cut-scene.
 - **Meta Quest 3 standalone (EXTREMELY BUGGY, EXPERIMENTAL)**: a separate APK that runs on the headset itself. A first
   test build with bugs: for now, playing on your PC with the headset (Quest Link / Air Link / SteamVR) is the
   recommended way to play in VR. It lowers its resolution only when the headset's GPU falls behind (never below 80 %),
-  and uses a deeper audio buffer against crackling.
+  and plays its sound through OpenSL ES (no more crackling).
 - **Horde Mode** (More Modes > Horde), **Experimental / Proof of Concept**: the arcade game from Chapter 1 with many
   more zombies at once, after HOTD1 Remake's Horde mode, with Survival's weapons as pickups. Horde Size: Low / Normal /
   High; its own top 10. Local games only.
@@ -71,7 +72,7 @@ off, and where.
 - Spanish: HOLD YOUR FIRE boxes, the attract's reload board, accented end-screen text, the end screen's chapter number.
 - Korean: Curien's name (#77).
 - The Typing of the Dead 0: creatures whose word is off screen no longer attack; a clearer miss sound.
-- VR: the opening's zombie and researcher no longer sink into the pavement (on the Quest too); the Hangedman fight no longer reloads every
+- VR: the opening's zombie and researcher no longer sink into the pavement, standing or lying (on the Quest too); the Hangedman fight no longer reloads every
   shot; full-screen fades cover the whole view; the picture upright on SteamVR's virtual headset; closing SteamVR
   mid-game drops back to the flat game.
 - The Magician's Hand now damages the bosses that have their own hit rules: the Magician and the Chariot (in Horde the

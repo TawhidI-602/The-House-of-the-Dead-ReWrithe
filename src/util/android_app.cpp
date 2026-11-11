@@ -199,7 +199,22 @@ std::vector<std::string> startArgs(int argc, char** argv)
         fs::create_directories(fs::path(ext) / "vr", ec);
         fs::copy_file(fs::path(root) / "data" / "vr" / "vr.ini", fs::path(ext) / "vr" / "vr.ini", ec);
     }
-    if (!has("--vr")) a.insert(a.end(), {"--vr", "openxr"});
+    // (testing, questfb2: <external folder>/args.txt, one option per line, adds options to the start: e.g. a
+    // headless --audio-wav run to compare the Quest's sound with the PC's byte for byte; "--no-vr": no --vr openxr)
+    bool noVr = false;
+    if (!ext.empty()) {
+        std::ifstream in(fs::path(ext) / "args.txt");
+        for (std::string line; std::getline(in, line);) {
+            while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+            if (line == "--no-vr") noVr = true;
+            else if (line.rfind("env:", 0) == 0 && line.find('=') != std::string::npos) {   // (env:KEY=VALUE)
+                const size_t eq = line.find('=');
+                SDL_setenv_unsafe(line.substr(4, eq - 4).c_str(), line.substr(eq + 1).c_str(), 1);
+            } else if (!line.empty()) a.push_back(line);
+        }
+        if (in.is_open()) SDL_Log("quest: args.txt read (%zu options now)", a.size());
+    }
+    if (!has("--vr") && !noVr) a.insert(a.end(), {"--vr", "openxr"});
     const GameFiles f = findGameFiles();
     if (!has("--arcade") && !f.arcade.empty()) a.insert(a.end(), {"--arcade", f.arcade});
     if (!has("--pc") && !f.pc.empty()) a.insert(a.end(), {"--pc", f.pc});

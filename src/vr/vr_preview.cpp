@@ -268,7 +268,7 @@ public:
 private:
     // vrflow (tests): HOTD_VR_BUTTONS="<frame>:<hand><button> ..." presses a controller button for 4 preview frames
     // from that frame (beginFrame calls: the game's and the big screen's frames alike). hand l / r; button t trigger,
-    // a primary (A / X), b secondary (B), y the left Y (OpenXR: bound to Pause, as the menu button), m menu, g grip;
+    // a primary (A / X), b secondary (B), y the left Y (OpenXR: bound to Pause, as the menu button), m menu, g grip, < / > the stick left / right (vrweapon);
     // x: the runtime asks the app to quit (OpenXR EXITING: lost() + exitAsked(), the game closes).
     // E.g. "200:rt 400:ra 1500:ly 1700:ly": the attract's trigger, A on the menu, pause, Continue
     void scriptedButtons(FrameState& fs)
@@ -289,6 +289,8 @@ private:
                 else if (b == 'b') c.secondary = true;
                 else if (b == 'y' || b == 'm') c.menu = true;   // (the left Y: OpenXR's Pause action, as the menu)
                 else if (b == 'g') c.squeeze = 1.0f;
+                else if (b == '<') c.stick[0] = -1.0f;   // (vrweapon: the stick flicked left / right)
+                else if (b == '>') c.stick[0] = 1.0f;
                 else if (b == 'x') exit_ = true;   // (the runtime asks the app to quit: OpenXR EXITING)
                 if (n == at) SDL_Log("vr preview: scripted %s %c at frame %llu", h ? "right" : "left", b, at);
             }

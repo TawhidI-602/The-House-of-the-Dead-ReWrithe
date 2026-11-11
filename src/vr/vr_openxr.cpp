@@ -528,6 +528,7 @@ public:
                     c.secondary = getBool(secondary_, hand_[h]);
                     c.menu = getBool(menu_, hand_[h]);
                     c.stickClick = getBool(recentre_, hand_[h]);
+                    getVec2(stick_, hand_[h], c.stick);   // (vrweapon)
                 }
             }
         } else if (state_ != XR_SESSION_STATE_FOCUSED) {
@@ -734,6 +735,7 @@ private:
     XrAction trigger_ = XR_NULL_HANDLE, squeeze_ = XR_NULL_HANDLE, gripPose_ = XR_NULL_HANDLE, aimPose_ = XR_NULL_HANDLE;
     XrAction primary_ = XR_NULL_HANDLE, secondary_ = XR_NULL_HANDLE, menu_ = XR_NULL_HANDLE, haptic_ = XR_NULL_HANDLE;
     XrAction recentre_ = XR_NULL_HANDLE;   // vr2: a thumbstick's click (held 2 s: recentre, vrfix)
+    XrAction stick_ = XR_NULL_HANDLE;      // vrweapon: the thumbstick (Vive: the trackpad) as x / y: right stick left / right = weapon
     XrSpace baseSpace_ = XR_NULL_HANDLE, viewSpace_ = XR_NULL_HANDLE;   // vr2: LOCAL unmoved, the head (the recentre)
     XrTime holdFrom_ = 0, stickRecentreAt_ = 0;   // (vrfix: the last stick recentre: 10 s apart)
     bool recentred_ = false, lostLogged_ = false;
@@ -1187,6 +1189,14 @@ private:
         XrActionStateFloat st{XR_TYPE_ACTION_STATE_FLOAT};
         return XR_SUCCEEDED(xrGetActionStateFloat(session_, &gi, &st)) && st.isActive ? st.currentState : 0.0f;
     }
+    void getVec2(XrAction a, XrPath sub, float out[2])   // vrweapon
+    {
+        XrActionStateGetInfo gi{XR_TYPE_ACTION_STATE_GET_INFO};
+        gi.action = a, gi.subactionPath = sub;
+        XrActionStateVector2f st{XR_TYPE_ACTION_STATE_VECTOR2F};
+        const bool on = XR_SUCCEEDED(xrGetActionStateVector2f(session_, &gi, &st)) && st.isActive;
+        out[0] = on ? st.currentState.x : 0.0f, out[1] = on ? st.currentState.y : 0.0f;
+    }
     bool getBool(XrAction a, XrPath sub)
     {
         XrActionStateGetInfo gi{XR_TYPE_ACTION_STATE_GET_INFO};
@@ -1284,7 +1294,8 @@ private:
             !make(secondary_, XR_ACTION_TYPE_BOOLEAN_INPUT, "secondary", "Reload") ||
             !make(menu_, XR_ACTION_TYPE_BOOLEAN_INPUT, "menu", "Pause") ||
             !make(haptic_, XR_ACTION_TYPE_VIBRATION_OUTPUT, "haptic", "Recoil") ||
-            !make(recentre_, XR_ACTION_TYPE_BOOLEAN_INPUT, "recentre", "Recentre (hold)")) {
+            !make(recentre_, XR_ACTION_TYPE_BOOLEAN_INPUT, "recentre", "Recentre (hold)") ||
+            !make(stick_, XR_ACTION_TYPE_VECTOR2F_INPUT, "stick", "Switch weapon (left / right)")) {
             return fail(err, "xrCreateAction", XR_ERROR_VALIDATION_FAILURE);
         }
         // suggested bindings per interaction profile (the runtime remaps other controllers to one of these). A path the
@@ -1326,24 +1337,28 @@ private:
                      {primary_, "/user/hand/left/input/x/click"}, {primary_, "/user/hand/right/input/a/click"},
                      {menu_, "/user/hand/left/input/y/click"}, {secondary_, "/user/hand/right/input/b/click"},
                      {menu_, "/user/hand/left/input/menu/click"},
-                     {recentre_, "/user/hand/left/input/thumbstick/click"}, {recentre_, "/user/hand/right/input/thumbstick/click"}}));
+                     {recentre_, "/user/hand/left/input/thumbstick/click"}, {recentre_, "/user/hand/right/input/thumbstick/click"},
+                     {stick_, "/user/hand/left/input/thumbstick"}, {stick_, "/user/hand/right/input/thumbstick"}}));
         bind("/interaction_profiles/valve/index_controller",   // (no menu button: the left B)
              common({{trigger_, "/user/hand/left/input/trigger/value"}, {trigger_, "/user/hand/right/input/trigger/value"},
                      {squeeze_, "/user/hand/left/input/squeeze/value"}, {squeeze_, "/user/hand/right/input/squeeze/value"},
                      {primary_, "/user/hand/left/input/a/click"}, {primary_, "/user/hand/right/input/a/click"},
                      {secondary_, "/user/hand/right/input/b/click"}, {menu_, "/user/hand/left/input/b/click"},
-                     {recentre_, "/user/hand/left/input/thumbstick/click"}, {recentre_, "/user/hand/right/input/thumbstick/click"}}));
+                     {recentre_, "/user/hand/left/input/thumbstick/click"}, {recentre_, "/user/hand/right/input/thumbstick/click"},
+                     {stick_, "/user/hand/left/input/thumbstick"}, {stick_, "/user/hand/right/input/thumbstick"}}));
         bind("/interaction_profiles/htc/vive_controller",
              common({{trigger_, "/user/hand/left/input/trigger/value"}, {trigger_, "/user/hand/right/input/trigger/value"},
                      {squeeze_, "/user/hand/left/input/squeeze/click"}, {squeeze_, "/user/hand/right/input/squeeze/click"},
                      {primary_, "/user/hand/left/input/trackpad/click"}, {primary_, "/user/hand/right/input/trackpad/click"},
-                     {menu_, "/user/hand/left/input/menu/click"}, {menu_, "/user/hand/right/input/menu/click"}}));
+                     {menu_, "/user/hand/left/input/menu/click"}, {menu_, "/user/hand/right/input/menu/click"},
+                     {stick_, "/user/hand/left/input/trackpad"}, {stick_, "/user/hand/right/input/trackpad"}}));
         bind("/interaction_profiles/microsoft/motion_controller",   // (Windows Mixed Reality)
              common({{trigger_, "/user/hand/left/input/trigger/value"}, {trigger_, "/user/hand/right/input/trigger/value"},
                      {squeeze_, "/user/hand/left/input/squeeze/click"}, {squeeze_, "/user/hand/right/input/squeeze/click"},
                      {primary_, "/user/hand/left/input/trackpad/click"}, {primary_, "/user/hand/right/input/trackpad/click"},
                      {menu_, "/user/hand/left/input/menu/click"}, {menu_, "/user/hand/right/input/menu/click"},
-                     {recentre_, "/user/hand/left/input/thumbstick/click"}, {recentre_, "/user/hand/right/input/thumbstick/click"}}));
+                     {recentre_, "/user/hand/left/input/thumbstick/click"}, {recentre_, "/user/hand/right/input/thumbstick/click"},
+                     {stick_, "/user/hand/left/input/thumbstick"}, {stick_, "/user/hand/right/input/thumbstick"}}));
         if (hpControllers_)   // vrship: HP Reverb G2 (XR_EXT_hp_mixed_reality_controller; the Touch layout: X / Y, A / B)
             bind("/interaction_profiles/hp/mixed_reality_controller",
                  common({{trigger_, "/user/hand/left/input/trigger/value"}, {trigger_, "/user/hand/right/input/trigger/value"},
@@ -1351,7 +1366,8 @@ private:
                          {primary_, "/user/hand/left/input/x/click"}, {primary_, "/user/hand/right/input/a/click"},
                          {menu_, "/user/hand/left/input/y/click"}, {secondary_, "/user/hand/right/input/b/click"},
                          {menu_, "/user/hand/left/input/menu/click"}, {menu_, "/user/hand/right/input/menu/click"},
-                         {recentre_, "/user/hand/left/input/thumbstick/click"}, {recentre_, "/user/hand/right/input/thumbstick/click"}}));
+                         {recentre_, "/user/hand/left/input/thumbstick/click"}, {recentre_, "/user/hand/right/input/thumbstick/click"},
+                     {stick_, "/user/hand/left/input/thumbstick"}, {stick_, "/user/hand/right/input/thumbstick"}}));
         for (int h = 0; h < 2; ++h) {
             XrActionSpaceCreateInfo sc{XR_TYPE_ACTION_SPACE_CREATE_INFO};
             sc.poseInActionSpace.orientation.w = 1;

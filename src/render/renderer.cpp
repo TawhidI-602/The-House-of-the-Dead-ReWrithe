@@ -180,8 +180,15 @@ void main() {
             }
             // the tweaks' offset without the floor pulls (they stood in for the sort the band now does: a door's foot
             // pulled 14 units nearer took its whole leaf over Chapter 2's bullet holes): the decal layer, uPush, the bias; the
-            // decals' / shadows' own small pull stays (drawn late without depth writes, they lie under the floor's band)
-            float d2 = min(uFloorPull == 2 ? pull : (layer > 0.0 ? layer * 0.05 * length(uRot[0]) : 0.0) - uPush, dist * 0.5);
+            // decals' / shadows' own small pull stays (drawn late without depth writes, they lie under the floor's band).
+            // sinkvr (user's PC VR / Quest recording 2026-11-11, 4:54-5:12): a lying body's whole pull (feet4,
+            // uFloorPull 3) stays too. The opening's dying researcher lies 2-2.7 units under the slab's top beside him;
+            // with the band alone (20 % of the distance: his pixels and the slab's clamped the same way) he stayed under
+            // it, so the slab's top cut through his body in every VR eye (and the flat game's Depth Buffer); the Arcade
+            // Sort draws him whole. Uniform for the whole body, so his own parts keep their order
+)"  // (MSVC: the raw string's size limit)
+R"(
+            float d2 = min(uFloorPull == 2 || uFloorPull == 3 ? pull :(layer > 0.0 ? layer * 0.05 * length(uRot[0]) : 0.0) - uPush, dist * 0.5);
             vec4 q2 = uViewProj * vec4(vWorld + toCam / max(dist, 1e-6) * d2, 1.0);
             float adj = uProj.y / max(uProj.x - (q2.z / q2.w - (uDepthBias + layer * 1e-5) * uBiasScale), 1e-9) - w0;
 #ifdef KEY_BAND_FRAG
