@@ -43,7 +43,11 @@
 #define XR_USE_PLATFORM_ANDROID
 #define XR_USE_GRAPHICS_API_OPENGL_ES
 #include <EGL/egl.h>
+#include <dirent.h>   // (questperf: the threads' CPU from /proc/self/task)
 #include <jni.h>
+#include <unistd.h>
+#include <map>
+#include <string>
 #else
 #define XR_USE_PLATFORM_XLIB   // CHECK (Linux): the GLX binding needs the X display / drawable / context
 #include <GL/glx.h>
@@ -124,7 +128,13 @@ public:
     ~OpenXr() override { shutdown(); }
     const char* name() const override { return "openxr"; }
     bool lost() const override { return lost_; }
+    bool exitAsked() const override { return exitAsked_; }
+    bool focused() const override { return state_ == XR_SESSION_STATE_FOCUSED; }   // (questsim: main.cpp's pause)
     bool pacesFrames() const override { return true; }
+    std::string interactionProfile() const override { return !profile_[1].empty() ? profile_[1] : profile_[0]; }   // (vrprompts)
+#if defined(__ANDROID__)
+    bool perfAroundOff() const override { return aroundOff_; }
+#endif
     // vrnull (testing): --vr-head yaw,pitch,roll turns the seat at the first frame (as HOTD_XR_HEAD): a fixed virtual
     // headset (SteamVR's null driver) looks around
     void scriptHead(const float ypr[3], const float[3]) override
@@ -137,6 +147,11 @@ public:
     {
         srgbWanted_ = settings.srgbSwapchain;
         resolutionScale_ = settings.resolutionScale;
+#if defined(__ANDROID__)
+        foveation_ = settings.foveation, fovDynamic_ = settings.foveationDynamic;
+        perfLog_ = settings.perfLog, perfCycle_ = settings.perfCycle;
+        dynRes_ = settings.dynamicResolution && !perfCycle_;
+#endif
         // the runtime first: no runtime / no OpenGL there gives a clear reason before anything is made
 #if defined(_WIN32)
         // openxr_loader.dll is delay-loaded (CMakeLists.txt): load it now, a missing DLL said instead of a crash
@@ -202,6 +217,20 @@ public:
         if (hpControllers_) ext.push_back(XR_EXT_HP_MIXED_REALITY_CONTROLLER_EXTENSION_NAME);
         if (hasRefresh_) ext.push_back(XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
         if (hasPerf_) ext.push_back(XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME);
+#if defined(__ANDROID__)
+        // questperf (2026-11-10): fixed foveated rendering (XR_FB_foveation + its configuration, set on the swapchains
+        // with XR_FB_swapchain_update_state) and Meta's frame counters (XR_META_performance_metrics: the perf log)
+        hasFov_ = foveation_ > 0 || perfCycle_;
+        for (const char* e : {XR_FB_FOVEATION_EXTENSION_NAME, XR_FB_FOVEATION_CONFIGURATION_EXTENSION_NAME,
+                              XR_FB_SWAPCHAIN_UPDATE_STATE_EXTENSION_NAME})
+            hasFov_ = hasFov_ && has(e);
+        if (hasFov_)
+            for (const char* e : {XR_FB_FOVEATION_EXTENSION_NAME, XR_FB_FOVEATION_CONFIGURATION_EXTENSION_NAME,
+                                  XR_FB_SWAPCHAIN_UPDATE_STATE_EXTENSION_NAME})
+                ext.push_back(e);
+        hasMetrics_ = (perfLog_ || dynRes_) && has(XR_META_PERFORMANCE_METRICS_EXTENSION_NAME);
+        if (hasMetrics_) ext.push_back(XR_META_PERFORMANCE_METRICS_EXTENSION_NAME);
+#endif
         refreshWant_ = settings.refreshRate;
         perfWanted_ = settings.sustainedPerformance;
         autoRecentre_ = settings.autoRecentre;
@@ -295,6 +324,9 @@ public:
         xrCreateReferenceSpace(session_, &rs, &viewSpace_);
         if (!makeActions(err)) return false;
         if (!makeSwapchains(err)) return false;
+#if defined(__ANDROID__)
+        applyFoveation(foveation_);   // questperf
+#endif
         makeMirror();
         blit_ = reinterpret_cast<PFN_Blit>(SDL_GL_GetProcAddress("glBlitFramebuffer"));
         SDL_Log("openxr: session made (%dx%d per eye, %s); waiting for the headset", chains_[0].w, chains_[0].h,
@@ -359,6 +391,9 @@ public:
                         double(waitNs) / 1e6, slowWaits_);
                 lost_ = true;
             }
+#if defined(__ANDROID__)
+            if (frameBegun_) perfFrame(waitNs, shown);   // questperf: the frame's timing (the perf log, perf_cycle)
+#endif
         }
         // vr2: no xrWaitFrame (the headset idle / off, not READY yet): our own ~90 Hz wait, as main.cpp's frame limiter
         // is off while this backend paces the loop (pacesFrames)
@@ -404,17 +439,24 @@ public:
         if (frameBegun_ && autoRecentrePending_) {
             autoRecentrePending_ = false;
             SDL_Log("openxr: the headset is back after more than %.0f s away: recentring", double(autoRecentre_));
-            recentre(frameState_.predictedDisplayTime);
+            recentre(frameState_.predictedDisplayTime, "auto_recentre (the session was not shown, now it is)");
         }
+        // vrfix (user's PC VR playthrough 2026-11-10: 18 recentres in 30 min, three within 5 s, every one from the
+        // thumbstick, none from auto_recentre): a deliberate hold only: one thumbstick (not both: a two-handed grip)
+        // pressed 2 s without a break, the trigger not pulled meanwhile (playing), and 10 s since the last stick recentre
         if (frameBegun_) {
-            const bool hold = hands_[0].stickClick || hands_[1].stickClick;
-            if (!hold) {
+            const XrTime now = frameState_.predictedDisplayTime;
+            const int held = int(hands_[0].stickClick) + int(hands_[1].stickClick);
+            const bool firing = hands_[0].trigger > 0.4f || hands_[1].trigger > 0.4f;
+            if (held != 1 || firing) {
                 holdFrom_ = 0, recentred_ = false;
             } else if (!holdFrom_) {
-                holdFrom_ = frameState_.predictedDisplayTime;
-            } else if (!recentred_ && frameState_.predictedDisplayTime - holdFrom_ > 1000000000) {
+                holdFrom_ = now;
+            } else if (!recentred_ && now - holdFrom_ > 2000000000LL &&
+                       (!stickRecentreAt_ || now - stickRecentreAt_ > 10000000000LL)) {
                 recentred_ = true;
-                recentre(frameState_.predictedDisplayTime);
+                stickRecentreAt_ = now;
+                recentre(now, hands_[0].stickClick ? "the left thumbstick held 2 s" : "the right thumbstick held 2 s");
             }
         }
         // the eyes at the predicted display time (the last known when not running)
@@ -463,8 +505,8 @@ public:
                 e.pose.valid = true;
                 e.fov = Fov{-1.19f, 1.19f, 1.19f, -1.19f};
             }
-            e.width = toHeadset_ ? chains_[size_t(i)].w : kMirrorSize;
-            e.height = toHeadset_ ? chains_[size_t(i)].h : kMirrorSize;
+            e.width = toHeadset_ ? eyeW(i) : kMirrorSize;   // (questperf: perf_cycle's smaller part of the image)
+            e.height = toHeadset_ ? eyeH(i) : kMirrorSize;
         }
         fs.head = fs.eye[0].pose;
         for (int k = 0; k < 3; ++k) fs.head.pos[k] = 0.5f * (fs.eye[0].pose.pos[k] + fs.eye[1].pose.pos[k]);
@@ -561,6 +603,24 @@ public:
             mirrorW_ = mirrorH_ = kMirrorSize;
             mirrorBoth_ = false;   // (not shown in the headset: the scene drew one picture into the first slot)
         }
+#if defined(__ANDROID__)
+        // questperf: the eyes' depth is not needed past the frame: discarded, not written out of the tile memory
+        if (toHeadset_ && acquired_ && invalidate_) {
+            const gl::GLenum depth = gl::DEPTH_ATTACHMENT;
+            for (Chain& ch : chains_) {
+                if (!ch.held) continue;
+                gl::BindFramebuffer(gl::FRAMEBUFFER, ch.images[ch.current].fbo);
+                invalidate_(gl::FRAMEBUFFER, 1, &depth);
+            }
+            gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
+        }
+        const uint64_t e0 = SDL_GetTicksNS();
+        if (workT0_ && frameBegun_) {
+            const uint64_t w = e0 - workT0_;
+            ps_.workNs += w, ps_.workMax = std::max(ps_.workMax, w);
+            workT0_ = 0;
+        }
+#endif
         for (Chain& ch : chains_) {
             if (!ch.held) continue;
             XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
@@ -574,7 +634,7 @@ public:
             pv[i].pose = views_[i].pose;   // the poses the scene drew with (beginFrame's)
             pv[i].fov = views_[i].fov;
             pv[i].subImage.swapchain = chains_[size_t(i)].handle;
-            pv[i].subImage.imageRect.extent = {chains_[size_t(i)].w, chains_[size_t(i)].h};
+            pv[i].subImage.imageRect.extent = {eyeW(i), eyeH(i)};   // (questperf: perf_cycle's part of the image)
         }
         XrCompositionLayerProjection layer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
         layer.space = space_;
@@ -587,6 +647,9 @@ public:
         ei.layerCount = toHeadset_ && acquired_ ? 1 : 0;   // (not rendered: an empty frame, as the spec asks)
         ei.layers = layers;
         const XrResult r = xrEndFrame(session_, &ei);
+#if defined(__ANDROID__)
+        ps_.endNs += SDL_GetTicksNS() - e0;
+#endif
         ok(r, "xrEndFrame");   // (vr2: a lost session drops VR)
         if (XR_FAILED(r) && !endFailLogged_) {
             endFailLogged_ = true;
@@ -650,6 +713,7 @@ private:
     XrSpace space_ = XR_NULL_HANDLE;
     XrSessionState state_ = XR_SESSION_STATE_UNKNOWN;
     bool running_ = false, lost_ = false;
+    bool exitAsked_ = false;   // vrflow: EXITING / LOSS_PENDING (the runtime asked the app to quit), not a crash
     bool frameBegun_ = false, toHeadset_ = false, acquired_ = false, haveViews_ = false, endFailLogged_ = false;
     bool viewsLogged_ = false, mirrorBoth_ = false;
     int slowWaits_ = 0;   // (vrnull: xrWaitFrame over 100 ms in a row while shown: the runtime gone)
@@ -669,12 +733,13 @@ private:
     XrActionSet actions_ = XR_NULL_HANDLE;
     XrAction trigger_ = XR_NULL_HANDLE, squeeze_ = XR_NULL_HANDLE, gripPose_ = XR_NULL_HANDLE, aimPose_ = XR_NULL_HANDLE;
     XrAction primary_ = XR_NULL_HANDLE, secondary_ = XR_NULL_HANDLE, menu_ = XR_NULL_HANDLE, haptic_ = XR_NULL_HANDLE;
-    XrAction recentre_ = XR_NULL_HANDLE;   // vr2: a thumbstick's click (held 1 s: recentre)
+    XrAction recentre_ = XR_NULL_HANDLE;   // vr2: a thumbstick's click (held 2 s: recentre, vrfix)
     XrSpace baseSpace_ = XR_NULL_HANDLE, viewSpace_ = XR_NULL_HANDLE;   // vr2: LOCAL unmoved, the head (the recentre)
-    XrTime holdFrom_ = 0;
+    XrTime holdFrom_ = 0, stickRecentreAt_ = 0;   // (vrfix: the last stick recentre: 10 s apart)
     bool recentred_ = false, lostLogged_ = false;
     uint64_t idleLast_ = 0;
     XrPath hand_[2] = {};
+    std::string profile_[2];   // vrprompts: each hand's interaction profile ("" none)
     XrSpace gripSpace_[2] = {}, aimSpace_[2] = {};
     Controller hands_[2];
     gl::GLuint mirrorFbo_ = 0, mirrorTex_ = 0, mirrorDepth_ = 0;
@@ -683,11 +748,39 @@ private:
     bool srgbWanted_ = true, srgbControl_ = true;
     bool hpControllers_ = false;   // vrship: XR_EXT_hp_mixed_reality_controller enabled (its bindings suggested)
     float resolutionScale_ = 1.0f;
+    float eyeScale_ = 1.0f;   // questperf: the part of the eye's image drawn (perf_cycle; 1: all of it)
+#if defined(__ANDROID__)
+    // questperf: foveation (vr.ini foveation, foveation_dynamic), Meta's counters, the per-second perf log and
+    // perf_cycle's part now; the eyes' depth discarded at the frame's end (glInvalidateFramebuffer)
+    bool hasFov_ = false, fovDynamic_ = true, hasMetrics_ = false, perfLog_ = false, perfCycle_ = false, aroundOff_ = false;
+    int foveation_ = 0, fovNow_ = -1, cyclePart_ = -1;
+    PFN_xrQueryPerformanceMetricsCounterMETA query_ = nullptr;
+    std::vector<std::pair<std::string, XrPath>> metricPaths_;
+    struct PerfStats {
+        uint64_t t0 = 0, waitNs = 0, waitMax = 0, workNs = 0, workMax = 0, endNs = 0;
+        int frames = 0, late = 0, missed = 0;
+    } ps_;
+    XrTime lastPredicted_ = 0;
+    uint64_t workT0_ = 0, cycleT0_ = 0, threadsAt_ = 0;
+    std::map<int, uint64_t> threadTicks_;
+    // questperf: dynamic resolution (dynamicResolution): its half-second window, the last scale logged
+    bool dynRes_ = false;
+    XrPath gpuPath_ = XR_NULL_PATH;
+    uint64_t dynT0_ = 0;
+    int dynFrames_ = 0, dynLate_ = 0, dynFloorLate_ = 0;
+    float dynLogged_ = 1.0f;
+    using PFN_Invalidate = void(HOTD_APIENTRY*)(gl::GLenum, gl::GLsizei, const gl::GLenum*);
+    PFN_Invalidate invalidate_ = reinterpret_cast<PFN_Invalidate>(SDL_GL_GetProcAddress("glInvalidateFramebuffer"));
+#endif
     // vr4: the optional extensions (XR_FB_display_refresh_rate, XR_EXT_performance_settings) and their vr.ini values;
     // the auto-recentre (the headset away and back) and the play space's offset now (the heading-only recentre keeps
     // its place)
     bool hasRefresh_ = false, hasPerf_ = false, perfWanted_ = true, autoRecentrePending_ = false;
     int refreshWant_ = 0;
+    // questcrash (2026-11-10): the rate asked (0: none) and how many times it was asked again after the runtime moved
+    // the display off it (the headset's first log: 90 Hz at READY, then 90 -> 72 Hz once FOCUSED)
+    float refreshAsked_ = 0;
+    int refreshReasks_ = 0;
     float autoRecentre_ = 3.0f;
     AwayClock away_;
     XrPosef playOffset_{{0, 0, 0, 1}, {0, 0, 0}};
@@ -771,7 +864,10 @@ private:
             const bool standalone = false;
 #endif
             const float want = chooseRefreshRate(rates.data(), int(rates.size()), refreshWant_, standalone);
-            const bool asked = request && want > 0 && std::abs(want - now) > 0.5f && XR_SUCCEEDED(request(session_, want));
+            // questcrash: asked even when the display is at it already (a rate left over from before the app: the
+            // runtime dropped back to its 72 Hz default once the session was focused, as nobody had asked for 90)
+            const bool asked = request && want > 0 && XR_SUCCEEDED(request(session_, want));
+            refreshAsked_ = asked ? want : 0;
             SDL_Log("openxr: display %.0f Hz (offered %s; refresh_rate %s)%s", double(now), offered.empty() ? "none" : offered.c_str(),
                     refreshWant_ ? std::to_string(refreshWant_).c_str() : "auto",
                     asked ? (" -> asked " + std::to_string(int(std::lround(want))) + " Hz").c_str() : "");
@@ -783,7 +879,246 @@ private:
             const bool gpu = set && XR_SUCCEEDED(set(session_, XR_PERF_SETTINGS_DOMAIN_GPU_EXT, XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT));
             SDL_Log("openxr: performance level sustained high: CPU %s, GPU %s", cpu ? "set" : "failed", gpu ? "set" : "failed");
         }
+#if defined(__ANDROID__)
+        startMetrics();   // questperf
+#endif
     }
+    // questperf: the eye's picture: the whole swapchain image, or perf_cycle's smaller part of it (eyeScale_)
+    int32_t eyeW(int i) const { return std::max<int32_t>(16, int32_t(std::lround(float(chains_[size_t(i)].w) * eyeScale_))); }
+    int32_t eyeH(int i) const { return std::max<int32_t>(16, int32_t(std::lround(float(chains_[size_t(i)].h) * eyeScale_))); }
+#if defined(__ANDROID__)
+    // questperf (user 2026-11-10: "extremely clunky on Meta Quest"): fixed foveated rendering on both eyes'
+    // swapchains (XR_FB_foveation: a level profile set with xrUpdateSwapchainFB; the profile can go once set)
+    void applyFoveation(int level)
+    {
+        if (!hasFov_ || level == fovNow_ || chains_.empty()) return;
+        PFN_xrCreateFoveationProfileFB create = nullptr;
+        PFN_xrDestroyFoveationProfileFB destroy = nullptr;
+        PFN_xrUpdateSwapchainFB update = nullptr;
+        xrGetInstanceProcAddr(instance_, "xrCreateFoveationProfileFB", reinterpret_cast<PFN_xrVoidFunction*>(&create));
+        xrGetInstanceProcAddr(instance_, "xrDestroyFoveationProfileFB", reinterpret_cast<PFN_xrVoidFunction*>(&destroy));
+        xrGetInstanceProcAddr(instance_, "xrUpdateSwapchainFB", reinterpret_cast<PFN_xrVoidFunction*>(&update));
+        if (!create || !destroy || !update) {
+            hasFov_ = false;
+            SDL_Log("openxr: foveation: the runtime has no foveation calls");
+            return;
+        }
+        XrFoveationLevelProfileCreateInfoFB lp{XR_TYPE_FOVEATION_LEVEL_PROFILE_CREATE_INFO_FB};
+        lp.level = XrFoveationLevelFB(std::clamp(level, 0, 3));
+        lp.verticalOffset = 0;
+        lp.dynamic = fovDynamic_ && level > 0 ? XR_FOVEATION_DYNAMIC_LEVEL_ENABLED_FB : XR_FOVEATION_DYNAMIC_DISABLED_FB;
+        XrFoveationProfileCreateInfoFB pc{XR_TYPE_FOVEATION_PROFILE_CREATE_INFO_FB};
+        pc.next = &lp;
+        XrFoveationProfileFB profile = XR_NULL_HANDLE;
+        XrResult r = create(session_, &pc, &profile);
+        for (Chain& ch : chains_) {
+            if (XR_FAILED(r)) break;
+            XrSwapchainStateFoveationFB st{XR_TYPE_SWAPCHAIN_STATE_FOVEATION_FB};
+            st.profile = profile;
+            r = update(ch.handle, reinterpret_cast<const XrSwapchainStateBaseHeaderFB*>(&st));
+        }
+        if (profile != XR_NULL_HANDLE) destroy(profile);
+        fovNow_ = level;
+        static const char* const names[4] = {"off", "low", "medium", "high"};
+        SDL_Log("openxr: foveation %s%s: %s", names[std::clamp(level, 0, 3)], lp.dynamic ? " (dynamic)" : "",
+                XR_SUCCEEDED(r) ? "set" : reason(instance_, r).c_str());
+    }
+    // questperf: Meta's counters (XR_META_performance_metrics) on, their paths listed once
+    void startMetrics()
+    {
+        if (!hasMetrics_) return;
+        PFN_xrSetPerformanceMetricsStateMETA set = nullptr;
+        PFN_xrEnumeratePerformanceMetricsCounterPathsMETA list = nullptr;
+        xrGetInstanceProcAddr(instance_, "xrSetPerformanceMetricsStateMETA", reinterpret_cast<PFN_xrVoidFunction*>(&set));
+        xrGetInstanceProcAddr(instance_, "xrEnumeratePerformanceMetricsCounterPathsMETA", reinterpret_cast<PFN_xrVoidFunction*>(&list));
+        xrGetInstanceProcAddr(instance_, "xrQueryPerformanceMetricsCounterMETA", reinterpret_cast<PFN_xrVoidFunction*>(&query_));
+        XrPerformanceMetricsStateMETA st{XR_TYPE_PERFORMANCE_METRICS_STATE_META};
+        st.enabled = XR_TRUE;
+        if (!set || !list || !query_ || XR_FAILED(set(session_, &st))) {
+            SDL_Log("openxr: performance metrics: not available");
+            hasMetrics_ = false;
+            return;
+        }
+        if (!metricPaths_.empty()) return;
+        uint32_t n = 0;
+        std::vector<XrPath> paths;
+        if (XR_SUCCEEDED(list(instance_, 0, &n, nullptr)) && n) {
+            paths.resize(n);
+            if (XR_FAILED(list(instance_, n, &n, paths.data()))) paths.clear();
+        }
+        std::string all;
+        for (XrPath p : paths) {
+            char buf[XR_MAX_PATH_LENGTH] = {};
+            uint32_t len = 0;
+            if (XR_FAILED(xrPathToString(instance_, p, sizeof buf, &len, buf))) continue;
+            std::string s(buf);
+            all += (all.empty() ? "" : " ") + s;
+            const size_t k = s.find("perfmetrics_meta/");
+            metricPaths_.emplace_back(k == std::string::npos ? s : s.substr(k + 17), p);
+            if (s.find("app/gpu_frametime") != std::string::npos) gpuPath_ = p;   // (dynamic resolution's input)
+        }
+        SDL_Log("openxr: performance metrics: %s", all.empty() ? "no counters" : all.c_str());
+    }
+    // questperf: per frame (after xrBeginFrame): a refresh missed shows as a predicted display time more than one
+    // period after the last one; the per-second line (vr.ini perf_log) and perf_cycle's parts
+    void perfFrame(uint64_t waitNs, bool shown)
+    {
+        const uint64_t now = SDL_GetTicksNS();
+        const XrTime pt = frameState_.predictedDisplayTime, per = frameState_.predictedDisplayPeriod;
+        bool lateNow = false;
+        if (lastPredicted_ && per > 0 && pt > lastPredicted_) {
+            const int64_t k = (pt - lastPredicted_ + per / 2) / per;
+            if (k > 1) ++ps_.late, ps_.missed += int(k - 1), lateNow = true;
+        }
+        lastPredicted_ = pt;
+        ++ps_.frames;
+        ps_.waitNs += waitNs, ps_.waitMax = std::max(ps_.waitMax, waitNs);
+        workT0_ = now;
+        if (dynRes_ && shown) dynamicResolution(now, per, lateNow);
+        if (perfCycle_ && shown) {
+            struct Part { int fov; float scale; bool around; const char* what; };
+            static const Part parts[] = {
+                {0, 1.0f, true, "foveation off, full resolution, around on (as before)"},
+                {3, 1.0f, true, "foveation high"},
+                {3, 0.7f, true, "foveation high, resolution x 0.7"},
+                {3, 1.0f, false, "foveation high, around off"},
+                {0, 1.0f, false, "foveation off, around off"},
+                {0, 0.7f, true, "foveation off, resolution x 0.7"},
+            };
+            constexpr int kParts = int(sizeof parts / sizeof parts[0]);
+            if (!cycleT0_) cycleT0_ = now;
+            const int part = int(((now - cycleT0_) / 10000000000ull) % uint64_t(kParts));
+            if (part != cyclePart_) {
+                cyclePart_ = part;
+                applyFoveation(parts[part].fov);
+                eyeScale_ = parts[part].scale;
+                aroundOff_ = !parts[part].around;
+                SDL_Log("quest perf: cycle part %d: %s", part, parts[part].what);
+                ps_ = PerfStats{};
+                ps_.t0 = now;
+                return;
+            }
+        }
+        if (!ps_.t0) ps_.t0 = now;
+        if (now - ps_.t0 < 1000000000ull) return;
+        if (perfLog_ && shown) {
+            const double s = double(now - ps_.t0) / 1e9, n = double(std::max(ps_.frames, 1));
+            std::string m;
+            if (hasMetrics_ && query_) {
+                for (const auto& [name, path] : metricPaths_) {
+                    XrPerformanceMetricsCounterMETA c{XR_TYPE_PERFORMANCE_METRICS_COUNTER_META};
+                    if (XR_FAILED(query_(session_, path, &c)) || !(c.counterFlags & XR_PERFORMANCE_METRICS_COUNTER_ANY_VALUE_VALID_BIT_META))
+                        continue;
+                    char b[96];
+                    if (c.counterFlags & XR_PERFORMANCE_METRICS_COUNTER_FLOAT_VALUE_VALID_BIT_META)
+                        std::snprintf(b, sizeof b, " %s=%.1f", name.c_str(), double(c.floatValue));
+                    else
+                        std::snprintf(b, sizeof b, " %s=%u", name.c_str(), c.uintValue);
+                    m += b;
+                }
+            }
+            SDL_Log("quest perf: %.1f fps, %d late (%d refreshes missed); wait %.1f ms (max %.1f), our frame %.1f ms (max %.1f), "
+                    "xrEndFrame %.1f ms; eye %dx%d, foveation %d%s;%s",
+                    double(ps_.frames) / s, ps_.late, ps_.missed, double(ps_.waitNs) / 1e6 / n, double(ps_.waitMax) / 1e6,
+                    double(ps_.workNs) / 1e6 / n, double(ps_.workMax) / 1e6, double(ps_.endNs) / 1e6 / n, eyeW(0), eyeH(0),
+                    std::max(fovNow_, 0), aroundOff_ ? ", around off" : "", m.c_str());
+            if (now - threadsAt_ >= 5000000000ull) threadReport(now);
+        }
+        ps_ = PerfStats{};
+        ps_.t0 = now;
+    }
+    // questperf (vr.ini dynamic_resolution, the Quest's default): every half second the GPU's frame time (Meta's
+    // app/gpu_frametime; without it the late frames) against 85 % of the display's period: over it, the eyes drawn
+    // into a smaller part of their images (the pixels go with the scale's square), down to kMinScale; well under it
+    // and nothing late, 3 % back up a step, to the whole image. At the smallest and still late for 3 s with refresh_rate
+    // auto: 72 Hz asked for the rest of the session
+    void dynamicResolution(uint64_t now, XrTime period, bool late)
+    {
+        constexpr float kMinScale = 0.6f;
+        if (late) ++dynLate_;
+        ++dynFrames_;
+        if (!dynT0_) dynT0_ = now;
+        if (now - dynT0_ < 500000000ull) return;
+        const double budget = double(period) / 1e6 * 0.85;
+        double gpu = -1;
+        if (query_ && gpuPath_ != XR_NULL_PATH) {
+            XrPerformanceMetricsCounterMETA c{XR_TYPE_PERFORMANCE_METRICS_COUNTER_META};
+            if (XR_SUCCEEDED(query_(session_, gpuPath_, &c)) && (c.counterFlags & XR_PERFORMANCE_METRICS_COUNTER_FLOAT_VALUE_VALID_BIT_META))
+                gpu = double(c.floatValue);
+        }
+        const double lateFrac = double(dynLate_) / double(std::max(dynFrames_, 1));
+        const float was = eyeScale_;
+        if ((gpu > budget && gpu < 1000.0) || lateFrac > 0.1) {
+            const double f = gpu > budget && gpu < 1000.0 ? std::sqrt(budget / (gpu * 1.1)) : 0.9;
+            eyeScale_ = std::max(kMinScale, float(double(eyeScale_) * std::clamp(f, 0.75, 0.97)));
+        } else if (gpu >= 0 && gpu < budget * 0.7 && dynLate_ == 0) {
+            eyeScale_ = std::min(1.0f, eyeScale_ + 0.03f);
+        }
+        if (std::abs(eyeScale_ - dynLogged_) >= 0.05f || (eyeScale_ == 1.0f && dynLogged_ != 1.0f)) {
+            dynLogged_ = eyeScale_;
+            SDL_Log("quest perf: dynamic resolution %.2f (%dx%d; GPU %.1f ms a frame, budget %.1f, %d of %d late)",
+                    double(eyeScale_), eyeW(0), eyeH(0), gpu, budget, dynLate_, dynFrames_);
+        }
+        // the smallest and still late: 72 Hz (refresh_rate auto only; once a session)
+        dynFloorLate_ = was <= kMinScale + 0.001f && lateFrac > 0.1 ? dynFloorLate_ + 1 : 0;
+        if (dynFloorLate_ >= 6 && refreshWant_ == 0 && refreshAsked_ > 75.0f) {
+            PFN_xrRequestDisplayRefreshRateFB request = nullptr;
+            xrGetInstanceProcAddr(instance_, "xrRequestDisplayRefreshRateFB", reinterpret_cast<PFN_xrVoidFunction*>(&request));
+            const bool asked = request && XR_SUCCEEDED(request(session_, 72.0f));
+            SDL_Log("quest perf: still late at the smallest resolution: the display at 72 Hz (%s)", asked ? "asked" : "refused");
+            if (asked) refreshWant_ = 72, refreshAsked_ = 72.0f, eyeScale_ = 0.8f;
+            dynFloorLate_ = 0;
+        }
+        dynT0_ = now, dynFrames_ = dynLate_ = 0;
+    }
+    // questperf: the process's threads' CPU since the last report (/proc/self/task/<tid>/stat: utime + stime), the
+    // busiest first, in % of one core
+    void threadReport(uint64_t now)
+    {
+        const double dt = threadsAt_ ? double(now - threadsAt_) / 1e9 : 0.0;
+        threadsAt_ = now;
+        const long hz = sysconf(_SC_CLK_TCK);
+        DIR* d = opendir("/proc/self/task");
+        if (!d) return;
+        std::vector<std::pair<double, std::string>> busy;
+        std::map<int, uint64_t> ticks;
+        double total = 0;
+        while (const dirent* e = readdir(d)) {
+            const int tid = std::atoi(e->d_name);
+            if (tid <= 0) continue;
+            char path[64], buf[512];
+            std::snprintf(path, sizeof path, "/proc/self/task/%d/stat", tid);
+            std::FILE* f = std::fopen(path, "rb");
+            if (!f) continue;
+            const size_t got = std::fread(buf, 1, sizeof buf - 1, f);
+            std::fclose(f);
+            buf[got] = 0;
+            const char* open = std::strchr(buf, '(');
+            const char* close = std::strrchr(buf, ')');
+            if (!open || !close || close < open) continue;
+            unsigned long ut = 0, st = 0;
+            if (std::sscanf(close + 1, " %*c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %lu %lu", &ut, &st) != 2) continue;
+            const uint64_t t = uint64_t(ut) + uint64_t(st);
+            ticks[tid] = t;
+            const auto it = threadTicks_.find(tid);
+            if (dt <= 0 || it == threadTicks_.end() || hz <= 0) continue;
+            const double pct = double(t - it->second) * 100.0 / (double(hz) * dt);
+            total += pct;
+            if (pct >= 1.0) busy.emplace_back(pct, std::string(open + 1, size_t(close - open - 1)) + "/" + std::to_string(tid));
+        }
+        closedir(d);
+        threadTicks_ = std::move(ticks);
+        if (dt <= 0) return;
+        std::sort(busy.begin(), busy.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+        std::string l;
+        for (size_t i = 0; i < busy.size() && i < 8; ++i) {
+            char b[96];
+            std::snprintf(b, sizeof b, "%s%s %.0f%%", i ? ", " : "", busy[i].second.c_str(), busy[i].first);
+            l += b;
+        }
+        SDL_Log("quest perf: threads (%% of one core, %.0f s): all %.0f%%: %s", dt, total, l.c_str());
+    }
+#endif
     // vr2: the play space (space_) = LOCAL moved to `offset`; the old one destroyed after the new one exists
     void setPlaySpace(const XrPosef& offset)
     {
@@ -803,8 +1138,9 @@ private:
         playOffset_ = offset;
     }
     // vr2: recentre: the seat's origin to the head's place now, its heading the head's (yaw only: the horizon stays level)
-    void recentre(XrTime t)
+    void recentre(XrTime t, const char* why)
     {
+        SDL_Log("openxr: recentre: %s", why);   // (vrfix: each recentre's reason in the log)
         if (!baseSpace_ || !viewSpace_) return;
         XrSpaceLocation l{XR_TYPE_SPACE_LOCATION};
         if (XR_FAILED(xrLocateSpace(viewSpace_, baseSpace_, t, &l)))
@@ -870,17 +1206,25 @@ private:
                     xrEndSession(session_);   // (the headset taken off / the app hidden: back to IDLE, READY again later)
                     running_ = false;
                 } else if (state_ == XR_SESSION_STATE_EXITING || state_ == XR_SESSION_STATE_LOSS_PENDING) {
-                    lost_ = true;   // the runtime quits us / the headset is gone: the game drops VR (main.cpp vrFrame)
+                    lost_ = exitAsked_ = true;   // the runtime quits us / the headset is gone (vrflow: the game closes, main.cpp)
                 }
             } else if (ev.type == XR_TYPE_EVENT_DATA_DISPLAY_REFRESH_RATE_CHANGED_FB) {   // vr4 (the log)
                 const auto& c = reinterpret_cast<const XrEventDataDisplayRefreshRateChangedFB&>(ev);
                 SDL_Log("openxr: display refresh rate %.0f -> %.0f Hz", double(c.fromDisplayRefreshRate), double(c.toDisplayRefreshRate));
+                // questcrash: moved off the rate asked (a few times at most: the runtime may insist, e.g. too warm)
+                if (refreshAsked_ > 0 && std::abs(c.toDisplayRefreshRate - refreshAsked_) > 0.5f && refreshReasks_ < 3 && running_) {
+                    PFN_xrRequestDisplayRefreshRateFB request = nullptr;
+                    xrGetInstanceProcAddr(instance_, "xrRequestDisplayRefreshRateFB", reinterpret_cast<PFN_xrVoidFunction*>(&request));
+                    ++refreshReasks_;
+                    const bool again = request && XR_SUCCEEDED(request(session_, refreshAsked_));
+                    SDL_Log("openxr: asked %.0f Hz again: %s", double(refreshAsked_), again ? "ok" : "refused");
+                }
             } else if (ev.type == XR_TYPE_EVENT_DATA_PERF_SETTINGS_EXT) {   // vr4: the headset too warm: its level changed
                 const auto& p = reinterpret_cast<const XrEventDataPerfSettingsEXT&>(ev);
                 SDL_Log("openxr: performance notification: domain %d sub-domain %d level %d -> %d", int(p.domain), int(p.subDomain),
                         int(p.fromLevel), int(p.toLevel));
             } else if (ev.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) {
-                lost_ = true;
+                lost_ = exitAsked_ = true;
             } else if (ev.type == XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED) {
                 // vr2: which bindings the runtime chose for each hand (the first headset test's log: docs/vr.md)
                 for (int h = 0; h < 2; ++h) {
@@ -888,10 +1232,13 @@ private:
                     char path[XR_MAX_PATH_LENGTH] = {};
                     uint32_t len = 0;
                     if (XR_SUCCEEDED(xrGetCurrentInteractionProfile(session_, hand_[h], &st)) && st.interactionProfile != XR_NULL_PATH &&
-                        XR_SUCCEEDED(xrPathToString(instance_, st.interactionProfile, XR_MAX_PATH_LENGTH, &len, path)))
+                        XR_SUCCEEDED(xrPathToString(instance_, st.interactionProfile, XR_MAX_PATH_LENGTH, &len, path))) {
                         SDL_Log("openxr: %s hand: %s", h ? "right" : "left", path);
-                    else
+                        profile_[h] = path;   // (vrprompts: the prompts name its buttons)
+                    } else {
                         SDL_Log("openxr: %s hand: no controller", h ? "right" : "left");
+                        profile_[h].clear();
+                    }
                 }
             } else if (ev.type == XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING) {
                 // vr2: the runtime's own recentre (Quest: hold the Meta button; SteamVR: Reset Seated Position) moved
@@ -938,20 +1285,20 @@ private:
         // suggested bindings per interaction profile (the runtime remaps other controllers to one of these). A path the
         // profile lacks fails its whole list: the lists are the spec's (OpenXR 1.0 section 6.4)
         using L = std::vector<std::pair<XrAction, std::string>>;
-        auto bind = [&](const char* profile, const L& list) {
+        auto bind = [&](const char* profileName, const L& list) {
             std::vector<XrActionSuggestedBinding> b;
             for (const auto& [a, p] : list) {
                 XrPath path;
                 if (XR_SUCCEEDED(xrStringToPath(instance_, p.c_str(), &path))) b.push_back({a, path});
             }
             XrPath prof;
-            xrStringToPath(instance_, profile, &prof);
+            xrStringToPath(instance_, profileName, &prof);
             XrInteractionProfileSuggestedBinding s{XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
             s.interactionProfile = prof;
             s.countSuggestedBindings = uint32_t(b.size());
             s.suggestedBindings = b.data();
             if (const XrResult r = xrSuggestInteractionProfileBindings(instance_, &s); XR_FAILED(r))
-                SDL_Log("openxr: bindings for %s: %s", profile, reason(instance_, r).c_str());
+                SDL_Log("openxr: bindings for %s: %s", profileName, reason(instance_, r).c_str());
         };
         // every profile: both hands' grip / aim poses and haptics
         auto common = [&](L l) {
@@ -965,11 +1312,14 @@ private:
         bind("/interaction_profiles/khr/simple_controller",
              common({{trigger_, "/user/hand/left/input/select/click"}, {trigger_, "/user/hand/right/input/select/click"},
                      {menu_, "/user/hand/left/input/menu/click"}, {menu_, "/user/hand/right/input/menu/click"}}));
+        // vrflow (user 2026-11-10, "I don't know how to pause"): the left Y is Pause too (Touch, HP; was a reload: the
+        // grip, A, B, the shake / flick and pointing down still reload), a dedicated button beside the left menu
+        // button, which SteamVR may keep for its dashboard
         bind("/interaction_profiles/oculus/touch_controller",   // (Quest, Rift S; the right menu is the system's)
              common({{trigger_, "/user/hand/left/input/trigger/value"}, {trigger_, "/user/hand/right/input/trigger/value"},
                      {squeeze_, "/user/hand/left/input/squeeze/value"}, {squeeze_, "/user/hand/right/input/squeeze/value"},
                      {primary_, "/user/hand/left/input/x/click"}, {primary_, "/user/hand/right/input/a/click"},
-                     {secondary_, "/user/hand/left/input/y/click"}, {secondary_, "/user/hand/right/input/b/click"},
+                     {menu_, "/user/hand/left/input/y/click"}, {secondary_, "/user/hand/right/input/b/click"},
                      {menu_, "/user/hand/left/input/menu/click"},
                      {recentre_, "/user/hand/left/input/thumbstick/click"}, {recentre_, "/user/hand/right/input/thumbstick/click"}}));
         bind("/interaction_profiles/valve/index_controller",   // (no menu button: the left B)
@@ -994,7 +1344,7 @@ private:
                  common({{trigger_, "/user/hand/left/input/trigger/value"}, {trigger_, "/user/hand/right/input/trigger/value"},
                          {squeeze_, "/user/hand/left/input/squeeze/value"}, {squeeze_, "/user/hand/right/input/squeeze/value"},
                          {primary_, "/user/hand/left/input/x/click"}, {primary_, "/user/hand/right/input/a/click"},
-                         {secondary_, "/user/hand/left/input/y/click"}, {secondary_, "/user/hand/right/input/b/click"},
+                         {menu_, "/user/hand/left/input/y/click"}, {secondary_, "/user/hand/right/input/b/click"},
                          {menu_, "/user/hand/left/input/menu/click"}, {menu_, "/user/hand/right/input/menu/click"},
                          {recentre_, "/user/hand/left/input/thumbstick/click"}, {recentre_, "/user/hand/right/input/thumbstick/click"}}));
         for (int h = 0; h < 2; ++h) {

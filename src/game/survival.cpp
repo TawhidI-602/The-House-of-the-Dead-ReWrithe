@@ -92,14 +92,19 @@ const std::vector<SurvivalArena>& survivalArenas()
         // again on their own chains, 60 % of the spawns; the rest walk in from the platform's far end (its floor:
         // x 405..573, z 535..858 at y -282, the railing at z 836); the story's own view of the stop
         // (user 2026-11-10: "I only picked that location wise": no chain zombies; everyone walks in from the far end)
+        // fix140b (user 2026-11-10, v1.4.0: "creatures spawn too far away"): the far end was 253-264 units from the
+        // camera, a 19-21 s walk to the player (the courtyard's places: 110 units, 4.3 s); now three places on the
+        // platform's floor 124-128 units out (about 5 s), each a clear walk to the camera (0 wall triangles crossed)
         {"platform", "Chapter 3: the platform", 2, 1, 0, {28, 61, 62, 29, 53, 72},
-         {{{430, -282, 812}}, {{490, -282, 815}}, {{550, -282, 812}}}, {}, 7, -1, 0, {}},
+         {{{425, -282, 678}}, {{470, -282, 688}}, {{530, -282, 672}}}, {}, 7, -1, 0, {}},
         // Chapter 4's roof, the Magician's fight (event 4: the wait after he comes, kind 20, is taken; he is not
         // there): the camera on the roof (its floor x -1021..-561, z 2274..2559 at y 0) facing the doorway he blasted
         // open out of Curien's laboratory (x -906..-676 at z 2253..2274); the creatures come out of it, from the
         // laboratory's floor just inside
+        // fix140b (user 2026-11-10, v1.4.0: "creatures spawn too far away"): inside the doorway was 242-245 units
+        // from the camera (a 19 s walk); now on the roof's floor before it, 125-126 units out (as the courtyard's 110)
         {"roof", "Chapter 4: the Magician's roof", 3, 4, 0, {11, 53, 72},
-         {{{-860, 0, 2235}}, {{-791, 0, 2228}}, {{-722, 0, 2235}}}, {}, 20, -1, 0,
+         {{{-848, 0, 2357}}, {{-792, 0, 2345}}, {{-736, 0, 2357}}}, {}, 20, -1, 0,
          {-791.9f, 15.0f, 2470.0f, -791.9f, 25.0f, 2264.0f}},
     };
     return k;
@@ -453,11 +458,14 @@ bool SurvivalMode::eventFrame(Runtime& rt)
         // the spawn points: this wait's creatures' places, and those of earlier sections near the camera (the same room:
         // the original sends the room's creatures in several sections), at most 16, none twice
         points = section;
-        const float cx = rt.mem.f32(G::camera_pos), cz = rt.mem.f32(G::camera_pos + 8);
         // arenas (2026-11-05): an arena with its doors takes them instead (the captured places were where the original's
         // creatures stood up close, or behind walls in the next room, or on another floor): each faces the camera, with
         // the flags of the arena's own creatures
         const SurvivalArena& ar = survivalArenas()[size_t(arena)];
+        // (fix140b: an arena with its own view measures from that eye, where the camera is set below: the roof's lead-in
+        // camera stood 66 units nearer the doorway, so places near the arena's eye were pushed out by kNear from it)
+        const bool ownView = ar.view != std::array<float, 6>{} && !survivalEnv("START");
+        const float cx = ownView ? ar.view[0] : rt.mem.f32(G::camera_pos), cz = ownView ? ar.view[2] : rt.mem.f32(G::camera_pos + 8);
         const bool doors = !ar.doors.empty() && !survivalEnv("START") && !survivalEnv("WAIT");   // (finding arenas: the old rule)
         if (doors) {
             const uint32_t fl = section.empty() ? 0u : section.front().flags;
@@ -509,7 +517,7 @@ bool SurvivalMode::eventFrame(Runtime& rt)
             if (!dup)
                 entries.push_back(e);
         }
-        if (ar.view != std::array<float, 6>{} && !survivalEnv("START")) {
+        if (ownView) {
             // record 0's eye / look-at, its angles by the game's own look-at (camera_look_at), copied to the stop point;
             // camera_pos at the eye less the record's height and the heading its yaw (as camera_frame_mode4 sets them:
             // the attack positions are placed from these)
@@ -536,8 +544,19 @@ bool SurvivalMode::eventFrame(Runtime& rt)
                           entries.size());
             rt.log(b);
         }
-        if ((rt.mem.u32(G::shot_enable) == 0 || rt.letterbox != 0) && rt.log)   // (an arena inside a cut-scene: no shots)
-            rt.log("survival: the arena is in a cut-scene (shots off / letterbox): a bad arena");
+        // fix140b (user 2026-11-10, the roof: "the arena is in a cut-scene ... a bad arena" in every run, the headless
+        // test's too: not a timing or settings matter): the roof's wait comes while the Magician's entrance scene ends,
+        // its bars still sliding away (letterbox_task's scene_state 1, 40 frames, under the arena's name). The arena
+        // starts in play at once: scene_state 6 (bars off, shots on, then 2),
+        // whatever cut-scene state the lead-in left (a scene_state 4 would have held the bars and shots off for good)
+        if (rt.mem.u32(G::shot_enable) == 0 || rt.letterbox != 0) {
+            if (rt.log)
+                rt.log("survival: the lead-in ended in a cut-scene (scene state " + std::to_string(rt.mem.at<uint8_t>(G::scene_state)) +
+                       ", bars " + std::to_string(rt.letterbox) + ", shots " + std::to_string(rt.mem.u32(G::shot_enable)) + "): the arena starts in play");
+            rt.mem.at<uint8_t>(G::scene_state) = 6;
+            rt.mem.set32(G::shot_enable, 1);
+            rt.letterbox = 0;
+        }
         frozen = true;
         if (const char* w = survivalEnv("START_WAVE"))   // testing: the waves from this one (the limits' stress run)
             wave = std::max(0, std::atoi(w) - 1);

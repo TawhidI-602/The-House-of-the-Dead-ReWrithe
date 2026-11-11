@@ -1764,3 +1764,6 @@ That is not a reply code (20 letters and digits, from your friend's Join page). 
 No reply code found in what you pasted (a reply code: 20 letters and digits, from your friend's Join page). = Δεν βρέθηκε κωδικός απάντησης σε ό,τι επικόλλησες (κωδικός απάντησης: 20 γράμματα και ψηφία, από τη σελίδα Συμμετοχής του φίλου σου).
 Waiting for your friends... = Αναμονή για τους φίλους σου...
 Copy all your friends' reply codes from the chat at once and paste them here (Ctrl+V works too) = Αντίγραψε όλους τους κωδικούς απάντησης των φίλων σου από τη συνομιλία μαζί και επικόλλησέ τους εδώ (δουλεύει και το Ctrl+V)
+
+# vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
+{buttons}: Pause = {buttons}: Παύση

@@ -895,7 +895,8 @@ void Frontend::remakePrompts(Widget* root, bool tabsKeys, std::function<void()> 
 {
     struct P { const char* label; const char* key; const char* pad; std::function<void()> act; int tag; };
     std::vector<P> ps;
-    if (tabsKeys) {
+    // (vrprompts: a VR controller has no shoulder buttons for the tabs: its ray clicks them; no Left / Right prompts)
+    if (tabsKeys && !(padPrompts_ && isVrStyle(padType_))) {
         auto step = [this](int d) {
             return [this, d]() {
                 if (remakeTabs_ > 0)
@@ -1918,6 +1919,8 @@ std::string Frontend::padKey(const std::string& xbox) const
 
 bool Frontend::ringKey(const std::string& key) const
 {
+    if (padPrompts_ && isVrStyle(padType_))   // vrprompts: a VR controller's round buttons (A / B / X / Y, the menu's)
+        return key.size() == 1 || key == "Menu";
     return padPrompts_ && (key.size() == 1 || key == "Cross" || key == "Circle" || key == "Square" || key == "Triangle" ||
                            key == "Left" || key == "Down" || key == "Up" || key == "Right");
 }
@@ -2048,6 +2051,21 @@ bool Frontend::rPadGlyph(const std::string& key, float cx, float cy, float r)
 
 bool Frontend::rPadSymbol(const std::string& key, float cx, float cy, float r)
 {
+    if (key == "Menu" && padPrompts_ && isVrStyle(padType_)) {   // vrprompts: a VR controller's menu button: three bars
+        const float S = ps_, hw = r * 0.42f, hh = r * 0.075f, gap = r * 0.3f;
+        for (int py = std::max(0, int((cy - r) * S)); py < std::min(int((cy + r) * S) + 1, rph()); ++py)
+            for (int px = std::max(0, int((cx - r) * S)); px < std::min(int((cx + r) * S) + 1, rpw()); ++px) {
+                const float ux = std::fabs((float(px) + 0.5f) / S - cx), uy = (float(py) + 0.5f) / S - cy;
+                float d = 1e9f;
+                for (int k = -1; k <= 1; ++k) {   // (a rounded bar each: its distance in units)
+                    const float qx = ux - hw, qy = std::fabs(uy - float(k) * gap) - hh;
+                    d = std::min(d, std::hypot(std::max(qx, 0.0f), std::max(qy, 0.0f)) + std::min(std::max(qx, qy), 0.0f));
+                }
+                const float a = clamp01((0.5f / S - d) * S);
+                if (a > 0) rBlend(px, py, 0xF4ECE4, a);
+            }
+        return true;
+    }
     if (key == "Left" || key == "Down" || key == "Up" || key == "Right") {   // padglyphs: a Joy-Con's arrow, filled
         const float S = ps_, s = r * 0.42f;
         for (int py = std::max(0, int((cy - r) * S)); py < std::min(int((cy + r) * S) + 1, rph()); ++py)
@@ -2617,12 +2635,16 @@ void Frontend::drawRPrompt(Widget& w)
     // on one line, the arcade's claw marks (0x2A) small behind each, the label right-aligned a fixed gap to their left
     const float kh = kPromptCapH, colW = kPromptCapW;
     // (leftovers, rtl: mirrored: the caps at the widget's left, the label left-aligned a gap to their right)
-    const float kw = padPrompts_ ? kh : colW, ccx = w.rtlRow ? float(x) + colW / 2 : float(x + ww) - colW / 2;
+    const float th = 7.0f;
+    // vrprompts: a VR controller's word buttons (Trigger, Grip, Trackpad) in a rounded box as wide as the word (into
+    // the gap before the label when wider than the column), its round ones (A, B, the menu button) in a ring
+    const bool vrWord = padPrompts_ && isVrStyle(padType_) && !ringKey(key);
+    const float kw = vrWord ? std::max(kh, rTextWidth(key, th) + 8.0f) : padPrompts_ ? kh : colW;
+    const float ccx = w.rtlRow ? float(x) + colW / 2 : float(x + ww) - colW / 2;
     const float kx = ccx - kw / 2, ky = float(y) + (float(hh) - kh) / 2;
     rBlood(2, ccx + 4.0f, ky + kh / 2 - 2.0f, 40.0f, 0.38f, 0.72f);   // (out past the cap's top right / bottom left)
-    const float th = 7.0f;
     if (!rPadGlyph(key, ccx, ky + kh / 2, kh / 2)) {   // (padglyphs: the pad's / keys' icons, else the cap)
-        rKeyCap(kx, ky, kw, kh, padPrompts_);
+        rKeyCap(kx, ky, kw, kh, padPrompts_ && !vrWord);
         if (!rPadSymbol(key, ccx, ky + kh / 2, kh / 2))   // (padpass: a PlayStation pad's shapes)
             rText(key, ccx, ky + (kh - th) / 2, th, 0xF4ECE4, 1, 0.0f, 0);
     }

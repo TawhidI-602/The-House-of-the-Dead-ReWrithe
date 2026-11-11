@@ -81,6 +81,9 @@ public:
         bool held = false;
         bool ignore = false;  // vr4: a pull at this aim does nothing (offscreen_reload = below: beside / above / behind)
         bool start = false;   // openxr: the left hand's primary button (X; Index: left A; Vive / WMR: left trackpad)
+        // vrflow (user 2026-11-10): a trigger or A / X pressed on either hand, wherever it points (the attract: on to
+        // the main menu, as a key or a click in the flat game)
+        bool press = false;
         // dual pistols (docs/vr.md "Dual pistols"): the fields above are the right gun's; the left gun's own here
         bool dual = false;
         struct Gun {
@@ -118,6 +121,7 @@ public:
     Pointer panelFrame(unsigned srcFbo, int w, int h, int pointW, int pointH);
     // the backend's session ended for good (Backend::lost): main.cpp drops VR
     bool lost() const;
+    bool exitAsked() const;   // vrflow: lost because the runtime asked the app to quit (Backend::exitAsked)
 
     // --vr-preview-test: the preview's cursor follows the game's own aim (player 1: --autofire), and each frame checks
     // the whole chain: the world point the game camera sees at that aim (the eye's depth), the gun's ray from its
@@ -152,6 +156,10 @@ public:
         // vrattract: frames with the hands shown, shown outside player 1's control (the attract, cut-scenes, the
         // results...: must be 0), hidden while playing (must be 0), paused (the hands kept: the gun points at the items)
         int handsShown = 0, handsShownOutside = 0, handsHiddenInControl = 0, handsPaused = 0;
+        int handsFirstPerson = 0;   // vrfix: shown in a first-person cut-scene (no player body drawn: by design)
+        int fireMoved = 0;          // vrfix: the Magician's fireball draws moved out to 1.2 m from the game camera
+        int refPitchClamped = 0;   // vrfix: frames the game camera pitched over 60 degrees (the player's space held at 60)
+        int leftNearHidden = 0;    // vrfix: frames the empty left hand was left out (its palm within 25 cm of the head)
         // bugs7: camera cuts (an instant jump) the comfort vignette ignored; frames it was on over 0.5 (vignette = on)
         int vignetteCuts = 0, vignetteOnFrames = 0;
     } test;
@@ -162,6 +170,13 @@ public:
     float vignetteNow = 0;
     float panelNow = 0;   // vr4: the HUD panel's distance as last drawn (metres; hud_distance = adaptive moves it)
     bool cinemaNow = false;   // vr3: the last frame showed the cinema screen (cutscenes = cinema in a cut-scene)
+    // vrflow (user 2026-11-10, "a floating white Quest controller": the runtime's own room shows when the game submits
+    // no frame): what the game shows (main.cpp sets it: "menu", "game", "attract", "pause", "loading" ...); a gap of
+    // more than 50 ms between two frames is logged "vr: frame gap N ms in <where>" (frameGaps / worstGapMs: tests)
+    std::string where = "start";
+    int frameGaps = 0;
+    double worstGapMs = 0;
+    std::string worstGapWhere;
 
 private:
     std::unique_ptr<Backend> backend_;
@@ -200,10 +215,31 @@ private:
     unsigned screenFbo_ = 0, screenTex_ = 0;
     int screenW_ = 0, screenH_ = 0;
     bool panelTrigger_ = false, panelBack_ = false, panelEnter_ = false;
+    // vrflow: the last frame was the big screen's (panelFrame) / the game's (frame): at the switch the buttons held
+    // are taken as held (the trigger that left the attract never clicks a menu item; the click on Arcade never shoots)
+    bool lastPanel_ = false;
+    bool pressHeld_ = false;   // (Aim::press's edge)
+    uint64_t lastBeginNs_ = 0;   // (where's frame gaps)
+    void noteFrame();
     // vr3: the cinema screen's picture (drawCinema)
     unsigned cinemaFbo_ = 0, cinemaTex_ = 0, cinemaDepth_ = 0;
     int cinemaW_ = 0, cinemaH_ = 0;
     void drawCinema(game::GameView& view, const std::vector<DrawItem>& items, const Camera& cam, float halfW);
+    // vrfix (user's PC VR playthrough 2026-11-10: the name entry was a black void, only the hands): the name entry on
+    // the cinema screen, aimed through it: the gun's ray where it meets the screen (seat space, metres: o -> p), that
+    // point as the arcade's aim (x, y; hit: the ray meets the screen), the hands in seat space (game units)
+    struct ScreenAim {
+        bool on = false, hit = false;
+        float x = 0, y = 0, o[3] = {0, 0, 0}, p[3] = {0, 0, 0};
+    } screenAim_;
+    std::vector<DrawItem> cinemaHands_;
+    float refYaw_ = 0.0f;      // vrfix: the player's space's last heading (held while the game camera is near vertical)
+    bool refYawSet_ = false;
+    bool leftNear_ = false;    // vrfix: the empty left hand too near the head (not drawn)
+    int firstPersonRun_ = 0;   // vrfix: frames running of an in-game world cut-scene with no player body drawn
+    bool firstPersonLast_ = false;   // (the hands shown by a first-person cut-scene last frame: no blink into control)
+    std::vector<DrawItem> nearLayer_;   // vrfix: the hands and the extra-life item over the world (the HUD's depth test)
+    const Frame* frame_ = nullptr;   // (the frame being drawn: drawCinema's sight)
     // vrnull: the flat picture + HUD into cinemaFbo_ (the cinema's screen; desktop_view spectator); flatFrame_: drawn
     // this frame
     void flatPicture(game::GameView& view, const std::vector<DrawItem>& items, const Camera& cam, float halfW);

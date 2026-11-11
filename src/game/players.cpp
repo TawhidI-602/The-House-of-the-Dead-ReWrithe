@@ -86,6 +86,8 @@ void Runtime::player_join(int p)
     // continue); player 2's start button joins seat 1. At the title each start button is its own seat's (the arcade's)
     if (const int16_t mode = mem.at<int16_t>(G::game_mode); soloSeat == 1 && p < 2 && (mode == 4 || mode == 5))
         p = 1 - p;
+    if (vrSolo && p != 0)   // (fix140a: VR is single player only: a second player's Start does not join)
+        return;
     startRequest[p] = true;
 }
 

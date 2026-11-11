@@ -259,8 +259,8 @@ TEST(vr, shake_detector)
     // shaking for 0.5 s: one reload (the quiet time), then again after it
     CHECK_EQ(run([&](double t) { return t < 0.5 ? float(0.04 * std::sin(2 * pi * 6 * t)) : 0.0f; }, 1.0, 1.0f), 1);
     CHECK(run([&](double t) { return float(0.04 * std::sin(2 * pi * 6 * t)); }, 2.0, 1.0f) >= 2);
-    // a higher threshold: the same flick is not enough
-    CHECK_EQ(run([&](double t) { return t < 0.25 ? float(0.04 * std::sin(2 * pi * 6 * t)) : 0.0f; }, 1.0, 3.0f), 0);
+    // a higher threshold (in g since vrgest; the flick peaks near 5.8 g): the same flick is not enough
+    CHECK_EQ(run([&](double t) { return t < 0.25 ? float(0.04 * std::sin(2 * pi * 6 * t)) : 0.0f; }, 1.0, 8.0f), 0);
 }
 
 namespace {

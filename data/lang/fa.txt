@@ -1764,3 +1764,6 @@ That is not a reply code (20 letters and digits, from your friend's Join page). 
 No reply code found in what you pasted (a reply code: 20 letters and digits, from your friend's Join page). = در متن جای‌گذاری‌شده کد پاسخی پیدا نشد (کد پاسخ: 20 حرف و رقم، از صفحه پیوستن دوستتان).
 Waiting for your friends... = در انتظار دوستانتان...
 Copy all your friends' reply codes from the chat at once and paste them here (Ctrl+V works too) = همه کدهای پاسخ دوستانتان را یک‌جا از گفتگو کپی کنید و اینجا جای‌گذاری کنید (Ctrl+V هم کار می‌کند)
+
+# vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
+{buttons}: Pause = {buttons}: مکث

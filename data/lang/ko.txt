@@ -1769,3 +1769,6 @@ That is not a reply code (20 letters and digits, from your friend's Join page). 
 No reply code found in what you pasted (a reply code: 20 letters and digits, from your friend's Join page). = 붙여넣은 내용에 답장 코드가 없습니다(답장 코드: 친구의 참가 페이지에 있는 20자의 글자와 숫자).
 Waiting for your friends... = 친구들을 기다리는 중...
 Copy all your friends' reply codes from the chat at once and paste them here (Ctrl+V works too) = 채팅에서 친구들의 답장 코드를 한꺼번에 복사해 여기에 붙여넣으세요(Ctrl+V도 됩니다)
+
+# vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
+{buttons}: Pause = {buttons}: 일시 정지

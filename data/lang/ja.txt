@@ -1769,3 +1769,6 @@ That is not a reply code (20 letters and digits, from your friend's Join page). 
 No reply code found in what you pasted (a reply code: 20 letters and digits, from your friend's Join page). = 貼り付けた内容に返信コードがありません（返信コード：友達の参加ページにある英数字20文字）。
 Waiting for your friends... = 友達を待っています...
 Copy all your friends' reply codes from the chat at once and paste them here (Ctrl+V works too) = チャットから友達全員の返信コードをまとめてコピーし、ここに貼り付けてください（Ctrl+Vも使えます）
+
+# vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
+{buttons}: Pause = {buttons}: ポーズ

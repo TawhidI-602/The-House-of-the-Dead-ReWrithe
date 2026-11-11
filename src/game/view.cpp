@@ -162,6 +162,10 @@ void releaseStageCpu(StageData& sd, uint32_t keepFrom)
             if (me.vertices.empty())
                 continue;
             me.releasedCount = me.vertices.size();
+            if (Mesh::keepMeshPositions) {   // (questsim: VR's CPU aim ray against the parts' triangles)
+                me.positions.resize(me.vertices.size() * 3);
+                for (size_t i = 0; i < me.vertices.size(); ++i) std::copy_n(me.vertices[i].pos, 3, &me.positions[i * 3]);
+            }
             vertices->push_back(std::move(me.vertices));
             me.vertices = std::vector<Vertex>();
         }
@@ -1767,6 +1771,7 @@ void GameView::draw(const Runtime& rt, int width, int height, const FrameSnapsho
         if (skinSet >= 0)
             d.variant = skinSet;
         d.flat = sd.flat;   // magflash: the hit flash (skin_draw's header 0x802400)
+        d.vrKind = 4;   // questsim: a creature's skin (the joints between its parts: VR's CPU aim ray tests it too)
         items.push_back(d);
     }
     if (std::getenv("HOTD_NO_CULL")) opt.cull = false;   // debugging

@@ -149,6 +149,14 @@ the HUD says "behind", its picture says "in front" (eye strain). Two ways out we
   moves). It comes forward fast (a lunge, ~0.1 s), stays 0.5 s, and goes back out slowly. The HUD stays readable and
   always in front of what it covers. `hud_distance = fixed`: always at `panel_distance` (as before).
 
+**The hands and the HUD** (vrfix, user's playthrough 2026-11-10: the lamps / bullets drawn over the raised left hand,
+"1UP!" behind the gun and the researcher). One rule: the world, then a near layer over it with the depth cleared (the
+hands and the extra-life item 0x3BB / 0x3BC, which the flat game shows in front of everything), each by its own depth;
+then the HUD panel depth-tested against that layer only. The hands are always nearer than the panel (it never comes
+nearer than `hud_min_distance`), so a hand hides the part of the HUD it is really in front of (lower it to read the
+HUD, as with a real object), and nothing else ever covers the HUD: walls and creatures can't, since their depth is
+cleared. `panel_depth_test = on` keeps the world's depth only while no hands are drawn.
+
 Chosen: adaptive (readability during grabs; no conflict). The creatures are the game's own draw list (the models a
 body or a boss draws: `DrawItem::vrKind` 1, the blood bursts left out), their bounds as spheres
 (`vr_scene.cpp nearestCreature`): no depth read, so it works the same on OpenGL ES (the Quest). Walls nearer than the
@@ -158,7 +166,7 @@ frames, nearer than 3 m in 1405 (all drawn over by a fixed panel), over the adap
 lag; plus 624 nearer than 0.95 m, where the panel stops at its minimum)).
 
 Snap-turn is meaningless on rails. **Recentre** (2026-11-09): OpenXR's LOCAL space puts the seat's origin at
-the head when the game starts; hold either thumbstick down for 1 s to move it to where the head is now (its place,
+the head when the game starts; hold one thumbstick down for 2 s to move it to where the head is now (its place,
 height and heading; the horizon stays level), e.g. after sitting back or turning the chair. The runtime's own recentre
 (Quest: hold the Meta button; SteamVR: Reset Seated Position) works too and drops ours. The preview's is keypad 5.
 vr4: when the head's **position is not valid** (a 3DoF moment, a Quest with no boundary set up) the recentre turns the
@@ -289,7 +297,7 @@ also from the pause's Settings (launcher.ini `vrdual=`: -1 not set, 0 off, 1 on)
 
 **A magazine each** (vr4, user 2026-11-09; offline, not Survival's Double Pistols weapon): before, the pair shared
 player 1's one magazine. Now the right gun is the game's own magazine (the Player record's rounds / empty) and the
-left gun has its own (`Runtime::VrLeftGun`): its own reloads (its grip, Y, pointing it down, its shake, a pull of it
+left gun has its own (`Runtime::VrLeftGun`): its own reloads (its grip, pointing it down, its shake, a pull of it
 below the screen: the off-screen rule per gun; `Scene::Aim::reloadHand`), its own count. One gun acts a tick
 (main.cpp `vrGunInputSeparate`): the right gun's pull / reload as player 1's input as always, else the left gun's,
 whose tick runs with the left magazine swapped into the player's record (`Runtime::vrLeftBefore` / `vrLeftAfter`
@@ -312,7 +320,7 @@ below it, players 3 / 4's bands at the top, RELOAD! in the middle rows: nothing 
   hand `0x717` is not drawn then.
 - **Each gun aims and fires for itself**: its own ray (from its muzzle, into the right eye's depth), laser, the game's
   sight at its hit, trigger (the same hysteresis), rumble on its own controller (`haptic(0 / 1)`), its own "pointed
-  down" reload gesture. Either grip / B / Y, or a pull of either gun off the screen, reloads.
+  down" reload gesture. Either grip / A / B, or a pull of either gun off the screen, reloads.
 - **Into the game** (main.cpp `vrGunInput`; this paragraph: online and Survival's Double Pistols, one magazine; offline
   see "A magazine each" above): it stays one player with one magazine (the game's own; Survival's Double
   Pistols: its 16), the shots are player 1's. A pull of one gun is player 1's shot at that gun's aim (the shot flash
@@ -422,7 +430,8 @@ writes sRGB-encoded colours, `GL_FRAMEBUFFER_SRGB` stays off so they are stored 
 shows them; RGBA8 only when the runtime lacks it, logged: a paler picture) with an FBO + depth per image. Session
 states: READY -> `xrBeginSession`, STOPPING -> `xrEndSession` (headset off / app hidden; READY again later), EXITING /
 LOSS_PENDING, or any frame call returning `XR_ERROR_SESSION_LOST` / `XR_ERROR_INSTANCE_LOST` (the runtime crashed,
-the headset unplugged; logged once) -> the game drops VR and goes on flat, its frame limiter and vsync back. Frames
+the headset unplugged; logged once) -> the game drops VR and goes on flat, its frame limiter and vsync back (vrflow
+2026-11-10: EXITING / LOSS_PENDING, the runtime's Quit, close the game the normal way instead: `Backend::exitAsked`). Frames
 (running): `xrWaitFrame` -> `xrBeginFrame` -> `xrLocateViews` -> (focused) `xrSyncActions` + the hands -> shouldRender
 and located eyes: acquire + wait (1 s timeout: never a hang; a runtime stuck that long drops VR) the images, draw,
 release -> `xrEndFrame` with one projection layer (none when not shown). Every `xrBeginFrame` gets its `xrEndFrame`.
@@ -479,13 +488,58 @@ session drops to SYNCHRONIZED). Point only the game at SteamVR (the system's act
 | profile | shoot | reload | Start | pause | recentre (hold 1 s) |
 |---|---|---|---|---|---|
 | `khr/simple_controller` | select | (point the gun down), shake, flick up | - | menu | (the runtime's) |
-| `oculus/touch_controller` (Quest, Rift) | trigger | grip, A, B, Y, shake, flick up | X | left menu | a thumbstick press |
+| `oculus/touch_controller` (Quest, Rift) | trigger | grip, A, B, shake, flick up | X | left menu, left Y | a thumbstick press |
 | `valve/index_controller` | trigger | grip, right A, right B, shake, flick up | left A | left B | a thumbstick press |
 | `htc/vive_controller` | trigger | grip, right trackpad click, shake, flick up | left trackpad click | menu | (the runtime's) |
 | `microsoft/motion_controller` (WMR) | trigger | grip, right trackpad click, shake, flick up | left trackpad click | menu | a thumbstick press |
-| `hp/mixed_reality_controller` (Reverb G2; when the runtime has `XR_EXT_hp_mixed_reality_controller`) | trigger | grip, A, B, Y, shake, flick up | X | menu | a thumbstick press |
+| `hp/mixed_reality_controller` (Reverb G2; when the runtime has `XR_EXT_hp_mixed_reality_controller`) | trigger | grip, A, B, shake, flick up | X | menu, left Y | a thumbstick press |
 
 (shake / flick up: gestures of the gun controller, on by default: "Shake to reload", "Wrist flick to reload" below.)
+
+**Button prompts** (vrprompts, user 2026-11-10: "ReWrithe does not support button icons for any VR"). In a VR run
+(`--vr openxr` / `preview`) every menu prompt names the VR controller's buttons, over Controls > Button Icons: the
+Remake menus' caps (Accept: Trigger, Back: B, the menu button drawn as its three bars; the tabs' Left / Right prompts
+are left out: the ray clicks the tabs), the classic menus' controls line ("Enter/A Choose    Esc/B Back" becomes
+"Trigger Choose    B Back"), name entry, the pause's Settings pages. The style comes from the interaction profile the
+runtime chose (`Backend::interactionProfile`, logged as `openxr: right hand: ...`; none yet / the preview: Touch's;
+`HOTD_VR_PROFILE=touch|index|vive|wmr|hp|simple` for tests) through `pad_prompts.h vrStyleOfProfile` (`kPsVrTouch` ..)
+and `keybinds.cpp padNames` (Touch / HP: Trigger, B, X, Y, Grip, Stick, Menu; Index: the pause is the left B, "B (L)";
+Vive / WMR: back and pause on the menu button, Enter on the trackpad; simple: Select / Menu). The controls lines are
+replaced after translation (`vrPromptLine`: a word ending "/A" -> choose, "/B" -> back, a lone "Enter" -> the
+controller's Enter): all 33 `data/lang` files keep those key words, so no new strings. No pack in `data/ui/prompts`
+(Xelu's, Kenney's) has VR controller icons: the caps are the game's own drawn ones (Button Style shows Simple, the
+others greyed with "No Xelu icons for Meta Quest Touch (VR)"). The flat game is unchanged (`Frontend::vrStyle` 0).
+Photo Mode and The Typing of the Dead 0 are not offered in VR; the in-game pause / Continue screens name no buttons.
+
+**Pause** (vrflow, user 2026-11-10: "I don't know how to pause"): the left menu button, and on Touch / HP the **left
+Y** too (OpenXR's `menu` action, "Pause" in SteamVR's binding page; Y was one of five reload buttons, the grip / A / B,
+the gestures and pointing down still reload; with dual pistols the left gun reloads with its grip). SteamVR may keep
+the left menu button for its dashboard: Y always reaches the game. The first time player 1 is in control in a game,
+the HUD shows "Y / Menu: Pause" for 6 s (Index "Left B: Pause", Vive / WMR "Menu: Pause"; lang key `{buttons}:
+Pause`, all 33 files). In the pause the hands stay; the gun points at Continue / Retry / Exit and the trigger
+chooses; the pause button again = Continue.
+
+### Main menu first
+
+vrflow (user 2026-11-10: "it starts immediately in Arcade; I want it to show the main menu first", PC VR and Quest):
+
+- A headset run's menus are on the big screen (vr.ini `menu_panel = auto` = on with OpenXR, PC and Quest; the
+  preview keeps `auto` = off: its mouse is the cursor). The right controller is the pointer: a red ray and a dot,
+  trigger = click, A / X = Enter, B / menu = Esc.
+- The menus' attract (the boot's, "a key or a click: the main menu"): a trigger, A, X or the pause button = that key:
+  the main menu, never a game (the VR guns' input, X's Start included, does not reach the attract's game any more).
+  A button still held at the switch (the trigger that left the attract, the click on Arcade) is no new press on the
+  other side (`Scene::lastPanel_`).
+- Coin / Start: only through the menu (Arcade). The VR exe adds only `--vr openxr`, no `--auto-start`.
+- What the game draws: menus / setup / end screen = the big screen, the ray and its dot (no hand models); play = the
+  game's gun hand(s), laser, crosshair; the attract / cut-scenes = no hands, no ray; pause = the hands, laser and
+  crosshair over the pause items. It never draws a controller model: a white controller is the runtime's own
+  (SteamVR shows its room and the controllers' models whenever the app submits no frame).
+- **Frame gaps**: every gap over 50 ms between two headset frames is logged `vr: frame gap N ms in <where>` (menu,
+  setup, files page, end screen, loading, attract, game, pause); at the end `vr frame gaps: N over 50 ms (the worst
+  ...)`. The game's load (enterGame) submits nothing while it loads: expect one gap "in loading" per game start.
+- Preview tests: `HOTD_VR_BUTTONS="<frame>:<hand><button> ..."` (vr_preview.cpp: hand l / r, button t a b y m g)
+  presses controller buttons for 4 preview frames.
 
 The right hand is the gun (aim pose); a shot gives the right controller a short rumble (`/output/haptic`, 60 ms).
 Pointing the gun steeply down also reloads (`reload_down`), and a shot off the screen does, as with the light gun.
@@ -493,24 +547,58 @@ Pointing the gun steeply down also reloads (`reload_down`), and a shot off the s
 ### Shake to reload
 
 User request 2026-11-09, like the shake games with a real light gun. `vr.ini shake_reload = on` (**on by default**
-since user 2026-11-10; was off): a quick back-and-forth shake of the gun controller reloads, as the grip / A / B /
-pointing down do (it is the same `reload` the scene hands the game, so online play and rollback see an ordinary
-reload). With dual pistols each controller's shake reloads its own gun (vr4: a magazine each). The shake and the
-wrist flick (below) share one 0.7 s cooldown per gun (`vr_aim.h ReloadGestures`): one gesture = one reload.
+since user 2026-11-10; was off): a brisk jolt or a shake of the gun controller reloads (vrgest: one jolt is enough),
+as the grip / A / B / pointing down do (it is the same `reload` the scene hands the game, so online play and rollback
+see an ordinary reload). With dual pistols each controller's shake reloads its own gun (vr4: a magazine each). The
+shake and the wrist flick (below) share one 0.7 s cooldown per gun (`vr_aim.h ReloadGestures`): one gesture = one
+reload.
 
-- **Detector** (`vr_aim.h ShakeDetector`, per hand, from the pose per frame; the runtime's velocity is not needed): the
-  muzzle point (0.2 m ahead of the grip) is tracked, so a wrist flick and an arm swing both count. Its speed must pass
-  `shake_sensitivity` (m/s, default 3.5, clamped 1..12; lower = easier), then within 0.25 s pass it again going the
-  opposite way. One swing, a steady turn, fast aiming or a hitch in tracking show one direction and never trigger it.
-  After a shake: 0.7 s of quiet, so one shake = one reload. Since vrflick (2026-11-10) each swing must be over the
-  speed on 2 frames in a row, the same way: one-frame jumps there and back (a tracking glitch; the preview's gun
-  snapping between targets) are not a shake.
-- **Test**: `--vr-preview-test`'s math part (`vr::selfTest`) feeds scripted 90 Hz pose sequences: a slow wobble, steady
-  turns, one flick and a gentle shake give no reload; an arm shake and a wrist shake give exactly one; two shakes a
-  second apart give two; an untracked pose, a tracking hitch and one-frame jumps there and back give none. (The
-  preview's mouse gun runs the gestures too: a fast mouse wiggle can shake.)
-- **Headset**: aim around quickly (no reload), then shake the gun up and down twice, briskly (a reload). Too hard to
-  trigger: lower `shake_sensitivity` (try 2.5); firing on fast aiming: raise it; `shake_reload = off` turns it off.
+- **vrgest (user 2026-11-10, on a Quest 3)**: "the shake to reload was not great, or the flick. I expected the same
+  ease as a DualSense controller." The DualSense's shake (`game/shake.h`) reloads on one jerk of the pad (its
+  acceleration past 0.7 g, any axis, then the other way: a single jolt's start and stop) or one quick turn. The VR
+  rule before needed the muzzle over 3.5 m/s twice, in opposite directions (two strict swings). Now, as on the pad,
+  **one brisk jolt in any direction is enough**. What VR cannot take over from the pad: there the aim barely moves the
+  pad, in VR it swings the whole controller (a fast aim move's muzzle accelerates at 10 g and more), so the jolt is
+  measured at the grip and told apart from aiming by how little the gun turns, and a turn alone needs a way back.
+- **Detector** (`vr_aim.h ShakeDetector`, per hand, from the pose per frame and the poses' own time stamps: dropped
+  frames and uneven times are measured as they are; the runtime's velocity is not needed). Either of:
+  - **a jolt**: the grip's acceleration (the second derivative of its position, between the frames' middles, smoothed
+    over ~12 ms) at / over `shake_sensitivity` (**g**, default **2**, clamped 0.5..12; lower = easier; was m/s, 3.5),
+    then within 0.25 s (35 ms or more after) at / over half of it the other way: the hand starting and stopping. Up,
+    down, sideways, forward, a shake (many jolts): all count. Aiming moves the grip too (the arm swings the gun round
+    the shoulder), so over the jolt the gun may turn at most its grip's travel / 0.7 m (radians: 8 degrees for 10 cm;
+    an arm of 0.6 m or less always turns more), the grip must travel 3 cm or more and move its way on 2 frames or
+    more (tracking noise, a one-frame jump);
+  - **a twist** (the wrist, the grip in place): the gun turning at / over 350 deg/s x `shake_sensitivity` / 3 (233
+    at 2 g) for 20 degrees or more, then within 0.15 s at / over 3/4 of that rate the other way for 15 degrees. One
+    turn alone is aiming (a flick up has its own rule, below); fast sweeps across targets pause longer before turning
+    back, a trembling hand and a recoil kick never sweep 20 degrees. Each way takes 2 frames or more and no frame
+    carries 65 % of it or more: a real swing is spread over its frames, a jump is not (found by the preview runs: the
+    preview's gun snaps to the next target in one frame and corrects a few degrees the next, its depth read a frame
+    late: 1 stray reload per scripted run before this rule).
+  The log says which: `vr: shake (jolt) reload (the right gun), frame N`, `shake (twist)`, `flick`.
+  A grip speed over 6 m/s or a turn over 2500 deg/s in one frame is a tracking jump (the history starts again), as are
+  an untracked pose and a gap over 0.1 s (a gap of 42 ms, two dropped frames at 72 Hz, is measured, not reset). After
+  a shake: 0.7 s of quiet, so one shake = one reload (a 3 s shake: 4).
+- **Test**: `--vr-preview-test`'s math part (`vr::selfTest`) feeds scripted pose sequences and prints each case's
+  count (`vr gesture:` lines; `HOTD_VR_GESTURE_MARGINS=1` adds `vr gesture margin:` lines: the level at which each
+  case's count would change). 90 Hz cases: steady turns, a slow wobble (1.5 Hz, 5 cm), a push from the first frame
+  (its start unseen) give no reload; a 6 cm and a 12 cm shake, a jolt out and stop, a wrist shake give exactly one;
+  two shakes a second apart give two; an untracked pose, a tracking hitch and one-frame jumps give none. Then the
+  **Quest streams** (vrgest): every case at 72 and 90 Hz, three random streams each: frames dropped (1 in 12; 1 in 50
+  two in a row), time stamps off by up to 1 ms, the pose trembling +-0.6 mm / +-0.15 degrees. None for: holding
+  still, fast yaw sweeps (120 degrees in 0.15 s), fast diagonal moves, aim sweeps of the whole arm (50 degrees in
+  0.15 s, the grip 0.45 / 0.6 m from the shoulder), small fast arm snaps (12 degrees in 80 ms, 0.6 m), aim snaps
+  with an overshoot back, aim snaps in one frame and in two (the preview's gun), recoil kicks, a 15 Hz tremble, tracking jumps (40 degrees + 15 cm in a frame, and back),
+  small 2 cm jumps, a slow wobble, walking. Exactly one for: a gentle shake (+-4 cm, 5 Hz), a gentle wrist shake
+  (+-20 degrees, 4 Hz), a short flick (25 degrees in 70 ms), a jolt of 10 cm in 0.1 s down / up / sideways /
+  forward. Margins at the defaults: the jolts still reload up to 3.0 - 3.3 g (1.5x the default), the gentle shake to
+  4.1 g, the wrist shake to 4.3 g; of the cases that must not reload only the slow wobble depends on the level (it
+  would at 1.46 g); the others are held by the turn, the timing and the sweep, at any level down to 0.5 g.
+  (The preview's mouse gun runs the gestures too: a fast mouse wiggle can shake.)
+- **Headset**: aim around quickly (no reload), then jolt the gun once, down or sideways, briskly (a reload). Too hard
+  to trigger: lower `shake_sensitivity` (try 1.5); firing on fast aiming: raise it (try 3); `shake_reload = off`
+  turns it off.
 
 ### Wrist flick to reload
 
@@ -522,16 +610,21 @@ ordinary reload).
 - **Detector** (`vr_aim.h FlickDetector`, per hand, from the grip pose per frame): the shake detector deliberately
   ignores a single flick (a lone fast swing looks like fast aiming), so the flick has its own rule, all of it:
   - the gun's **pitch rate** (its angular velocity about its own lateral axis, muzzle up, from the frame-to-frame
-    rotation) at / over `flick_sensitivity` (deg/s, default **600**, clamped 300..1500; lower = easier) on **2 frames
-    in a row** or more, the pitch rate at least **twice the yaw rate** there;
-  - within the last **0.15 s** the muzzle's elevation rose by **30 degrees** or more, its sideways turn over that
-    stretch at most **half** the rise;
-  - then within **0.3 s** it stops or comes back (the pitch rate under a quarter of `flick_sensitivity`): the reload
-    is then. Still turning up after 0.3 s: none;
+    rotation and the poses' time stamps) at / over `flick_sensitivity` (deg/s, default **300**, clamped 150..1500;
+    lower = easier; vrgest 2026-11-10: was 600, clamped 300..) on **2 frames in a row** or more (frames, not a time:
+    one long frame over a dropped one can be a tracking jump: found by the Quest streams below), the pitch rate at
+    least **twice the yaw rate** there;
+  - within the last **0.2 s** the muzzle's elevation rose by **20 degrees** or more (vrgest: was 30 in 0.15 s), its
+    sideways turn over that stretch at most **half** the rise;
+  - then within **0.35 s** (was 0.3) it stops or comes back (the pitch rate under a quarter of `flick_sensitivity`):
+    the reload is then. Still turning up after 0.35 s: none;
   - a frame turning over 2500 deg/s is a tracking jump (dropped, the history starts again), as are an untracked pose
     and a gap over 0.1 s; after a flick (or a shake) 0.7 s of quiet for both gestures.
   Fast sweeps across targets are yaw-dominant, diagonal aim moves turn sideways about as much as they rise, recoil and
-  a trembling hand never rise 30 degrees, downward / sideways snaps and rolls never rise at all.
+  a trembling hand never rise 20 degrees (15 and 16 in the tests), downward / sideways snaps and rolls never rise at
+  all. Of the cases that must not reload none depends on `flick_sensitivity` (none reloads at any level down to
+  100 deg/s): the rise, the yaw and the sideways limits hold them; the level is what tells a deliberate snap from a
+  brisk raise of the aim (40 degrees in 0.3 s peaks at 200 deg/s).
 - **Test** (`--vr-preview-test`'s math part, `vr::selfTest`, scripted 90 Hz poses, the shake on too): exactly one
   reload for a wrist flick (45 degrees in 80 ms) held up, one that comes back down, an arm flick (50 degrees in 0.1 s,
   the hand 0.25 m up); none for fast yaw sweeps (120 degrees in 0.15 s), fast diagonal moves (50 x 30 degrees in
@@ -544,10 +637,12 @@ ordinary reload).
   and `aim_depth=cpu` 5000, every count the same as with both off. Two fixes found there: the gestures' clock in
   `--vr-preview-test` is the game's frames (the preview's time is the wall clock and a headless run draws unevenly,
   as fast as it can: its gun looked several times faster than it moves; 14 stray shake reloads in a busy PC's dual
-  run), and a shake's swing needs 2 frames (above).
+  run), and a shake's swing needs 2 frames (above). vrgest: the Quest streams (above, "Shake to reload") add a short
+  flick (25 degrees in 70 ms: one reload in all six streams; it still reloads up to 359 deg/s, 1.2x the default) and
+  the false-positive cases at 72 / 90 Hz with dropped frames and noise (all 0).
 - **Headset**: aim around quickly across targets (no reload), then flick the gun's nose up sharply with the wrist, as
-  with a Wii Zapper (a reload). Too hard: lower `flick_sensitivity` (try 450); reloads while aiming: raise it (try
-  800); `flick_reload = off` turns it off.
+  with a Wii Zapper (a reload). Too hard: lower `flick_sensitivity` (try 220); reloads while aiming: raise it (try
+  450); `flick_reload = off` turns it off.
 
 ### The Typing of the Dead 0 is not playable in VR
 
@@ -558,6 +653,16 @@ on stderr and stdout) instead of dropping VR, so nobody is left in a flat game w
 (feAction 48) is ignored in VR with a `hotd.log` line. The launcher / attract paths never start it (no other entry
 exists). Without `--vr` TotD 0 is unchanged. Quick test: `hotd --vr preview --totd` and `hotd --vr-preview-test
 --totd-test` must print "not available in VR" and exit 2.
+
+### Single player only
+
+User 2026-11-10: "I do not expect VR to support online. Only single player". With `--vr` (openxr or preview, also
+`--vr-preview-test`): the main menu's Co-op (2 / 4 players, Online Co-op) is greyed, "Not available in VR"
+(`Frontend::coopNoVr`); the Online page never opens (`hooks.online`); Survival / Horde / PC Mode do not ask the
+players (`playersAsk`); `startGame` starts one player (`cfg.players` 1, no computer teammates, player 1's seat) and
+sets `Runtime::vrSolo`, so another player's Start (a second pad / mouse / gun / key 2) never joins
+(`Runtime::player_join`); `--host` / `--join` with `--vr` are refused at start-up (exit 2, "Online Co-op is not
+available in VR"). Quick test: `hotd --vr preview --host 7777` must print it and exit 2.
 
 ## Packaging and launching
 
@@ -577,8 +682,8 @@ with `--vr openxr`; there is no separate VR build or download. The ways in:
 - **The portable package** (tools/make_portable_hotd.ps1): the VR exe above once the setup ran; `Play in VR.bat`
   (`bin\hotd.exe --vr openxr`, extra arguments passed on) stays as the fallback; `VR Check.bat` (`--vr-check`, then
   a pause); README.txt "Play in VR".
-- **The main menu** in a VR run (the menus are flat on the monitor unless `menu_panel = on`): its controls line says
-  "VR: put the headset on when the game starts" (`Frontend::vrNote`; in all 16 language files).
+- **The main menu** in a VR run: on the big screen in the headset ("Main menu first"; vr.ini `menu_panel = off` keeps
+  it flat on the monitor, its controls line then says "VR: put the headset on when the game starts", `Frontend::vrNote`).
 - **The player guide**: README.md "How to play in VR" (Meta Quest through Quest Link / Air Link with the Meta Quest
   Link app as the OpenXR runtime; SteamVR headsets; the renderer; the controls; comfort).
 
@@ -635,8 +740,8 @@ both have); what differs is checked by `--vr-check`.
    /interaction_profiles/oculus/touch_controller`). The **left menu button** pauses; the right Meta button is the
    headset's own (Steam Link's menu). SteamVR's own dashboard (the game gets no input while it is open) sits on a
    button SteamVR chooses for the Touch controllers: if the left menu button opens that dashboard instead of the
-   game's pause, say so (SteamVR > Settings > Controllers > Manage Controller Bindings can move it for this game; Y or
-   a gun pointed down still reloads, X still starts).
+   game's pause, say so (SteamVR > Settings > Controllers > Manage Controller Bindings can move it for this game; Y still
+   pauses, X still starts).
 
 **Back to Meta's runtime:** the **Meta Horizon Link** app on the PC > **Settings** > **General** > **OpenXR Runtime**
 > **"Set Meta Horizon Link as active"** (the button only shows while another runtime is active). `--vr-check` then says
@@ -671,9 +776,9 @@ the controllers, set up the headset as Meta's own setup asks (account, Guardian 
    Settings > **Link** > **Launch**; the grey Link home appears.
 3. On the PC: `VR Check.bat` (you can look at the PC through the headset: the Link bar's monitor button). The last line
    should be `RESULT: OK`.
-4. Start `The House of the Dead ReWrithe VR.exe`. The menus are on the monitor (pick Arcade with the mouse, or use the
-   Link desktop view), then the game is all around you in the headset. Trigger = shoot; grip / A / B = reload; X =
-   Start; left menu button = pause; hold a thumbstick 1 s = recenter.
+4. Start `The House of the Dead ReWrithe VR.exe`. The main menu is on a big screen in the headset (point with the right
+   controller, trigger = click), then the game is all around you. Trigger = shoot; grip / A / B = reload; X =
+   Start; left menu button or Y = pause; hold a thumbstick 1 s = recenter.
 5. Check: smooth head turning, colors as on the monitor, the gun in your right hand pointing where the controller
    points, sound from the PC (the Link app's audio setting decides headset or PC speakers).
 
@@ -699,13 +804,13 @@ Its log: `settings\hotd.log` in that folder, or `adb logcat -s SDL SDL/APP`.
 5. The right controller: the game's gun hand, the barrel along the controller's pointing direction, the laser and
    the crosshair where it points; pull the trigger (a rumble, a shot where the crosshair is). If the gun sits wrong in
    the hand, tune `gun_offset` / `gun_rotate` in `data/vr/vr.ini` (and the left hand's).
-6. Reload: grip or A / B; point down. Start: X. Pause: the left menu button (Index: left B).
+6. Reload: grip or A / B; point down. Start: X. Pause: the left menu button or Y (Index: left B; Vive / WMR: menu).
 7. Take the headset off / put it on (STOPPING -> READY: the picture comes back), open the runtime's dashboard (no
-   shots go through it), quit from the dashboard (the game goes on flat, no crash).
+   shots go through it), quit from the dashboard (the game closes normally; a runtime crash: the game goes on flat).
 8. Smoothness: the headset paces the frames (`xrWaitFrame`; the game's limiter and the window's VSync are off by
    themselves in VR, "Pacing"): turning the head should be smooth at the headset's rate. The window's mirror may tear
    (no vsync): normal.
-9. Recentre: lean or turn the chair, hold a thumbstick down 1 s: the view snaps so the game's camera is where your
+9. Recentre: lean or turn the chair, hold one thumbstick down 2 s: the view snaps so the game's camera is where your
    head is (`openxr: recentred` in the log). The runtime's own recentre does the same.
 
 ## Known limits / left to do
@@ -714,9 +819,11 @@ Its log: `settings\hotd.log` in that folder, or `adb logcat -s SDL SDL/APP`.
   around you"); creatures behind you are usually there but may pop (the game's own view tests, not changed).
 - Full-screen fades and flashes are on the HUD panel only (the screen plane), not the whole view (world cut-scenes
   too; cinema shows them on its screen as the flat game does).
-- The menus / front end are flat (in the window); VR starts with the game. On the Quest (and on a PC with vr.ini
-  `menu_panel = on`) every flat screen is shown on a big screen in VR, the right controller's ray as the mouse
-  (Scene::panelFrame, docs/quest.md); the pause menu takes the VR gun's aim and trigger.
+- With a headset (the Quest, and a PC since vrflow: vr.ini `menu_panel = auto`) every flat screen is shown on a big
+  screen in VR, the right controller's ray as the mouse (Scene::panelFrame, docs/quest.md); the pause menu takes the
+  VR gun's aim and trigger. `menu_panel = off` (a PC): the menus flat in the window, VR starts with the game.
+- The game's load (enterGame: a chapter, the menus' attract) submits no headset frame while it runs: the runtime
+  shows its own loading view meanwhile (logged as a frame gap "in loading", "Main menu first").
 - Reading the eye's depth for the aim needs desktop OpenGL (OpenGL ES / ANGLE: the CPU ray test, "Aim depth").
 - Players 2-4 keep their own inputs (mouse / pad / light gun); only player 1 is the VR gun (dual pistols: both VR guns).
 - OpenXR, untested without a headset: the hands' fit on each controller, the colours (sRGB), the pacing (the

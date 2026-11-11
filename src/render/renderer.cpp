@@ -1384,6 +1384,20 @@ void Renderer::upload(const StageData& stage)
     }
     uploadReplacements(repl, g);
     stages_[&stage] = std::move(g);
+    // questsim (2026-11-10): the stage's GPU memory, estimated (the texture arrays with their mipmaps, the indexed
+    // sets' tables, the vertices as uploaded): the Quest 3 budget's texture memory
+    uint64_t tex = 0, vtx = 0;
+    for (const TextureSet& ts : stage.textureSets) {
+        const uint64_t page = uint64_t(ts.width) * uint64_t(ts.height);
+        if (ts.shading == Shading::DirectRgba)
+            tex += page * 4 * (ts.layers.size() + ts.layersBrown.size()) * 4 / 3;
+        else
+            tex += page * ts.layers.size() + 128 * 128 + 256 * 96 + 2048;
+    }
+    for (const auto& [key, m] : stage.models)
+        for (const Mesh& me : m.meshes) vtx += uint64_t(me.vertexCount()) * sizeof(Vertex);
+    gpuBytesOf_[&stage] = {tex, vtx};
+    textureBytes += tex, vertexBytes += vtx;
 }
 
 void Renderer::sortKeysOf(const Mesh& m, size_t count, std::vector<float>& out)
@@ -1553,6 +1567,10 @@ void Renderer::release(const StageData& stage)
     if (g.sortTex) gl::DeleteTextures(1, &g.sortTex);
     if (g.sortBuf) gl::DeleteBuffers(1, &g.sortBuf);
     stages_.erase(it);
+    if (auto b = gpuBytesOf_.find(&stage); b != gpuBytesOf_.end()) {   // (questsim)
+        textureBytes -= std::min(textureBytes, b->second.first), vertexBytes -= std::min(vertexBytes, b->second.second);
+        gpuBytesOf_.erase(b);
+    }
 }
 
 void Renderer::draw(const std::vector<DrawItem>& items, const Camera& cam, int width, int height, const RenderOptions& opt)
@@ -1965,6 +1983,7 @@ void Renderer::draw(const std::vector<DrawItem>& items, const Camera& cam, int w
             }
             gl::DrawArrays(gl::TRIANGLES, rg.first, rg.count);
             ++drawCalls;
+            triangles += uint64_t(rg.count) / 3;
         }
     }
     }

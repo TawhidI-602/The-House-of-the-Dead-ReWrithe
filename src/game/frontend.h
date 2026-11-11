@@ -270,6 +270,7 @@ public:
     // its own group (Play, Practice: Word Packs, Practice: Your Misses, Back), null: the item starts the game
     std::function<void(bool fromMisses)> startTotdPractice;
     bool totdNoVr = false;   // a VR run (user 2026-11-09): The Typing of the Dead 0 greyed, "Not available in VR"
+    bool coopNoVr = false;   // fix140a: a VR run (user 2026-11-10: single player only): Co-op greyed, "Not available in VR"
     bool vrNote = false;     // vr3: a VR run: the main menu's controls line says to put the headset on when the game starts
     std::function<std::string()> sonicValue;    // Sonic Mode's value ("Off" ...; null: the item is left out)
     std::function<void()> onSonic;              // Sonic Mode clicked: the next preset (the item is rebuilt)
@@ -1036,6 +1037,9 @@ public:
     int promptChoice = 0;
     int buttonStyle = 0;   // padglyphs: Controls > Button Style (pad_prompts.h PromptPack: 0 Xelu, 1 Kenney, 2 Simple)
     bool iconOutline = false;   // menus3: Controls > Icon Outline: Xelu's icons with the light rim (prerel's), default Off
+    // vrprompts (user 2026-11-10): a VR run's controller (pad_prompts.h kPsVrTouch ..; 0: none, the flat game): every
+    // prompt names its buttons, over Button Icons; the host sets it every frame (main.cpp vrPromptStyle)
+    int vrStyle = 0;
 
 private:
     // the frame's layers (each redrawn only when it changes): the widgets without the hover (staticSig_: the tree), the

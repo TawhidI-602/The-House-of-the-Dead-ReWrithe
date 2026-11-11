@@ -541,6 +541,7 @@ lists what the automated test covers and what needs a real device.
 behind you too), the right controller is your gun, with the game's own gun hand and crosshair. The game still moves
 you along its track as in the arcade; you only look and shoot. **New**: it has not been tried with every headset yet;
 if it does not start, `settings\hotd.log` says why, and the game plays on the monitor as usual. Details: docs/vr.md.
+**VR is single player only**: no Online Co-op and no 2 / 4 players (Co-op is greyed, "Not available in VR").
 
 **What you need**: a PC VR headset (or a Meta Quest connected to the PC), and the headset's PC app, which is also
 the "OpenXR runtime" the game talks to. Only one of these needs to be set up:
@@ -571,9 +572,10 @@ missing. The same lines go to `settings\hotd.log`: send that file with a VR prob
    with the same icon), or the **"(VR)" shortcut** (tick **Create a VR shortcut** in the setup's Options), or
    **Play in VR.bat** in the portable folder, or from a terminal: `hotd --vr openxr`. VR always uses the OpenGL
    renderer, whatever Options > Video > Renderer says.
-2. The menus stay on the **monitor** (the main menu's last line reminds you): pick the game with the mouse, then put
-   the headset on. The game starts in the headset; the window shows what the left eye sees. (`menu_panel = on` in
-   `data\vr\vr.ini` shows the menus on a big screen in the headset instead, the right controller as the mouse.)
+2. Put the headset on: the attract plays, pull the trigger (or press A / X) for the **main menu**, shown on a big
+   screen in the headset. Point with the right controller (a red ray) and pull the trigger to choose (A = Enter,
+   B = back); pick Arcade to play. The window shows what the left eye sees. (`menu_panel = off` in
+   `data\vr\vr.ini` keeps the menus on the monitor instead, for the mouse.)
 
 **Standalone on a Meta Quest (no PC while you play)**: an Android build (an APK) that you install on the headset
 yourself (sideloading; Developer Mode, free). First-timer steps, copying your game files to the headset and where its
@@ -586,7 +588,7 @@ log is: docs/quest.md. Not tested on a headset yet.
 | shoot | right trigger |
 | reload | grip, A or B; or point the gun at the floor; or shoot off the screen, as with a light gun |
 | Start / join / continue | X |
-| pause | the left menu button |
+| pause | Y or the left menu button (shown for a few seconds as you start; in the pause point the gun at an item and pull the trigger) |
 | recentre (after you move your chair) | hold a thumbstick down for 1 second |
 
 **Comfort**: play seated. The settings are in `data\vr\vr.ini` (read at each start): `cutscenes = cinema` shows the
@@ -597,7 +599,7 @@ Wii light-gun reload) reloads too (`shake_reload` / `flick_reload`, both on by d
 also has **Dual Pistols (VR)**, **Laser (VR)** and **Crosshair (VR)** (off: no laser / no crosshair, the aim still
 works), saved for the next time.
 If the gun sits wrong in your hand: `gun_offset` / `gun_rotate`. Taking the headset off and on again is fine (the
-picture comes back; the game does not pause by itself: use the menu button); quitting
+picture comes back; the game does not pause by itself: press Y or the menu button); quitting
 from the headset's menu goes back to the flat game on the monitor.
 
 ## Online co-op

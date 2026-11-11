@@ -2,6 +2,7 @@
 // SDL3 source's android-project), with the Khronos OpenXR loader loaded before the game (libmain.so: SDL_main)
 package com.tawhid.hotdrewrithe;
 
+import android.content.Context;
 import android.media.MediaScannerConnection;
 import android.os.Bundle;
 
@@ -10,11 +11,22 @@ import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 
 import org.libsdl.app.SDLActivity;
+import org.libsdl.app.SDLSurface;
 
 public class HotdActivity extends SDLActivity {
     @Override
     protected String[] getLibraries() {
         return new String[] {"SDL3", "openxr_loader", "main"};
+    }
+
+    // questperf (user 2026-11-10: "extremely clunky on Meta Quest"): the window's own picture (the menus and the flat
+    // screens, shown on the big screen in VR; the panel itself never shows it) at 1920 x 1080, not the headset's
+    // 4128 x 2208: under a quarter of the pixels to draw, copy and mipmap every menu frame
+    @Override
+    protected SDLSurface createSDLSurface(Context context) {
+        SDLSurface s = super.createSDLSurface(context);
+        s.getHolder().setFixedSize(1920, 1080);
+        return s;
     }
 
     // vrship (user 2026-11-09): the game files' folder made findable from a PC without adb: the app's own files folder

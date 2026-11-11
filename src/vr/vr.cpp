@@ -54,6 +54,7 @@ void Settings::set(const std::string& k, const std::string& v)
         const float f = float(std::atof(v.c_str()));
         if (k == "follow") follow = v == "level" ? 1 : v == "follow" ? 0 : std::atoi(v.c_str());
         else if (k == "vignette") vignette = truthy(v);
+        else if (k == "quest_sim") questSim = truthy(v);   // (questsim: test-only)
         else if (k == "vignette_strength") vignetteStrength = f;
         else if (k == "vignette_turn") vignetteTurn = f;
         else if (k == "units_per_metre") unitsPerMetre = f > 0 ? f : unitsPerMetre;
@@ -75,9 +76,9 @@ void Settings::set(const std::string& k, const std::string& v)
         else if (k == "auto_recentre") autoRecentre = v == "off" ? 0.0f : std::clamp(f, 0.0f, 600.0f);
         else if (k == "hud_min_distance") hudMinDistance = std::clamp(f > 0 ? f : 0.7f, 0.3f, 3.0f);
         else if (k == "shake_reload") shakeReload = truthy(v);
-        else if (k == "shake_sensitivity") shakeSensitivity = std::clamp(f > 0 ? f : 3.5f, 1.0f, 12.0f);
+        else if (k == "shake_sensitivity") shakeSensitivity = std::clamp(f > 0 ? f : 2.0f, 0.5f, 12.0f);   // (vrgest: g, was m/s)
         else if (k == "flick_reload") flickReload = truthy(v);   // vrflick (docs/vr.md "Wrist flick to reload")
-        else if (k == "flick_sensitivity") flickSensitivity = std::clamp(f > 0 ? f : 600.0f, 300.0f, 1500.0f);
+        else if (k == "flick_sensitivity") flickSensitivity = std::clamp(f > 0 ? f : 300.0f, 150.0f, 1500.0f);
         else if (k == "around") around = truthy(v);   // vr3 (docs/vr.md "All around you")
         else if (k == "cutscenes") cutscenes = v == "cinema" ? 1 : v == "world" ? 0 : std::clamp(std::atoi(v.c_str()), 0, 1);
         else if (k == "cinema_distance") cinemaDistance = f > 0.5f ? f : cinemaDistance;
@@ -90,13 +91,22 @@ void Settings::set(const std::string& k, const std::string& v)
         else if (k == "left_hand_offset") three(v, leftOffset);
         else if (k == "left_hand_rotate") three(v, leftRotate);
         else if (k == "ipd") ipd = f > 0.03f && f < 0.09f ? f : ipd;
-        else if (k == "menu_panel") menuPanel = v == "auto" ? menuPanel : truthy(v);   // quest (docs/quest.md)
+        else if (k == "menu_panel") {   // quest (docs/quest.md); vrflow: auto = on with a headset (main.cpp vrStart)
+            menuPanelIni = v == "auto" ? -1 : truthy(v) ? 1 : 0;
+            menuPanel = v == "auto" ? menuPanel : truthy(v);
+        }
         else if (k == "menu_distance") menuDistance = f > 0.5f ? f : menuDistance;
         else if (k == "menu_width") menuWidth = f > 0.3f ? f : menuWidth;
         else if (k == "resolution_scale") resolutionScale = std::clamp(f > 0 ? f : 1.0f, 0.5f, 1.5f);
         else if (k == "hud_lines") hudLines = std::clamp(std::atoi(v.c_str()), 360, 1440);
         else if (k == "arcade_sort") arcadeSort = v == "auto" ? arcadeSort : truthy(v);
         else if (k == "srgb_swapchain") srgbSwapchain = truthy(v);
+        else if (k == "foveation")   // questperf (docs/quest.md "Performance")
+            foveation = v == "off" ? 0 : v == "low" ? 1 : v == "medium" ? 2 : v == "high" ? 3 : std::clamp(std::atoi(v.c_str()), 0, 3);
+        else if (k == "foveation_dynamic") foveationDynamic = truthy(v);
+        else if (k == "perf_log") perfLog = truthy(v);
+        else if (k == "perf_cycle") perfCycle = truthy(v);
+        else if (k == "dynamic_resolution") dynamicResolution = truthy(v);
     }
 }
 

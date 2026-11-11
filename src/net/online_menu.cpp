@@ -483,6 +483,15 @@ bool OnlineMenu::preview(game::Frontend& fe, const std::string& scene)
         show(fe, page_);
         return true;
     }
+    // fix140a: "<scene>-surv<N>": the Host page's Survival with arena N (1..; 0: the mode's own default), the v1.4.0
+    // crash's page (HOTD_FE_FOCUS / HOTD_FE_PRESS click its Game Mode row: Survival -> Arcade)
+    if (const size_t sv = scene.rfind("-surv"); sv != std::string::npos && sv > 0 && sv + 6 == scene.size()) {
+        if (!preview(fe, scene.substr(0, sv))) return false;
+        survivalArenas = int(game::survivalArenas().size());
+        base.pcMode = false, base.bossMode = 0, base.survival = scene.back() - '0';
+        show(fe, page_);
+        return true;
+    }
     if (scene.size() > 5 && scene.compare(scene.size() - 5, 5, "-boss") == 0) {   // Boss Mode online: All Bosses
         if (!preview(fe, scene.substr(0, scene.size() - 5))) return false;
         fake_.roster[0].boss = 6;
@@ -730,7 +739,13 @@ std::vector<game::Frontend::Extra> OnlineMenu::makeRows(game::Frontend& fe)
         rows.back().help = survivalArenas > 0 ? "PC Mode: the 1998 PC port's mode. Boss Mode: the bosses, against the clock. Survival: rounds of creatures"
                                               : "PC Mode: the 1998 PC port's mode (characters; Continues). Boss Mode: the bosses only, against the clock";
         if (base.survival && survivalArenas > 1) {
-            rows.push_back(X{"Survival Arena", [this]() { return std::string(game::survivalArenas()[size_t(base.survival - 1)].name); },
+            // (fix140a, the v1.4.0 crash: the Remake menu reads a row's value after a click changed the page, before the
+            // rows are made again; Game Mode Survival -> Arcade left base.survival 0 here, and arenas[-1].name crashed)
+            rows.push_back(X{"Survival Arena", [this]() {
+                                 const auto& arenas = game::survivalArenas();
+                                 return base.survival >= 1 && base.survival <= int(arenas.size()) ? std::string(arenas[size_t(base.survival - 1)].name)
+                                                                                               : std::string();
+                             },
                              [this]() {
                                  base.survival = base.survival >= survivalArenas ? 1 : base.survival + 1;
                                  if (saveSettings) saveSettings();

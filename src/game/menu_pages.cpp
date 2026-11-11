@@ -29,6 +29,36 @@
 namespace hotd::port { extern bool gAttractGore; }
 namespace hotd::game {
 
+#if defined(__ANDROID__)
+bool menuQuest = true;
+#else
+bool menuQuest = std::getenv("HOTD_QUEST_MENUS") && *std::getenv("HOTD_QUEST_MENUS") && *std::getenv("HOTD_QUEST_MENUS") != '0';
+#endif
+
+// questui (menu_pages.h menuQuest): the rows the standalone Quest leaves out (docs/quest.md "Settings on the Quest").
+// The Controls page has none of its PC rows there (no mouse, keyboard, pad or light gun: the Touch controllers), only
+// the VR rows (moved from Gameplay)
+static void questRows(std::vector<Frontend::Extra>& r)
+{
+    if (!menuQuest)
+        return;
+    static const char* const kHidden[] = {
+        // Video: the headset is the display (its panel and refresh rate: the runtime's; vr.ini refresh_rate), OpenGL ES
+        // always, the CRT filter is not drawn in VR
+        "Display Mode", "Display", "Resolution", "Frame Rate", "Menu Frame Rate", "Vsync", "VRR (G-Sync / FreeSync)",
+        "Renderer", "CRT Filter", "CRT Settings",
+        // Gameplay: the mouse's edge reload (VR: point down), The Typing of the Dead 0 (a keyboard; not in VR)
+        "Edge Reload", "Typing of the Dead 0",
+        // Advanced: VR is single player
+        "Teammate Crosshair Flashes", "4P Boss Hit Points", "4P Enemy Toughness",
+        // System: the PC's files setup (the Quest's files are copied into the app's folder), the update check (an APK
+        // is updated by installing the new one), the desktop and Steam
+        "Repair / Change Files", "Check for Updates", "Desktop Shortcut", "Add to Steam"};
+    r.erase(std::remove_if(r.begin(), r.end(), [](const Frontend::Extra& e) {
+                return std::find_if(std::begin(kHidden), std::end(kHidden), [&e](const char* s) { return e.name == s; }) != std::end(kHidden);
+            }), r.end());
+}
+
 const char* menuCategoryName(int category)
 {
     static const char* const k[kMenuCategories] = {"Video", "Audio", "Controls", "Gameplay", "Mods", "System"};
@@ -252,6 +282,8 @@ void menuReset(LaunchConfig& c, int page)
         c.soundChip = d.soundChip;   // (sound2)
         break;
     case kCatControls:
+        if (menuQuest)   // (questui: the Quest's Controls page holds the VR rows)
+            c.vrDual = d.vrDual, c.vrLaser = d.vrLaser, c.vrCrosshair = d.vrCrosshair;
         c.p1Input = d.p1Input, c.p2Input = d.p2Input, c.p3Input = d.p3Input, c.p4Input = d.p4Input;
         c.gunKind = d.gunKind, c.gunFlash = d.gunFlash, c.gunBorder = d.gunBorder;   // (padpass)
         c.padPrompts = d.padPrompts, c.buttonStyle = d.buttonStyle, c.iconOutline = d.iconOutline;   // (padglyphs; menus3)
@@ -281,10 +313,46 @@ void menuReset(LaunchConfig& c, int page)
     }
 }
 
+// Gameplay's VR rows (the Quest's Controls: questui)
+static void vrRows(std::vector<X>& r, LaunchConfig& c, const MenuHooks& h)
+{
+    const auto save = [h]() { if (h.save) h.save(); };
+    // vr4 (user 2026-11-09): VR's dual pistols, a magazine each; only in a VR run (hidden in the flat game). Not set
+    // yet (-1): vr.ini dual_pistols is the default it shows; a click sets it here (launcher.ini vrdual=)
+    if (h.vrDualDefault) {
+        auto now = [&c, d = h.vrDualDefault]() { return c.vrDual >= 0 ? c.vrDual != 0 : d(); };
+        r.push_back({"Dual Pistols (VR)", [now]() { return onOff(now()); }, [&c, save, now]() { c.vrDual = now() ? 0 : 1; save(); },
+                     "A gun in each hand, each with its own magazine and reload (a second row of bullets above the first). VR only"});
+        listed(r, {"Off", "On"});
+        experimental(r);   // (user 2026-11-10: "label vr experimental")
+    }
+    // vrsight (user 2026-11-10: "allow the ability to turn off crosshair and laser"): the same way, VR runs only;
+    // not set yet (-1): vr.ini laser / crosshair are the defaults shown (launcher.ini vrlaser= / vrcrosshair=)
+    if (h.vrLaserDefault) {
+        auto now = [&c, d = h.vrLaserDefault]() { return c.vrLaser >= 0 ? c.vrLaser != 0 : d(); };
+        r.push_back({"Laser (VR)", [now]() { return onOff(now()); }, [&c, save, now]() { c.vrLaser = now() ? 0 : 1; save(); },
+                     "The faint laser from the gun's muzzle to where it aims (every gun). VR only"});
+        listed(r, {"Off", "On"});
+        experimental(r);   // (user 2026-11-10: "label vr experimental")
+    }
+    if (h.vrCrosshairDefault) {
+        auto now = [&c, d = h.vrCrosshairDefault]() { return c.vrCrosshair >= 0 ? c.vrCrosshair != 0 : d(); };
+        r.push_back({"Crosshair (VR)", [now]() { return onOff(now()); }, [&c, save, now]() { c.vrCrosshair = now() ? 0 : 1; save(); },
+                     "The crosshair where the gun aims (every gun); off, the aim still works. VR only"});
+        listed(r, {"Off", "On"});
+        experimental(r);   // (user 2026-11-10: "label vr experimental")
+    }
+}
+
 std::vector<Frontend::Extra> menuCategoryRows(int category, LaunchConfig& c, const MenuHooks& h)
 {
     const auto save = [h]() { if (h.save) h.save(); };
     std::vector<X> r;
+    if (menuQuest && category == kCatControls) {   // questui: the Touch controllers' rows only (menu_pages.h menuQuest)
+        vrRows(r, c, h);
+        resetRow(r, h, category);
+        return r;
+    }
     switch (category) {
     case kCatVideo:
         r.push_back({"Models", [&c]() { return std::string(c.models == 1 ? "PC" : "Arcade"); },
@@ -889,31 +957,8 @@ std::vector<Frontend::Extra> menuCategoryRows(int category, LaunchConfig& c, con
                      "An empty gun reloads by itself (not in the originals): every player, 3P / 4P too; online the host's"});
         r.push_back({"Edge Reload", [&c]() { return onOff(c.edgeReload); }, [&c, save]() { c.edgeReload = !c.edgeReload; save(); },
                      "As The House of the Dead 2: moving the mouse crosshair onto the screen's edge reloads, no shot needed"});
-        // vr4 (user 2026-11-09): VR's dual pistols, a magazine each; only in a VR run (hidden in the flat game). Not set
-        // yet (-1): vr.ini dual_pistols is the default it shows; a click sets it here (launcher.ini vrdual=)
-        if (h.vrDualDefault) {
-            auto now = [&c, d = h.vrDualDefault]() { return c.vrDual >= 0 ? c.vrDual != 0 : d(); };
-            r.push_back({"Dual Pistols (VR)", [now]() { return onOff(now()); }, [&c, save, now]() { c.vrDual = now() ? 0 : 1; save(); },
-                         "A gun in each hand, each with its own magazine and reload (a second row of bullets above the first). VR only"});
-            listed(r, {"Off", "On"});
-            experimental(r);   // (user 2026-11-10: "label vr experimental")
-        }
-        // vrsight (user 2026-11-10: "allow the ability to turn off crosshair and laser"): the same way, VR runs only;
-        // not set yet (-1): vr.ini laser / crosshair are the defaults shown (launcher.ini vrlaser= / vrcrosshair=)
-        if (h.vrLaserDefault) {
-            auto now = [&c, d = h.vrLaserDefault]() { return c.vrLaser >= 0 ? c.vrLaser != 0 : d(); };
-            r.push_back({"Laser (VR)", [now]() { return onOff(now()); }, [&c, save, now]() { c.vrLaser = now() ? 0 : 1; save(); },
-                         "The faint laser from the gun's muzzle to where it aims (every gun). VR only"});
-            listed(r, {"Off", "On"});
-            experimental(r);   // (user 2026-11-10: "label vr experimental")
-        }
-        if (h.vrCrosshairDefault) {
-            auto now = [&c, d = h.vrCrosshairDefault]() { return c.vrCrosshair >= 0 ? c.vrCrosshair != 0 : d(); };
-            r.push_back({"Crosshair (VR)", [now]() { return onOff(now()); }, [&c, save, now]() { c.vrCrosshair = now() ? 0 : 1; save(); },
-                         "The crosshair where the gun aims (every gun); off, the aim still works. VR only"});
-            listed(r, {"Off", "On"});
-            experimental(r);   // (user 2026-11-10: "label vr experimental")
-        }
+        if (!menuQuest)   // (questui: the Quest's are on Controls)
+            vrRows(r, c, h);
         // skipfix (user 2026-10-27): the hold-to-skip of the cut-scenes the arcade cannot skip (main.cpp)
         // feat29 (user 2026-10-29: "Add Free Play in the settings"): the Cheat screen's Free-Play (THOTD.EXE 0xD5B35C,
         // launcher.ini freeplay=): PC Mode's continues never run out. Arcade games are free play already (no coins)
@@ -1037,6 +1082,8 @@ std::vector<Frontend::Extra> menuCategoryRows(int category, LaunchConfig& c, con
     }
     if (category != kCatMods && category != kCatSystem)
         resetRow(r, h, category);   // (menufb: Reset to Defaults, asked first)
+    if (category != kCatMods)
+        questRows(r);   // (questui: the rows the Quest leaves out)
     return r;
 }
 
@@ -1472,6 +1519,7 @@ std::vector<Frontend::Extra> menuAdvancedRows(LaunchConfig& c, const MenuHooks& 
     r.push_back({"Guards (Teaser Cuts)", [&c]() { return onOff(c.cuts); }, [&c, save]() { c.cuts = !c.cuts; save(); },
                  "On (best): the game never waits on a part not ported yet; Off: the original's waits (it may stop there)"});
     resetRow(r, h, kResetAdvanced);
+    questRows(r);   // (questui)
     return r;
 }
 

@@ -292,8 +292,22 @@ the Host page's).
 
 | # | Key | Name | Start | The arena's wait | Spawns |
 |---|---|---|---|---|---|
-| 2 | platform | Chapter 3: the platform | chapter 3 event 1 | the first creature wait after the hanging zombies (kind 7) come: the first stop on the platform under the overhead rail, camera 466 / -282 / 561, the story's own view | everyone walks in from the platform's far end (three places at z 812-815); no chain zombies (user 2026-11-10: the location only) |
-| 3 | roof | Chapter 4: the Magician's roof | chapter 4 event 4 | the creature wait after the Magician (kind 20) comes on the roof (he is captured: not there) | the doorway he blasted open out of Curien's laboratory (three places just inside it) |
+| 2 | platform | Chapter 3: the platform | chapter 3 event 1 | the first creature wait after the hanging zombies (kind 7) come: the first stop on the platform under the overhead rail, camera 466 / -282 / 561, the story's own view | three places on the platform's floor 124-128 units in front of the camera (z 672-688; v1.4.0's far end, z 812-815, was 253-264 units away); no chain zombies (user 2026-11-10: the location only) |
+| 3 | roof | Chapter 4: the Magician's roof | chapter 4 event 4 | the creature wait after the Magician (kind 20) comes on the roof (he is captured: not there) | three places on the roof's floor 125-126 units in front of the camera, before the doorway he blasted open out of Curien's laboratory (v1.4.0's, just inside it, were 242-245 units away) |
+
+**Spawn distance** (fix140b, user 2026-11-10 on v1.4.0: "creatures spawn too far away" on the platform and the roof):
+measured with `HOTD_SURVIVAL_DUMP` (no autofire, lives kept: each creature's walk to 70 units of the camera) the
+courtyard's places are 110 units out (its own places, kNear) and reached in 4.3 s; v1.4.0's platform 253-264 units, 19-21 s;
+the roof 242-245 units, 19 s (the creatures walk about 8-9 units a second). Now about 125 units, 5-6 s. Every new place
+on the floor (the dump's floor triangles) with 0 wall triangles crossed on its walk (walls.awk, `--survival-test 12`).
+An arena with its own view (the roof) measures kNear and the creatures' facing from that view's eye, not the lead-in's
+camera (66 units nearer the doorway there).
+
+**Never in a cut-scene** (fix140b): the roof's wait came while the Magician's entrance scene ended, its bars still
+sliding away (scene_state 1, the log's "the arena is in a cut-scene ... a bad arena" in every run, the user's window
+run, the headless test and the user's launcher.ini alike: the same 4122 lead-in frames). At the arena, any cut-scene
+state is ended at once (scene_state 6: bars off, shots on); the log says "the lead-in ended in a cut-scene (scene state
+N ...): the arena starts in play".
 
 - **How an arena is taken** (`SurvivalArena::takeKind`): such an arena is the (waitSkip + 1)-th creature wait after the
   lead-in captured a creature of that kind (the stop where those creatures come in the story), not a wait with captured

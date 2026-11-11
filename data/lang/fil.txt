@@ -1761,3 +1761,6 @@ That is not a reply code (20 letters and digits, from your friend's Join page). 
 No reply code found in what you pasted (a reply code: 20 letters and digits, from your friend's Join page). = Walang reply code sa pinaste mo (reply code: 20 letra at numero, mula sa Join page ng kaibigan mo).
 Waiting for your friends... = Hinihintay ang mga kaibigan mo...
 Copy all your friends' reply codes from the chat at once and paste them here (Ctrl+V works too) = Kopyahin nang sabay-sabay mula sa chat ang lahat ng reply code ng mga kaibigan mo at i-paste dito (gumagana rin ang Ctrl+V)
+
+# vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
+{buttons}: Pause = {buttons}: Pause

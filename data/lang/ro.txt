@@ -1764,3 +1764,6 @@ That is not a reply code (20 letters and digits, from your friend's Join page). 
 No reply code found in what you pasted (a reply code: 20 letters and digits, from your friend's Join page). = Niciun cod de răspuns în textul lipit (un cod de răspuns: 20 de litere și cifre, de pe pagina Intră în joc a prietenului tău).
 Waiting for your friends... = Se așteaptă prietenii...
 Copy all your friends' reply codes from the chat at once and paste them here (Ctrl+V works too) = Copiază din chat toate codurile de răspuns ale prietenilor deodată și lipește-le aici (merge și Ctrl+V)
+
+# vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
+{buttons}: Pause = {buttons}: Pauză

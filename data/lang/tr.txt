@@ -1764,3 +1764,6 @@ That is not a reply code (20 letters and digits, from your friend's Join page). 
 No reply code found in what you pasted (a reply code: 20 letters and digits, from your friend's Join page). = Yapıştırdığında yanıt kodu bulunamadı (yanıt kodu: arkadaşının Katıl sayfasındaki 20 harf ve rakam).
 Waiting for your friends... = Arkadaşların bekleniyor...
 Copy all your friends' reply codes from the chat at once and paste them here (Ctrl+V works too) = Arkadaşlarının tüm yanıt kodlarını sohbetten tek seferde kopyala ve buraya yapıştır (Ctrl+V de çalışır)
+
+# vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
+{buttons}: Pause = {buttons}: Duraklat

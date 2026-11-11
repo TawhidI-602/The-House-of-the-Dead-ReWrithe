@@ -1761,3 +1761,6 @@ That is not a reply code (20 letters and digits, from your friend's Join page). 
 No reply code found in what you pasted (a reply code: 20 letters and digits, from your friend's Join page). = Liittämästäsi tekstistä ei löytynyt vastauskoodia (vastauskoodi: 20 kirjainta ja numeroa, ystäväsi Liity-sivulta).
 Waiting for your friends... = Odotetaan ystäviäsi...
 Copy all your friends' reply codes from the chat at once and paste them here (Ctrl+V works too) = Kopioi kaikki ystäviesi vastauskoodit chatista kerralla ja liitä ne tähän (myös Ctrl+V toimii)
+
+# vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
+{buttons}: Pause = {buttons}: Tauko

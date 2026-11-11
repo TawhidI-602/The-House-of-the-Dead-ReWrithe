@@ -1761,3 +1761,6 @@ That is not a reply code (20 letters and digits, from your friend's Join page). 
 No reply code found in what you pasted (a reply code: 20 letters and digits, from your friend's Join page). = Tidak ada kode balasan dalam teks yang kamu tempel (kode balasan: 20 huruf dan angka, dari halaman Gabung temanmu).
 Waiting for your friends... = Menunggu teman-temanmu...
 Copy all your friends' reply codes from the chat at once and paste them here (Ctrl+V works too) = Salin semua kode balasan temanmu dari chat sekaligus lalu tempel di sini (Ctrl+V juga bisa)
+
+# vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
+{buttons}: Pause = {buttons}: Jeda

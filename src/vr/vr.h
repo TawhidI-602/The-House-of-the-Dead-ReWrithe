@@ -45,7 +45,7 @@ struct Controller {
     float trigger = 0.0f;       // 0..1
     float squeeze = 0.0f;       // 0..1 (the grip button)
     bool primary = false, secondary = false, menu = false, stickClick = false;   // A / B (X / Y), menu, thumbstick press
-                                                                                 // (openxr: held 1 s recentres)
+                                                                                 // (openxr: held 2 s recentres)
     float stick[2] = {0, 0};
 };
 
@@ -102,16 +102,16 @@ struct Settings {
     // vr4 (docs/vr.md "Recentre"): the headset back after more than this many seconds away (taken off, the app hidden;
     // not the runtime's dashboard over the game): the seat recentred by itself; 0 never
     float autoRecentre = 3.0f;
-    // shake-to-reload (user 2026-11-09; docs/vr.md "Shake to reload"): a back-and-forth shake of a gun controller
-    // reloads. shakeSensitivity: the muzzle's speed (m/s) both swings must pass (lower: easier). On by default since
-    // user 2026-11-10
+    // shake-to-reload (user 2026-11-09; docs/vr.md "Shake to reload", vr_aim.h ShakeDetector): a jolt or shake of a gun
+    // controller in any direction, or a twist of the wrist and back, reloads. shakeSensitivity: the jolt's acceleration
+    // in g (vrgest 2026-11-10: was the muzzle's speed in m/s, 3.5; lower: easier). On by default since user 2026-11-10
     bool shakeReload = true;
-    float shakeSensitivity = 3.5f;
+    float shakeSensitivity = 2.0f;
     // wrist-flick reload (user 2026-11-10; docs/vr.md "Wrist flick to reload", vr_aim.h FlickDetector): one sharp
     // upward snap of the gun's muzzle reloads. flickSensitivity: the pitch rate (deg/s) the snap must reach (lower:
-    // easier). The shake's and the flick's 0.7 s cooldown is shared (one gesture = one reload)
+    // easier; vrgest: was 600). The shake's and the flick's 0.7 s cooldown is shared (one gesture = one reload)
     bool flickReload = true;
-    float flickSensitivity = 600.0f;
+    float flickSensitivity = 300.0f;
     // vr3 (user 2026-11-09, docs/vr.md "All around you"): the world in every direction: the neighbouring draw zones'
     // pieces outside the game camera's view (GameView::vrAround). Off: only what the arcade's zone list draws
     bool around = true;
@@ -147,6 +147,10 @@ struct Settings {
 #else
     bool menuPanel = false;
 #endif
+    // vrflow (user 2026-11-10: "show the main menu first" in PC VR too): vr.ini menu_panel as written (-1 auto, 0 off,
+    // 1 on). Auto with a headset (openxr) is on, on a PC too (main.cpp vrStart): the menus on the big screen and the
+    // headset given a frame in every state (flat menus left SteamVR showing its own room and controller models)
+    int menuPanelIni = -1;
     float menuDistance = 2.5f;      // metres ahead of the start pose
     float menuWidth = 3.2f;         // metres (the height from the window's shape)
     // performance (the Quest 3: 72 Hz): the eyes' resolution x this (0.5..1.5 of the runtime's recommended size);
@@ -162,6 +166,34 @@ struct Settings {
     bool arcadeSort = true;
 #endif
     bool srgbSwapchain = true;
+    // questperf (user 2026-11-10: "extremely clunky on Meta Quest"; docs/quest.md "Performance"): fixed foveated
+    // rendering (XR_FB_foveation, when the runtime has it): 0 off, 1 low, 2 medium, 3 high (the Quest's default; the
+    // eyes' edges drawn at a lower resolution, unseen through the lenses); foveationDynamic: the runtime lowers it while
+    // the GPU has time to spare. perfLog: a "quest perf" line a second in hotd.log (the frame rate, late frames, the
+    // CPU / GPU frame times, the threads' CPU); perfCycle (testing): every 10 s another foveation / resolution / around
+    // set-up, each logged, to compare them in one run
+#if defined(__ANDROID__)
+    int foveation = 3;
+    bool perfLog = true;
+#else
+    int foveation = 0;
+    bool perfLog = false;
+#endif
+    bool foveationDynamic = true;
+    bool perfCycle = false;
+    // questperf: the Quest's dynamic resolution: the eyes drawn into a smaller part of their images (down to 0.6 x
+    // resolution_scale) while the GPU's frame time is over the display's budget, back up when there is room; at the
+    // smallest and still late with refresh_rate auto, the display goes to 72 Hz for the session
+#if defined(__ANDROID__)
+    bool dynamicResolution = true;
+#else
+    bool dynamicResolution = false;
+#endif
+    // questsim (user 2026-11-10: "work on the Meta Quest 3 standalone ... Simulate them"; docs/quest.md "Simulating the
+    // Quest 3"): the PC preview behaves as the Quest's path where the code differs: no depth readback (the CPU aim
+    // ray), the Quest 3's eye buffers (1680 x 1760 x resolution_scale) and field of view, the per-frame budget
+    // counters. Test-only (--quest-sim / HOTD_QUEST_SIM=1, vr.ini quest_sim); off: the PC game unchanged
+    bool questSim = false;
     bool load(const std::string& path);   // missing keys keep their defaults; false: no file
     void set(const std::string& key, const std::string& value);   // one vr.ini key (vr3: also --vr-set key=value)
 };
@@ -191,10 +223,19 @@ public:
     // openxr: the runtime ended the session for good (EXITING / LOSS_PENDING: quit from its dashboard, the headset
     // unplugged): the game drops VR and goes on flat (main.cpp vrFrame)
     virtual bool lost() const { return false; }
+    // vrflow (user 2026-11-10: SteamVR's Quit must close the game cleanly): the session ended because the runtime asked
+    // the app to quit (EXITING / LOSS_PENDING / instance loss pending), not an error: main.cpp closes the game normally
+    // (an error / a runtime that stopped answering still drops to the flat game)
+    virtual bool exitAsked() const { return false; }
     // openxr: the headset paces the loop (xrWaitFrame; the backend's own ~90 Hz wait while the headset shows nothing):
     // main.cpp applyPresentation drops its frame limiter and the window's vsync then (vr2 2026-11-09: they capped a
     // 90 Hz headset at the monitor's 60)
     virtual bool pacesFrames() const { return false; }
+    // vrprompts (user 2026-11-10): the controllers' OpenXR interaction profile ("/interaction_profiles/oculus/
+    // touch_controller" ...: the right hand's, else the left's; "" none yet): the prompts name its buttons
+    // (game/pad_prompts.h vrStyleOfProfile; "": Touch's, the preview's). Testing: HOTD_VR_PROFILE (a path or "touch",
+    // "index", "vive", "wmr", "hp", "simple") over any backend's (main.cpp vrPromptStyle)
+    virtual std::string interactionProfile() const { return {}; }
 
     // ---- the desktop preview's extras (a headset backend leaves them alone) ----
     // the window's size before beginFrame (the preview sizes its eyes from it)
@@ -211,6 +252,14 @@ public:
     virtual void setDual(bool) {}
     // tests: hand `hand`'s trigger held at `value` (0..1) until changed (the preview; a headset reads its own)
     virtual void scriptTrigger(int, float) {}
+    // questsim: the Quest 3's eye buffers (Meta's default 1680 x 1760, x scale) and its field of view instead of the
+    // window's halves (the preview)
+    virtual void setQuestSim(float) {}
+    // questsim: the session has the input focus (OpenXR: FOCUSED; not with the Meta menu over the game, the headset
+    // off); the preview's quest-sim scripts it (HOTD_QUEST_LIFECYCLE)
+    virtual bool focused() const { return true; }
+    // questperf (vr.ini perf_cycle, testing): this part of the cycle draws without the "around" zones
+    virtual bool perfAroundOff() const { return false; }
     int display = 2;   // the desktop picture: 0 the left eye, 1 the right eye, 2 both side by side
 };
 

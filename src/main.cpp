@@ -136,6 +136,7 @@
 #endif
 #if defined(__ANDROID__)
 #include "util/android_app.h"   // quest (docs/quest.md)
+#include <pthread.h>
 #endif
 
 #include <SDL3/SDL.h>
@@ -754,20 +755,34 @@ static int gVrEye = 2;
 static bool gVrEyeSet = false;   // (vrnull: --vr-eye given: over vr.ini desktop_view)
 static bool gVrHeadSet = false, gVrTest = false;
 static bool gVrDropped = false;   // vr2: VR ended in play (the headset's session lost): the presentation re-applied
+static bool gVrPauseHintDone = false;   // vrflow: the VR pause hint shown in this game (enterGame: a new game)
 // quest (2026-11-10): on the headset the session's end (EXITING: Quit in the Meta menu; LOSS_PENDING) ends the app: an
 // immersive activity has no flat screen to fall back to (OpenXR: the app ends its XR experience; SDL's activity
-// finishes when SDL_main returns). The PC keeps the flat game.
-static void questQuitAfterVr()
+// finishes when SDL_main returns). The PC keeps the flat game after an error; vrflow (user 2026-11-10): when the runtime
+// asked the app to quit (SteamVR's Quit, EXITING / LOSS_PENDING: exitAsked) the PC game closes too, the normal way (the
+// quit event: settings saved, the crash log's "stopped without closing" marker cleared), as the Quest does
+static void questQuitAfterVr(bool exitAsked)
 {
-#if defined(__ANDROID__)
+#if !defined(__ANDROID__)
+    if (!exitAsked) return;
+    SDL_Log("vr: the runtime asked the game to quit (its Quit / the session's end): closing");
+#else
+    (void)exitAsked;
     SDL_Log("quest: the headset session ended: quitting");
+#endif
     SDL_Event q{};
     q.type = SDL_EVENT_QUIT;
     SDL_PushEvent(&q);
-#endif
 }
 static float gVrHead[3] = {0, 0, 0};
 static std::vector<std::string> gVrSet;   // vr3: --vr-set key=value (repeatable): vr.ini keys over the file's (tests)
+// questsim (user 2026-11-10: "work on the Meta Quest 3 standalone. You know the specs. Simulate them"; docs/quest.md
+// "Simulating the Quest 3"): --quest-sim / HOTD_QUEST_SIM=1: the VR preview as the Quest's path (OpenGL ES through
+// ANGLE, no depth readback, the Quest 3's eyes and FOV) and --render's per-frame budget against the Quest 3's
+// (gQuestBudget). Test-only, off by default
+static bool gQuestSim = false;
+struct QuestFrame { uint64_t frame; int chapter, event; uint32_t calls, state; uint64_t tris; };
+static std::vector<QuestFrame> gQuestBudget;
 static bool vrStart(const std::string& vrDir)
 {
     std::string err;
@@ -786,6 +801,9 @@ static bool vrStart(const std::string& vrDir)
     }
     // vrnull: a headset's desktop window: vr.ini desktop_view eye (the left eye) / both; --vr-eye over it
     if (gVrBackend == "openxr" && !gVrEyeSet) s->backend()->display = s->settings.desktopView == 1 ? 2 : 0;
+    // vrflow (user 2026-11-10: "show the main menu first", PC VR as the Quest): a headset's menus on the big screen
+    // (vr.ini menu_panel = auto; off keeps them flat in the window, the headset then shows the runtime's own room)
+    if (gVrBackend == "openxr" && s->settings.menuPanelIni < 0) s->settings.menuPanel = true;
     if (gVrHeadSet) {
         const float lean[3] = {0, 0, 0};
         s->backend()->scriptHead(gVrHead, lean);
@@ -799,6 +817,12 @@ static std::string vrDataDir()
 {
     namespace fs = std::filesystem;
     std::error_code ec;
+#if defined(__ANDROID__)
+    // questperf (2026-11-10): the player's own vr.ini (the app's files folder's vr/, seeded once by android_app.cpp,
+    // docs/quest.md "edit it with adb pull / push"); it was never read: the APK's copy always was
+    if (const std::string ext = hotd::android::externalDir(); !ext.empty() && fs::exists(fs::path(ext) / "vr" / "vr.ini", ec))
+        return (fs::path(ext) / "vr").string();
+#endif
     for (const std::string& d : lang::dataDirs())
         if (fs::is_directory(fs::path(d) / "data" / "vr", ec))
             return (fs::path(d) / "data" / "vr").string();
@@ -842,11 +866,12 @@ static void vrFrame(game::Runtime& rt, game::GameView& view, game::Hud& hud, int
     gVr->crosshairOn = gVrCrossCfg >= 0 ? gVrCrossCfg != 0 : gVr->settings.crosshair;
     gVr->frame(f);
     if (gVr->lost()) {   // openxr: the runtime ended the session (its dashboard's quit, the headset gone): flat from now
-        SDL_Log("vr: the headset session ended: back to the flat game");
+        const bool exitAsked = gVr->exitAsked();   // (vrflow: the runtime's Quit: the game closes, below)
+        SDL_Log("vr: the headset session ended%s", exitAsked ? "" : ": back to the flat game");
         gVr->shutdown();
         gVr.reset();
         gVrDropped = true;   // (vr2: the frame limiter and vsync back: the play loop's applyPresentation)
-        questQuitAfterVr();
+        questQuitAfterVr(exitAsked);
     }
 }
 // vr dual pistols (player request 2026-11-04, docs/vr.md "Dual pistols"): a gun in each hand now? vr.ini dual_pistols
@@ -1046,6 +1071,16 @@ static void vrDualTestInput(game::Runtime& rt)
         t.secondBefore = rt.secondGun[0].hits;
     }
 }
+// vrprompts (user 2026-11-10: "ReWrithe does not support button icons for any VR"): the prompts' style in a VR run
+// (game/pad_prompts.h kPsVrTouch ..: the controllers' interaction profile; HOTD_VR_PROFILE for tests), 0 outside VR
+static int vrPromptStyle()
+{
+    if (!gVr)
+        return 0;
+    if (const char* e = std::getenv("HOTD_VR_PROFILE"); e && *e)
+        return game::vrStyleOfProfile(e);
+    return game::vrStyleOfProfile(gVr->backend()->interactionProfile());
+}
 // quest (2026-11-03, docs/quest.md): the window's swap; on Android none while VR runs (the headset is the display and
 // xrWaitFrame paces the loop; the window's surface is never shown)
 static void vrSwap(SDL_Window* window)
@@ -1058,13 +1093,20 @@ static void vrSwap(SDL_Window* window)
 // quest: a flat screen's frame (the setup page, the menus, the end screen) in VR when vr.ini menu_panel is on (the
 // Quest's default): the window's picture on a big screen (Scene::panelFrame), the right controller's ray as the mouse
 // (moved there; the trigger = the left button, B / Y / a menu button = Esc, A / X = Enter); then the window's swap
-static void vrFlatFrame(SDL_Window* window)
+static void vrFlatFrame(SDL_Window* window, const char* where)
 {
+    if (gVr) gVr->where = where;   // (vrflow: the frame gaps' log)
     if (gVr && gVr->settings.menuPanel) {
         int ww = 0, wh = 0, lw = 0, lh = 0;
         SDL_GetWindowSizeInPixels(window, &ww, &wh);
         SDL_GetWindowSize(window, &lw, &lh);
-        const vr::Scene::Pointer p = gVr->panelFrame(0, ww, wh, lw, lh);
+        vr::Scene::Pointer p = gVr->panelFrame(0, ww, wh, lw, lh);
+        // (testing, vrflow: HOTD_VR_PANEL_POINT=<u>,<v>: the ray held on that point of the big screen, 0..1 from the
+        // top-left: the preview's scripted trigger clicks there; the preview's own ray follows the mouse it warps)
+        if (static const char* pp = std::getenv("HOTD_VR_PANEL_POINT"); pp) {
+            float u = 0.5f, v = 0.5f;
+            if (std::sscanf(pp, "%f,%f", &u, &v) == 2) p.valid = true, p.x = u * float(lw), p.y = v * float(lh);
+        }
         static bool held = false;   // (a press sent: its release follows wherever the ray is then)
         if (p.valid) SDL_WarpMouseInWindow(window, p.x, p.y);
         auto button = [&](bool down) {
@@ -1104,11 +1146,12 @@ static void vrFlatFrame(SDL_Window* window)
             }
         }
         if (gVr->lost()) {
+            const bool exitAsked = gVr->exitAsked();   // (vrflow: the runtime's Quit: the game closes)
             SDL_Log("vr: the headset session ended");
             gVr->shutdown();
             gVr.reset();
             gVrDropped = true;
-            questQuitAfterVr();
+            questQuitAfterVr(exitAsked);
         }
     }
     vrSwap(window);
@@ -4758,8 +4801,83 @@ static int langTool(const game::LaunchConfig& cfg, const std::string& exportCode
     return rc;
 }
 
+#if defined(__ANDROID__)
+// questcrash (2026-11-10): the game thread's stack in hotd.log, and a C++ exception thrown and caught there (the
+// runtime's task unwinds are exceptions: the first one crashed the headset's attract)
+[[gnu::noinline]] static void questThrowTest(int n)
+{
+    if (n > 0) questThrowTest(n - 1);
+    throw std::runtime_error("test");
+}
+static void questThreadCheck()
+{
+    pthread_attr_t a;
+    if (pthread_getattr_np(pthread_self(), &a) == 0) {
+        void* base = nullptr;
+        size_t size = 0;
+        pthread_attr_getstack(&a, &base, &size);
+        pthread_attr_destroy(&a);
+        const char* here = static_cast<const char*>(__builtin_frame_address(0));
+        SDL_Log("quest: game thread stack %zu KB (%p..%p), %zu KB used here", size / 1024, base,
+                static_cast<void*>(static_cast<char*>(base) + size), size_t(static_cast<const char*>(base) + size - here) / 1024);
+    }
+    try {
+        questThrowTest(3);
+    } catch (const std::exception&) {
+        SDL_Log("quest: C++ exceptions: thrown and caught");
+    }
+}
+// questcrash (2026-11-10): the game runs on its own thread with a 32 MB stack, not on SDL's "SDLThread" (a Java thread:
+// about 1 MB). The runtime's task unwinds are C++ exceptions, and the NDK's unwinder (LLVM libunwind) allocas 1568
+// bytes on the stack for each DW_CFA_remember_state it reads in a function's unwind info, freed only when the parse
+// ends: Runtime::dispatch (the switch over every ported routine) has 1394 of them (one per early return), 822 before
+// task_exit's call in the attract, so the first throw needed ~1.3 MB of stack and overflowed SDLThread's guard. A PC
+// is unaffected (Windows unwinds with its own tables; Linux / macOS main threads have 8 MB). SDL attaches the new
+// thread to Java when it first needs JNI. A file settings/quest_small_stack starting with 1 (adb push) keeps SDLThread
+// (diagnostics: the crash again, its report with the stack pointer and the stack's bounds)
+static thread_local bool gQuestOnGameThread = false;
+struct QuestMainArgs { int argc; char** argv; int rc; };
+static void* questGameThread(void* p)
+{
+    auto* a = static_cast<QuestMainArgs*>(p);
+    gQuestOnGameThread = true;
+    a->rc = main(a->argc, a->argv);
+    return nullptr;
+}
+static bool questGameThreadRun(int argc, char* argv[], int& rc)
+{
+    gQuestOnGameThread = true;   // (once: the new thread's main and a fallback both go on)
+    if (const char* ext = SDL_GetAndroidExternalStoragePath()) {
+        if (FILE* f = std::fopen((std::string(ext) + "/settings/quest_small_stack").c_str(), "rb")) {
+            const int c = std::fgetc(f);
+            std::fclose(f);
+            if (c == '1') return false;
+        }
+    }
+    constexpr size_t kStack = size_t(32) << 20;
+    pthread_attr_t at;
+    pthread_attr_init(&at);
+    pthread_attr_setstacksize(&at, kStack);
+    QuestMainArgs a{argc, argv, 1};
+    pthread_t t;
+    const int e = pthread_create(&t, &at, questGameThread, &a);
+    pthread_attr_destroy(&at);
+    if (e != 0) return false;   // (SDLThread then: as before)
+    pthread_setname_np(t, "HOTDGame");
+    pthread_join(t, nullptr);
+    rc = a.rc;
+    return true;
+}
+#endif
+
 int main(int argc, char* argv[])
 {
+#if defined(__ANDROID__)
+    if (!gQuestOnGameThread) {
+        if (int rc = 0; questGameThreadRun(argc, argv, rc))
+            return rc;
+    }
+#endif
     const ExitJoin exitJoin;   // fix5: the view prefetch's worker finished before any return (see ViewPrefetch::finish)
 #if defined(__ANDROID__)
     // quest (docs/quest.md): SDLActivity passes no arguments: the Quest's own (--root, --vr openxr, the game files from
@@ -5004,6 +5122,7 @@ int main(int argc, char* argv[])
             if (menuGammaOpt < 0) { std::fprintf(stderr, "--menu-gamma: a number from 0.6 to 2.0 (not %s)\n", v.c_str()); return 2; }
             continue;
         }
+        if (a == "--quest-sim") { gQuestSim = true; continue; }   // questsim: the preview as the Quest 3 (test-only)
         if (a == "--vr") { gVrBackend = next(); continue; }   // vr: preview | openxr (docs/vr.md)
         if (a == "--vr-dual") { gVrDualForce = true; continue; }   // vr: dual pistols (as vr.ini dual_pistols = on)
         if (a == "--vr-set") { gVrSet.push_back(next()); continue; }   // vr3: a vr.ini key=value over the file's
@@ -5349,6 +5468,13 @@ int main(int argc, char* argv[])
         std::fflush(stdout);
         return 2;
     }
+    // fix140a (user 2026-11-10: VR is single player only): --host / --join with --vr refused the same way (exit 2)
+    if (!gVrBackend.empty() && (!netArgs.host.empty() || !netArgs.join.empty())) {
+        std::fprintf(stderr, "Online Co-op is not available in VR: VR is single player only (drop --vr, or drop --host / --join)\n");
+        std::printf("Online Co-op is not available in VR (single player only)\n");
+        std::fflush(stdout);
+        return 2;
+    }
     // the Jukebox's arcade lengths (game/jukebox.h ArcadeLength; the menu's Jukebox runs this in a process of its own:
     // one sound board per process): --jukebox-lengths <cache folder> <regions folder or ""> <ROM zip / folder> <part>
     // (its share of the codes: Jukebox::kMeasureParts processes at once; part -1: all of them, one after the other)
@@ -5525,6 +5651,9 @@ int main(int argc, char* argv[])
     if (frames < 0 && !check && frontendPng.empty() && !steamAction && !makeShortcut)
         util::logToFile(cache);
     util::installCrashReport(cache, playerRun);
+#if defined(__ANDROID__)
+    questThreadCheck();
+#endif
     if (vrCheckOpt) {   // vrship: --vr-check (before the console is dropped: its lines are for the player to read)
         const int rc = vr::checkOpenXr();
         std::printf("vr-check: these lines are also in %shotd.log\n", cache.c_str());
@@ -5779,6 +5908,20 @@ int main(int argc, char* argv[])
     if (gameSpeedOpt >= 0) cfg.gameSpeed = gameSpeedOpt == 2 ? -1 : gameSpeedOpt;
     if (frameRateOpt >= -1) cfg.frameRate = frameRateOpt;
     if (vsyncOpt >= 0) cfg.vsync = vsyncOpt != 0;
+    if (const char* qs = std::getenv("HOTD_QUEST_SIM"); qs && *qs && *qs != '0') gQuestSim = true;
+    if (gQuestSim) {   // questsim: the Quest's defaults first (--vr-set given still wins: applied after), OpenGL ES
+        gVrSet.insert(gVrSet.begin(), {"quest_sim=on", "arcade_sort=off"});
+        if (rendererOpt < 0 && gl::angleAvailable()) rendererOpt = gl::kBackendAngle;   // (the ES layer, as the Quest's)
+        if (gVrBackend.empty()) gVrBackend = "preview";
+        game::menuQuest = true;   // questui: the Quest's settings pages (the rows that do nothing there left out)
+        std::printf("quest-sim: the preview as the Meta Quest 3 (renderer %s)\n", rendererOpt == gl::kBackendAngle ? "OpenGL ES (ANGLE)" : "OpenGL");
+    }
+    // questsim: VR's CPU aim ray tests the creatures' own triangles: their corners kept past the upload (assets.h)
+#if defined(__ANDROID__)
+    Mesh::keepMeshPositions = true;
+#else
+    Mesh::keepMeshPositions = !gVrBackend.empty();
+#endif
     if (rendererOpt >= 0) cfg.renderer = rendererOpt;
     // (user 2026-11-09: "playing VR did not do anything": Renderer Auto / DirectX started ANGLE, which OpenXR cannot use,
     // and VR quietly fell back to the flat game) a headset run always uses OpenGL unless --renderer says otherwise
@@ -6416,6 +6559,13 @@ int main(int argc, char* argv[])
         if (frames >= 0)
             r.log = [&r](const std::string& s) { std::printf("[runtime %llu] %s\n", (unsigned long long)r.frameCount, s.c_str()); };
         r.continueUnplayable = continueChapters;
+        // fix140a (user 2026-11-10: "I do not expect VR to support online. Only single player"): a VR run starts one
+        // player (no 2P / 4P / computer teammates / player 2's seat), and a second player's Start never joins
+        r.vrSolo = !gVrBackend.empty();
+        if (r.vrSolo) {
+            cfg.players = 1, cfg.soloSeat = 0;
+            for (int p = 1; p < 4; ++p) cfg.seatBot[p] = 0;
+        }
         // the experimental 4P mode (docs/coop4.md): seats 3 / 4; online the host's settings decide (each PC two seats)
         r.seats4 = (gNet ? gNet->gameSettings().seats == 4 : cfg.players >= 3) ? 1 : 0;
         // Game Text (gametext): the JAPAN region's texts, text only (the RAM differs: online the host's for both PCs)
@@ -6890,6 +7040,7 @@ int main(int argc, char* argv[])
                 const bool crisp = crt && crtSet.crispSights;
                 const bool shotNow = std::find(rr.shotAt.begin(), rr.shotAt.end(), rt.frameCount) != rr.shotAt.end();
                 const uint64_t c0 = rr.view->renderer.drawCalls, sc0 = rr.view->renderer.stateCalls;
+                const uint64_t tri0 = rr.view->renderer.triangles;   // (questsim)
                 const auto t0 = std::chrono::steady_clock::now();
                 // pcsparks: the 2D drawn under the 3D as the window's frame does (the arcade's low-priority cells, the
                 // PC's game-over route map under its walker)
@@ -7200,6 +7351,10 @@ int main(int argc, char* argv[])
                 const uint32_t calls = uint32_t(rr.view->renderer.drawCalls - c0);
                 rr.calls.push_back(calls);
                 rr.drawn.push_back(uint32_t(rt.drawList.size()));
+                if (gQuestSim)   // questsim: the frame's draw calls, state calls and triangles (both eyes)
+                    gQuestBudget.push_back({rt.frameCount, int(rt.mem.at<int8_t>(game::A::G::chapter)),
+                                            int(rt.mem.at<int8_t>(game::A::G::event_index)), calls,
+                                            uint32_t(rr.view->renderer.stateCalls - sc0), rr.view->renderer.triangles - tri0});
                 for (gl::GLenum e = gl::GetError(); e != 0; e = gl::GetError()) {
                     if (rr.glErrors++ == 0) { rr.firstError = e; rr.firstErrorFrame = rt.frameCount; }
                     if (rr.glErrors <= 20)
@@ -7397,6 +7552,47 @@ int main(int argc, char* argv[])
                         (unsigned long long)rr.firstErrorFrame, (unsigned long long)rr.spikes);
             std::printf("MEMORY: %s\n", memoryReport().c_str());
         }
+        if (gQuestSim && !gQuestBudget.empty() && gVr) {
+            // questsim: the frames against the Quest 3's budget (Meta's standalone guidance, per eye-frame: ~1 M
+            // triangles, a few hundred draw calls; the eyes are drawn one after the other here: a frame's / 2)
+            std::vector<QuestFrame> v = gQuestBudget;
+            const float sc = gVr->settings.resolutionScale;
+            const long long px = (long long)(int(1680 * sc + 0.5f) & ~1) * (long long)(int(1760 * sc + 0.5f) & ~1);
+            auto pct = [&](auto key, double p) {
+                std::vector<double> k;
+                for (const QuestFrame& f : v) k.push_back(double(key(f)));
+                std::sort(k.begin(), k.end());
+                return k[std::min(k.size() - 1, size_t(double(k.size()) * p))];
+            };
+            auto tris = [](const QuestFrame& f) { return double(f.tris) / 2; };
+            auto calls = [](const QuestFrame& f) { return double(f.calls) / 2; };
+            auto state = [](const QuestFrame& f) { return double(f.state) / 2; };
+            size_t overT = 0, overC = 0;
+            for (const QuestFrame& f : v) overT += tris(f) > 1e6, overC += calls(f) > 300;
+            std::printf("QUEST BUDGET: %zu frames; per eye: triangles p50 %.0f p99 %.0f max %.0f (budget ~1M: %zu over); "
+                        "draw calls p50 %.0f p99 %.0f max %.0f (budget ~300: %zu over); state calls p50 %.0f max %.0f; "
+                        "pixels %lld (%.2f M; x2 eyes x 90 Hz = %.0f Mpx/s before overdraw); GPU memory (est.) textures "
+                        "%.0f MB, vertices %.0f MB\n",
+                        v.size(), pct(tris, 0.5), pct(tris, 0.99), pct(tris, 1.0), overT, pct(calls, 0.5), pct(calls, 0.99),
+                        pct(calls, 1.0), overC, pct(state, 0.5), pct(state, 1.0), px, double(px) / 1e6,
+                        double(px) * 2 * 90 / 1e6, double(rr.view->renderer.textureBytes) / 1048576.0,
+                        double(rr.view->renderer.vertexBytes) / 1048576.0);
+            for (int which = 0; which < 2; ++which) {   // the 5 worst frames by triangles, then by draw calls (apart)
+                std::sort(v.begin(), v.end(), [&](const QuestFrame& a, const QuestFrame& b) {
+                    return which ? a.calls > b.calls : a.tris > b.tris;
+                });
+                uint64_t last = ~0ull;
+                int shown = 0;
+                for (const QuestFrame& f : v) {
+                    if (shown == 5) break;
+                    if (last != ~0ull && (f.frame > last ? f.frame - last : last - f.frame) < 120) continue;
+                    last = f.frame, ++shown;
+                    std::printf("QUEST WORST %s: frame %llu chapter %d event %d: %.0f triangles, %.0f draw calls, %.0f "
+                                "state calls per eye\n", which ? "calls" : "triangles", (unsigned long long)f.frame,
+                                f.chapter + 1, f.event, tris(f), calls(f), state(f));
+                }
+            }
+        }
         if (gVr && gVrTest) {   // vr: --vr-preview-test's round trip (the game's aim -> the gun's ray -> the aim)
             const auto& t = gVr->test;
             // (bugs7: "3197 frames" of a 5000-frame cutscenes = cinema run is no early stop: the cinema screen's 1803
@@ -7432,7 +7628,11 @@ int main(int argc, char* argv[])
             std::printf("vr fade test: %d frames with a full-screen fade over the whole eye\n", t.fadeFrames);   // (vrfade)
             // vrattract (user 2026-11-10): the hands only while player 1 plays (Scene::playerInControl)
             std::printf("vr hands test: shown %d frames; shown outside control %d, hidden in control %d (both must be 0); "
-                        "paused %d\n", t.handsShown, t.handsShownOutside, t.handsHiddenInControl, t.handsPaused);
+                        "paused %d, first-person cut-scenes %d\n", t.handsShown, t.handsShownOutside, t.handsHiddenInControl,
+                        t.handsPaused, t.handsFirstPerson);
+            std::printf("vr fix test: %d fireball draws moved out to 1.2 m; %d frames with the player's space's pitch held at "
+                        "60 degrees; %d frames the left hand left out near the head\n", t.fireMoved, t.refPitchClamped,
+                        t.leftNearHidden);   // (vrfix)
             ok = ok && t.handsShownOutside == 0 && t.handsHiddenInControl == 0;
             if (gVr->settings.vignette)   // bugs7: the comfort vignette ignores camera cuts (vr.ini vignette = on)
                 std::printf("vr vignette test: %d camera cuts ignored; the vignette over half %d frames\n", t.vignetteCuts,
@@ -7546,6 +7746,7 @@ int main(int argc, char* argv[])
                            std::getenv("HOTD_SCENE_TEST") != nullptr ||    // (the cut-scene viewer's test: hidden too)
                            std::getenv("HOTD_CURSOR_TEST") != nullptr ||   // (padglyphs: the pad cursor's test: hidden)
                            std::getenv("HOTD_STARTUP_TIME") != nullptr ||  // (perf: the start-up time, hidden)
+                           std::getenv("HOTD_VR_BUTTONS") != nullptr ||    // (vrflow: the VR controllers' scripted flow, hidden)
                            gMenuTourN > 0 ||                               // (menuperf: the menu's perf tour, hidden)
                            std::getenv("HOTD_RES_LOG") != nullptr ||       // (the resolution test: hidden)
                            std::getenv("HOTD_MENU_SEQ") != nullptr ||      // (menuperf: the menu's picture sequence: hidden too)
@@ -7753,8 +7954,12 @@ int main(int argc, char* argv[])
         }
 #if defined(__ANDROID__)
         if (gVr) {   // quest: the headset's xrWaitFrame paces every frame (72 Hz): no limiter of ours on top
-            renderNs = 0, menuNs = 1, renderLimit = 0;
+            // questperf (user 2026-11-10: "extremely clunky on Meta Quest"): and no display beat either (paceNs: the
+            // Android display's refresh, not the headset's 90 Hz: the loop's clock jumped and Smooth Motion's blend
+            // with it); the raw clock, as a PC headset's
+            renderNs = 0, menuNs = 1, renderLimit = 0, paceNs = 0;
             SDL_GL_SetSwapInterval(0);
+            vsyncNow = 0;
         }
 #else
         // vr2 (2026-11-09): a PC headset (openxr) paces the loop with xrWaitFrame: no frame limiter, no window vsync,
@@ -8279,6 +8484,11 @@ int main(int argc, char* argv[])
             SDL_Log("live background: %s (%s): %s", liveGpuName.c_str(), liveWeak ? "integrated / software graphics" : "a graphics card",
                     menu.cfg.liveBackground == 1 ? "On" : menu.cfg.liveBackground == 2 ? "Off" : liveWeak ? "Auto: off" : "Auto: on");
         }
+#if defined(__ANDROID__)
+        // questperf (user 2026-11-10: "extremely clunky on Meta Quest"): never live in the headset: a second game and
+        // its 3D behind the menu on a phone's GPU (it fell to Auto's "runs slow" anyway); the stills instead
+        if (gVr) return false;
+#endif
         return menu.cfg.liveBackground == 1 || (menu.cfg.liveBackground == 0 && liveWeak == 0 && !liveSlow);
     };
     // optui (coordinator 2026-10-26, the user: "the menu lags"; a high menu frame rate): the menus' own cap, every front-
@@ -8302,6 +8512,14 @@ int main(int argc, char* argv[])
     menuRate = [&]() {
         if (!inputTestFile.empty() || renderFps >= 0)
             return;   // (the input test's / --render-fps's own pace)
+#if defined(__ANDROID__)
+        // questperf (2026-11-10): in the headset xrWaitFrame paces the menus too (applyPresentation's menuNs = 1): no cap
+        // of ours on top (it was the window's 90 Hz x 1.08, then Auto's 60 fps step: 60 pictures on a 90 Hz display)
+        if (gVr) {
+            menuNs = 1;
+            return;
+        }
+#endif
         const SDL_DisplayMode* dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
         const double hz = dm && dm->refresh_rate > 1.0f ? double(dm->refresh_rate) : 60.0;
         const int cap = menu.cfg.menuFps > 0 ? menu.cfg.menuFps : menuFpsAuto();
@@ -8458,6 +8676,7 @@ int main(int argc, char* argv[])
                     gl::GenTextures(1, &stillTex);
                 gl::BindTexture(gl::TEXTURE_2D, stillTex);
                 gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
+                gl::texTag("live still");   // (questui: the upload log, render/gl_backend.h)
                 gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, s.w, s.h, 0, gl::RGBA, gl::UNSIGNED_BYTE, s.rgba.data());
                 gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR);
                 gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR);
@@ -8512,6 +8731,7 @@ int main(int argc, char* argv[])
                 gl::GenTextures(1, &slideTex[k]);
                 gl::BindTexture(gl::TEXTURE_2D, slideTex[k]);
                 gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
+                gl::texTag("live slide");
                 gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, s.w, s.h, 0, gl::RGBA, gl::UNSIGNED_BYTE, s.rgba.data());
                 gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR);
                 gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR);
@@ -8572,6 +8792,9 @@ int main(int argc, char* argv[])
                 captureChecked = key;
                 captureNeed = !game::LaunchConfig::readOnly && !std::filesystem::exists(slidesDoneFile(pcDir, blood), ec) &&
                               !std::getenv("HOTD_NO_SLIDE_CAPTURE");
+#if defined(__ANDROID__)
+                if (gVr) captureNeed = false;   // (questperf: no unseen attract in the headset: the still / the hall)
+#endif
             }
             liveCapture = captureNeed && key != liveFailedKey;
             if (!liveCapture) {
@@ -8753,6 +8976,7 @@ int main(int argc, char* argv[])
                 }
                 for (gl::GLuint t : liveTex) {
                     gl::BindTexture(gl::TEXTURE_2D, t);
+                    gl::texTag("live attract target");
                     gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, pw2, ph2, 0, gl::RGBA, gl::UNSIGNED_BYTE, nullptr);
                     gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR);
                     gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR);
@@ -8981,6 +9205,11 @@ int main(int argc, char* argv[])
     auto prvFrame = [&](bool wantPc) -> bool {
         if (!feLoaded || game::LaunchConfig::readOnly && !std::getenv("HOTD_PREVIEW_TEST"))
             return false;
+#if defined(__ANDROID__)
+        // questperf (user 2026-11-10: "extremely clunky on Meta Quest"): the settings pictures are not made in the
+        // headset (a third game and its 3D in the menu's frames, then PNGs of them); the pages show none there
+        if (gVr) return false;
+#endif
         if (!prvChecked) {   // the files' folders the bases came from: others now -> made again
             prvChecked = true;
             std::error_code ec;
@@ -9193,6 +9422,8 @@ int main(int argc, char* argv[])
     };
     // into the game: the files' regions, sound from the PC files, the view with the chosen models, the chapter start
     auto enterGame = [&]() -> bool {
+        if (gVr) gVr->where = "loading";   // vrflow: the frame gaps' log (the game's load: no frame for the headset)
+        gVrPauseHintDone = false;   // (vrflow: the pause hint once a game)
         prvStop();         // menus3: the settings pictures' render ends (one game view at a time)
         menuBoardStop();   // prerel: an arcade menu song ends (the board as the game sets it)
         liveStop(false);   // liveattract: the menu's live attract ends (one game view at a time)
@@ -11646,6 +11877,7 @@ int main(int argc, char* argv[])
                 };
             }
             fe.totdNoVr = !gVrBackend.empty();   // (vr, user 2026-11-09: not playable in VR: greyed in More Modes)
+            fe.coopNoVr = !gVrBackend.empty();   // (fix140a, user 2026-11-10: VR is single player only: Co-op greyed)
             fe.vrNote = !gVrBackend.empty() && !(gVr && gVr->settings.menuPanel);   // (vr3: the main menu: put the headset on when the game starts)
             // Boss Mode (game/bossmode.h): a boss picture (0x422EE4 ..) -> the game; the times tables (screens 10-14)
             fe.onBossMode = [&](int m) { feBoss = m; };
@@ -12869,7 +13101,10 @@ int main(int argc, char* argv[])
             };
             fe.resolutionValue = hooks.resolutionValue;
             fe.onResolution = [&]() { resolutionPage(); };
-            hooks.online =[&]() { online.open(fe, [&]() { coopPage(); }); };
+            hooks.online =[&]() {
+                if (gVrBackend.empty())   // (fix140a: VR is single player only: the Online page never opens in VR)
+                    online.open(fe, [&]() { coopPage(); });
+            };
             hooks.startCoop = [&, saveCfg](int players) {   // Co-op: that many players, the arcade from Chapter 1
                 menu.cfg.players = players;
                 saveCfg();
@@ -12895,7 +13130,7 @@ int main(int argc, char* argv[])
             fe.onCoop = [&]() { coopPage(); };
             // playerpick: the players' quick choice before a local game (screen 22): the last one from launcher.ini
             // (players= / p2bot..p4bot), kept on Start; never online (the session's seats decide there)
-            fe.playersAsk = [&]() { return !gNet; };
+            fe.playersAsk = [&]() { return !gNet && gVrBackend.empty(); };   // (fix140a: VR: one player, never asked)
             fe.playersGet = [&](int& n, int bot[4]) {
                 n = menu.cfg.players;
                 for (int p = 0; p < 4; ++p) bot[p] = menu.cfg.seatBot[p];
@@ -13352,7 +13587,7 @@ int main(int argc, char* argv[])
             }
 #if defined(__ANDROID__)
             if (questWaitFiles(menu, window, ww, wh)) {   // quest: "copy your game files" on the big screen
-                vrFlatFrame(window);
+                vrFlatFrame(window, "files page");
                 menuPace();
                 continue;
             }
@@ -13498,7 +13733,7 @@ int main(int argc, char* argv[])
                 ev.key.windowID = SDL_GetWindowID(window);
                 SDL_PushEvent(&ev);
             }
-            vrFlatFrame(window);   // (quest: on the big screen in VR)
+            vrFlatFrame(window, "setup");   // (quest: on the big screen in VR)
             menuPace();   // (menuperf: on the display's beat, was a 16 ms sleep)
             continue;
         }
@@ -14331,6 +14566,9 @@ int main(int argc, char* argv[])
             const bool splashing = fe.splashActive();
             fe.promptChoice = menu.cfg.padPrompts, fe.buttonStyle = menu.cfg.buttonStyle;   // padglyphs: Controls > Button Prompts / Style
             fe.iconOutline = menu.cfg.iconOutline != 0;   // menus3: Controls > Icon Outline
+            // vrprompts: the menus in the headset (vr.ini menu_panel: the big screen; the pause's Settings on the HUD
+            // panel): the controller's buttons; menus flat on the monitor (menu_panel off): the keys' / pads' as before
+            fe.vrStyle = gVr && (gVr->settings.menuPanel || gOverGame) ? vrPromptStyle() : 0;
             fe.update(in, uint32_t(SDL_GetTicks()));
             if (gOverGame && (fe.screen() == 1 || fe.screen() == 21))
                 continue;   // (fxux: the in-game Settings closed: the pause next loop, no main menu frame between)
@@ -14596,6 +14834,12 @@ int main(int argc, char* argv[])
                 autoArcade = false;
                 autoCharSel = true;
                 feAction = 0;
+#if HOTD_HORDE
+                if (gHordeSize > 0) {   // fix140b: --auto-start --horde-mode: More Modes' Horde (its start: startHorde)
+                    gHordeMenuSize = gHordeSize;
+                    feHorde = true;
+                }
+#endif
             }
             if (inputTest)
                 inputTest(2, host.runtime(), lw, lh);   // --input-test: Esc in the game / on the end screen came back here
@@ -14963,6 +15207,9 @@ int main(int argc, char* argv[])
                         menuTierCap = 60;
                     else if (menu.cfg.menuFps == 0 && cap > 30 && cap <= 60 && (avg > 12.0 || (late && liveWeak == 1)))
                         menuTierCap = 30;
+#if defined(__ANDROID__)
+                    if (gVr) menuTierCap = 0;   // (questperf: the headset paces the menus: no Auto step)
+#endif
                     if (menuTierCap && menuTierCap < cap)
                         SDL_Log("menu frame rate: Auto: the menu's GPU %.1f ms a frame, %d of %d frames late: %d fps", avg, tierLate,
                                 tierFrames, menuTierCap);
@@ -15050,7 +15297,7 @@ int main(int argc, char* argv[])
                     tourFrame = 0;
             }
             drawGunAids(menu.cfg, ww, wh, false);   // padpass: a Sinden's white border on the menus too
-            vrFlatFrame(window);   // (quest: on the big screen in VR)
+            vrFlatFrame(window, "menu");   // (quest: on the big screen in VR)
             menuPace();   // (menuperf: on the display's beat, was a 16 ms sleep)
             int action = gOverGame ? -1 : feAction;   // (fxux: the in-game Settings start nothing)
             feAction = -1;
@@ -15208,7 +15455,10 @@ int main(int argc, char* argv[])
                 bossModeOpt = 0;
             // charsel: Gameplay > Character Select (both menu styles, 1-4 players): an Arcade / Chapter Select game first shows
             // the cards (frontend_pcmode.cpp charSelectOpen); their Start / Default Characters come back as feAction 50
-            // with the picks (looks only). Not for TotD 0 or the other modes, not online (the host's picks: --char)
+            // with the picks (looks only). Not for TotD 0 or the other modes, not online (the host's picks: --char).
+            // fix140b (user 2026-11-10: "the more modes does not have the character select thing, survival does not
+            // need it"): More Modes' Horde too (the story's game with more creatures: feAction 0 with gHordeSize, set
+            // above and kept through the cards' feAction 50); Survival (its own start, feSurvival) and TotD 0 not
             {
                 static int csAction = -1, csKeepPc[4] = {};
                 if (action == 50 && csAction >= 0) {
@@ -15216,7 +15466,7 @@ int main(int argc, char* argv[])
                     csAction = -1;
                     std::copy(csKeepPc, csKeepPc + 4, fe.pcChars);   // (PC Mode's own picks as they were)
                 } else if ((action == 0 || action == 6) && menu.cfg.charSelect && inputTestFile.empty() &&
-                           !gTotd && !gNet && !unreleasedGame()) {   // (--input-test: its menu walks start the game directly)
+                           !gTotd && !gNet) {   // (--input-test: its menu walks start the game directly)
                     csAction = action;
                     std::copy(fe.pcChars, fe.pcChars + 4, csKeepPc);
                     for (int k = 0; k < 4; ++k)
@@ -15235,7 +15485,8 @@ int main(int argc, char* argv[])
                     fe.charSelectOpen(menu.cfg.players);
                     // qa140 (v1.4.0, Character Select On by default): --auto-start (testing) used to wait on the
                     // cards for ever; it takes Default Characters (Rogan / G), as its Enter on the main menu did
-                    if (autoCharSel && fe.onCharSelectStart)
+                    // (fix140b, testing: HOTD_CHARSEL_HOLD=1 keeps them up, for HOTD_MENU_SHOT's picture of them)
+                    if (autoCharSel && fe.onCharSelectStart && !std::getenv("HOTD_CHARSEL_HOLD"))
                         fe.onCharSelectStart(true);
                     autoCharSel = false;
                     continue;
@@ -15321,7 +15572,7 @@ int main(int argc, char* argv[])
                 if (!shotAt.empty())   // a scripted run ends here
                     running = false;
             }
-            vrFlatFrame(window);   // (quest: on the big screen in VR)
+            vrFlatFrame(window, "end screen");   // (quest: on the big screen in VR)
             menuPace();   // (menuperf: on the display's beat, was a 16 ms sleep)
             if (back) {
                 leaveGame();
@@ -16100,6 +16351,39 @@ int main(int argc, char* argv[])
             // focus back (Alt+Tab): the pause stays until Continue (user 2026-10-17; the PC resumes by itself here,
             // 0x4185BC message 0xF -> 0x41ACF0)
         }
+        // questsim (2026-11-10; docs/quest.md "Simulating the Quest 3"): the headset's session no longer FOCUSED (the
+        // Meta menu over the game: VISIBLE; the headset off: STOPPING) paused nothing: the creatures went on attacking
+        // a player who could not shoot (OpenXR hands no input then). The game's pause, as Alt+Tab on the PC (Continue
+        // selected; the pause stays until Continue). The Quest (and --quest-sim) only: a PC headset's dashboard as before
+        {
+#if defined(__ANDROID__)
+            const bool vrPauses = true;
+#else
+            const bool vrPauses = gQuestSim;
+#endif
+            static bool vrWasFocused = true;
+            static uint64_t lostAt = 0;
+            if (gVr && vrPauses) {
+                const bool f = gVr->backend()->focused();
+                const auto& prt = host.runtime();
+                if (vrWasFocused && !f) {
+                    std::fill(&keyAim[0][0], &keyAim[0][0] + 16, false);
+                    lostAt = prt.frameCount;
+                    const bool play = prt.mem.at<int16_t>(game::A::G::game_mode) == 4;
+                    if (!gNet && play && !pause.paused() && !gPhoto.on && !gScene.active())
+                        pause.focus(false);
+                    std::printf("quest-sim: session focus lost at game frame %llu (in play %d): paused %d\n",
+                                (unsigned long long)prt.frameCount, play ? 1 : 0, pause.paused() ? 1 : 0);
+                } else if (!vrWasFocused && f) {
+                    std::printf("quest-sim: session focused again at game frame %llu (%llu game frames while away): paused %d\n",
+                                (unsigned long long)prt.frameCount, (unsigned long long)(prt.frameCount - lostAt),
+                                pause.paused() ? 1 : 0);
+                    // HOTD_QUEST_LIFECYCLE (the test): the player chooses Continue once back
+                    if (std::getenv("HOTD_QUEST_LIFECYCLE") && pause.paused()) pause.leave();
+                }
+                vrWasFocused = f;
+            }
+        }
         // HOTD_SCENE_TEST=<dir> with --scene-view (testing, hidden window): pictures 40 / 100 frames into the scene,
         // Space pauses (the frame must hold), Space + S (slow), at the end R (replay), at the second end Escape (the page)
         if (static const char* stDir = std::getenv("HOTD_SCENE_TEST"); stDir && gScene.active() && screen == Screen::Game) {
@@ -16303,8 +16587,10 @@ int main(int argc, char* argv[])
                     winPauseFor = n;
                 }
             }
-            if (gVr && gVr->takeMenu())   // openxr: a controller's menu button (docs/vr.md "Controls")
-                pauseIn.toggle = true;
+            if (gVr && !feAttract && gVr->takeMenu()) {   // openxr: a controller's menu button / the left Y (docs/vr.md
+                pauseIn.toggle = true;                    // "Controls"; vrflow: in the attract it is the main menu's key)
+                SDL_Log("vr: the pause button (%s)", paused ? "Continue" : "pause");
+            }
             if (winPauseAt >= 0 && (long long)rt.frameCount >= winPauseAt && winPaused < 0 && !paused)
                 pauseIn.toggle = true;
             else if (winPaused >= 0 && paused && ++winPaused == winPauseFor)
@@ -16688,7 +16974,21 @@ int main(int argc, char* argv[])
             // vr (docs/vr.md): player 1's aim is the VR gun's ray (the last VR frame's); its trigger and a reload (the
             // gun pointed down) add to the mouse / keys' (the preview: the mouse button is the trigger). Off screen
             // (pointing away, past the screen's edge, down) a pull reloads as the light gun's off-screen shot
-            if (gVr)   // (dual pistols: each gun's own aim and pulls, vrGunInput)
+            if (gVr && feAttract) {   // vrflow (user 2026-11-10: "it starts immediately in Arcade; I want the main
+                // menu first"): in the menus' attract a trigger / A / X / the pause button = a key: the main menu, as a
+                // key or a click in the flat game (the attract never starts a game: X's Start no longer reaches it)
+                const vr::Scene::Aim va = gVr->takeAim();
+                if (va.press || va.start || gVr->takeMenu()) {
+                    SDL_Event ev{};
+                    ev.type = SDL_EVENT_KEY_DOWN;
+                    ev.key.key = SDLK_RETURN;
+                    ev.key.scancode = SDL_SCANCODE_RETURN;
+                    ev.key.down = true;
+                    ev.key.windowID = SDL_GetWindowID(window);
+                    SDL_PushEvent(&ev);
+                    SDL_Log("vr: the attract: a controller button, the main menu");
+                }
+            } else if (gVr)   // (dual pistols: each gun's own aim and pulls, vrGunInput)
                 vrGunInput(rt, gVr->takeAim(), vrKeyReload);
             // --autofire (T1): the same gun input as the headless runs (no mouse events), so a window run with
             // screenshots replays the headless play-through
@@ -17265,8 +17565,37 @@ int main(int argc, char* argv[])
             hud.pauseLines = pauseLinesOf(pause), hud.pauseGrey = pauseGreyOf(pause);   // (#5; photomode: grey)
             const bool dbg = (debugLines && !trailerNow && !photoClean) || (gScene.active() && !sceneClean);
             const std::vector<std::string> lines = gScene.active() && !sceneClean ? gScene.lines(rt) : hudLines(rt, paused);
+            gVr->where = feAttract ? "attract" : paused ? "pause" : gScene.active() ? "cut-scene viewer" : "game";
+            // vrflow (user 2026-11-10: "I don't know how to pause"): the first time player 1 is in control after a
+            // game starts, "Y / Menu: Pause" (that controller's buttons) on the HUD panel for 6 s
+            static Uint64 pauseHintUntil = 0;
+            bool& pauseHintDone = gVrPauseHintDone;
+            if (feAttract || gScene.active()) pauseHintDone = false, pauseHintUntil = 0;
+            else if (!pauseHintDone && vr::Scene::playerInControl(rt)) {
+                pauseHintDone = true;
+                pauseHintUntil = SDL_GetTicks() + 6000;
+                SDL_Log("vr: the pause hint (%s)", game::padStyleName(vrPromptStyle()));
+            }
+            const bool pauseHint = !paused && SDL_GetTicks() < pauseHintUntil;
             const std::function<void(int, int, const float[4][2])> vrHud = [&](int pw, int ph, const float a[4][2]) {
                 hud.draw(rt, pw, ph, a, dbg, lines);
+                if (pauseHint) {
+                    static Overlay hint;
+                    static int hintInit = 0;
+                    if (!hintInit) { std::string e2; hintInit = hint.init(e2) ? 1 : -1; hint.setStyle(150, 255, 255, 255); }
+                    if (hintInit > 0) {
+                        // the buttons as the controller names them (OpenXR's suggested bindings, vr_openxr.cpp):
+                        // Index the left B; Vive / WMR / a simple controller the menu button; Touch / HP (and the
+                        // preview) the left Y or the left menu button
+                        // (vrprompts' style: the runtime's profile, HOTD_VR_PROFILE in tests; none yet: Touch's)
+                        const int vs = vrPromptStyle();
+                        const char* keys = vs == game::kPsVrIndex ? "Left B"
+                                         : vs == game::kPsVrVive || vs == game::kPsVrWmr || vs == game::kPsVrSimple ? "Menu" : "Y / Menu";
+                        const std::string t = std::string(keys) + ": Pause";   // (lang: "{buttons}: Pause")
+                        hint.setText({t}, std::max(2, ph / 240));
+                        hint.drawAnchored(pw, ph, float(pw) * 0.5f, float(ph) * 0.80f, 0.5f, 1.0f);
+                    }
+                }
             };
             vrFrame(rt, *view, hud, cfg.aspect, 0, ww, wh, blendFrom, alpha, vrHud);
         } else {
@@ -17367,6 +17696,7 @@ int main(int argc, char* argv[])
             gl::GenTextures(1, &t);
             gl::BindTexture(gl::TEXTURE_2D, t);
             gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
+            gl::texTag("pause backdrop");   // (questui: the upload log, render/gl_backend.h)
             gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, ww, wh, 0, gl::RGBA, gl::UNSIGNED_BYTE, up.data());
             gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR);
             gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR);
@@ -17484,6 +17814,12 @@ int main(int argc, char* argv[])
         inputTest(5, host.runtime(), 0, 0);   // --input-test: closes the results if the loop ended elsewhere
     if (view)
         report(host.runtime());
+    if (gVr) {   // vrflow: the headset's frame gaps over 50 ms (the runtime's own room shows through them)
+        std::printf("vr frame gaps: %d over 50 ms (the worst %.0f ms in %s)\n", gVr->frameGaps, gVr->worstGapMs,
+                    gVr->frameGaps ? gVr->worstGapWhere.c_str() : "-");
+        SDL_Log("vr: frame gaps over 50 ms: %d (the worst %.0f ms in %s)", gVr->frameGaps, gVr->worstGapMs,
+                gVr->frameGaps ? gVr->worstGapWhere.c_str() : "-");
+    }
     // netplay: the end told to the other PC, both final states compared (--stop-at reached); the window closed mid-game:
     // this PC leaves (the host keeps its seat for a rejoin; 2026-10-30, was a BYE that stopped the host's game)
     if (gNet && stopAt && host.runtime().frameCount >= stopAt)

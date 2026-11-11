@@ -1764,3 +1764,6 @@ That is not a reply code (20 letters and digits, from your friend's Join page). 
 No reply code found in what you pasted (a reply code: 20 letters and digits, from your friend's Join page). = ไม่พบรหัสตอบกลับในข้อความที่วาง (รหัสตอบกลับ: ตัวอักษรและตัวเลข 20 ตัว จากหน้าเข้าร่วมของเพื่อน)
 Waiting for your friends... = กำลังรอเพื่อนๆ ของคุณ...
 Copy all your friends' reply codes from the chat at once and paste them here (Ctrl+V works too) = คัดลอกรหัสตอบกลับของเพื่อนทุกคนจากแชทพร้อมกัน แล้ววางที่นี่ (ใช้ Ctrl+V ก็ได้)
+
+# vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
+{buttons}: Pause = {buttons}: หยุด

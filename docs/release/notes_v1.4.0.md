@@ -47,8 +47,18 @@ game files are kept.
 
 ## VR (Experimental)
 
+**All of VR is experimental and still buggy**, PC VR included: it has been played start to finish on a Quest 3 through
+SteamVR, but not on other headsets, and rough edges remain (menus, prompts, some effects). Of the two, **PC VR (Quest
+Link / Air Link / SteamVR) is the recommended way for now**; the standalone Quest build below is much rougher. Reports
+with `settings\hotd.log` are very welcome.
+
 - **The VR launcher**: `The House of the Dead ReWrithe VR.exe` starts straight in VR; `VR Check.bat` tests your
   headset setup. Works with SteamVR and Meta Quest Link.
+- **The main menu first, in the headset**: the attract's trigger / A / X opens the main menu on a big screen (point
+  with the right controller, trigger = click); a game starts only from the menu.
+- **Pause: Y or the left menu button** (Y no longer reloads; grip / A / B still do); "Y / Menu: Pause" shows for a few
+  seconds as you start, and the gun points at the pause's items.
+- Quitting from SteamVR's (or the runtime's) menu closes the game normally.
 - The world all around you; cut-scenes around you or on a big cinema screen (vr.ini `cutscenes`).
 - **Dual Pistols (VR)** (Options > Gameplay): a gun in each hand, each with its own magazine and reloads; the left gun's
   bullets show above the usual row.
@@ -61,7 +71,12 @@ game files are kept.
 - Full-screen fades and flashes cover your whole view; the comfort vignette is off by default (vr.ini `vignette = on`).
 - Chapter cards, the staff roll, the title and Game Over show on a big screen in the dark.
 - The desktop window: vr.ini `desktop_view = eye | both | spectator` (record it with OBS: no capture card needed).
-- Quest: 90 Hz, sustained performance, a better crosshair depth. (The standalone Quest build is not part of this release.)
+- **Meta Quest 3 standalone (EXTREMELY BUGGY, EXPERIMENTAL)**: `hotd-rewrithe-v1.4.0-quest3-experimental.apk` runs the
+  game on the headset itself, no PC needed. It is a first test build: expect bugs, choppy frame rates in gameplay and
+  missing polish. **For now, playing on your PC with a headset (Quest Link / Air Link / SteamVR) is the recommended way
+  to play in VR.** Install: developer mode on, sideload the APK (SideQuest or `adb install`), then copy your own game
+  files into the app's folder (docs/quest.md "Install on your Quest 3"). Bug reports with `settings\hotd.log` welcome.
+- VR is single player only: no Online Co-op and no 2 / 4 players (Co-op is greyed, "Not available in VR").
 - The Typing of the Dead 0 is not playable in VR.
 
 ## Changed
@@ -102,6 +117,7 @@ game files are kept.
 | hotd-rewrithe-v1.4.0-win64.zip | Windows 10 / 11 (64-bit) |
 | hotd-rewrithe-v1.4.0-linux-x86_64.tar.gz | Linux, Steam Deck |
 | hotd-rewrithe-v1.4.0-macos-universal.zip | macOS 11+ (Apple silicon and Intel) |
+| hotd-rewrithe-v1.4.0-quest3-experimental.apk | Meta Quest 3 standalone: **extremely buggy, experimental** (PC VR preferred) |
 | SHA256SUMS.txt | the SHA-256 of each file |
 
 **For the auto-updater:** the release must carry `hotd-rewrithe-v1.4.0-win64.zip` and `SHA256SUMS.txt` as assets; the

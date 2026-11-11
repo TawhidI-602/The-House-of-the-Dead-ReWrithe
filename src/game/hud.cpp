@@ -12,6 +12,7 @@
 #include "util/png_read.h"
 #include "render/gamma.h"
 #include "render/gl.h"
+#include "render/gl_backend.h"
 
 #include <algorithm>
 #include <array>
@@ -925,6 +926,7 @@ void Hud::upload(const std::vector<uint8_t>& rgba, int W, int H, int ww, int wh,
 {
     gl::BindTexture(gl::TEXTURE_2D, texture_);
     gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
+    gl::texTag("hud picture");   // (questui: the upload log, render/gl_backend.h)
     gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, W, H, 0, gl::RGBA, gl::UNSIGNED_BYTE, rgba.data());
     const float s = fit ? std::min(float(ww) / float(W), float(wh) / float(H)) : float(wh) / float(H);
     // GitHub #43 (2026-11-04: "bilinear filtering is applied to HUD elements"; MAME 0.286 vs 1.1): the 2D layer (the HUD,
@@ -1014,6 +1016,11 @@ bool Hud::vrScreen2D(const Runtime& rt)
     const int16_t mode = mem.at<int16_t>(G::game_mode);
     if (mode == 4 && mem.u32(G::game_submode) == 8)
         return true;   // (the ending's staff roll and its last card: playerInControl's sub-mode 8)
+    if (mode == 4 && (mem.u32(G::game_submode) == 9 || mem.u32(G::game_submode) == 10))
+        return true;   // vrfix: the name entry (its letters in camera space, the 2D frame: made for the flat screen; VR
+                       // aims through the cinema screen, Scene::screenAim_)
+    if (mode == 7)
+        return true;   // vrfix: the ranking after a game / the name entry (as mode 6's)
     if (mode == 4 || mode == 5) {   // (the GAME OVER card, the route map: wideScreen's kWidePicture)
         const uint32_t* l2 = &rt.pcCells[size_t(2 * Runtime::kPcRows) * 64];
         for (int i = 0; i < Runtime::kPcRows * 64; ++i) {
@@ -3936,6 +3943,7 @@ void Hud::drawRemake(const Frontend::RemakeLayers& L, int ww, int wh)
             static const uint8_t black[4] = {0, 0, 0, 255};
             gl::BindTexture(gl::TEXTURE_2D, bgTex_);
             gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
+            gl::texTag("remake black");
             gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, 1, 1, 0, gl::RGBA, gl::UNSIGNED_BYTE, black);
             texParams(false);
         }
@@ -3956,6 +3964,7 @@ void Hud::drawRemake(const Frontend::RemakeLayers& L, int ww, int wh)
     gl::BindTexture(gl::TEXTURE_2D, L.tex ? L.tex : bgTex_);
     if (!L.tex && L.src && (L.srcGen != bgGen_ || L.src != bgSrc_ || L.sw != bgW_ || L.sh != bgH_)) {
         bgGen_ = L.srcGen, bgSrc_ = L.src, bgW_ = L.sw, bgH_ = L.sh;
+        gl::texTag("remake backdrop");
         if (L.grey)
             gl::TexImage2D(gl::TEXTURE_2D, 0, gl::R8, L.sw, L.sh, 0, gl::RED, gl::UNSIGNED_BYTE, L.src);
         else
@@ -4004,6 +4013,7 @@ void Hud::drawRemake(const Frontend::RemakeLayers& L, int ww, int wh)
     auto upload = [&](unsigned tex, const std::vector<uint8_t>& rgba, int w, int h) {
         premultiply(rgba, size_t(w) * size_t(h), premul_, false);
         gl::BindTexture(gl::TEXTURE_2D, tex);
+        gl::texTag("remake layer");   // (blood, widgets, gallery, focus parts)
         gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, w, h, 0, gl::RGBA, gl::UNSIGNED_BYTE, premul_.data());
         gl::GenerateMipmap(gl::TEXTURE_2D);   // (a window smaller than the layer: smooth, not shimmering)
         texParams(true);
@@ -4157,6 +4167,7 @@ void Hud::drawRemake(const Frontend::RemakeLayers& L, int ww, int wh)
             handId_ = L.handId;
             std::vector<uint8_t> pm;
             premultiply(*L.hand, size_t(L.hiw) * size_t(L.hih), pm, true);
+            gl::texTag("remake hand");
             gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, L.hiw, L.hih, 0, gl::RGBA, gl::UNSIGNED_BYTE, pm.data());
             texParams(false);
             remakeUploadBytes += size_t(L.hiw) * size_t(L.hih) * 4;

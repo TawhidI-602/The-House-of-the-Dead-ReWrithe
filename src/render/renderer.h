@@ -129,6 +129,10 @@ public:
     uint64_t drawCalls = 0;
     // perf: GL state calls in draw (uniforms, texture / vertex array binds; never reset, as drawCalls)
     uint64_t stateCalls = 0;
+    // questsim (2026-11-10, the Quest 3 budget): triangles drawn so far (never reset, as drawCalls); the uploaded
+    // stages' GPU memory now (estimated: textures with mipmaps, vertices)
+    uint64_t triangles = 0;
+    uint64_t textureBytes = 0, vertexBytes = 0;
     // polish3 (debugging, hotd --render with HOTD_ZFIGHT): added to the camera position, to find depth ties (z-fighting)
     // by rendering a frame twice with a sub-pixel camera move
     float debugJitter[3] = {0, 0, 0};
@@ -179,6 +183,7 @@ private:
     // per-pixel depth)
     static void sortKeysOf(const Mesh& m, size_t count, std::vector<float>& out);
     std::map<const StageData*, GpuStage> stages_;
+    std::map<const StageData*, std::pair<uint64_t, uint64_t>> gpuBytesOf_;   // questsim: textureBytes / vertexBytes' parts
     struct Resolved { const GpuStage* g = nullptr; const std::vector<Range>* ranges = nullptr; };
     std::vector<Resolved> resolved_;   // perf: draw's items -> their stage and model ranges (kept: no allocation a frame)
     gl::GLuint program_ = 0, palAnim_ = 0;

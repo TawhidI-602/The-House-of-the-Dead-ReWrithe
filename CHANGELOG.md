@@ -29,10 +29,14 @@ off, and where.
 - **Sound Chip** (Options > Audio): Accurate (five fixes over MAME's chip emulation) or MAME.
 - **17 more languages** (machine translated, 33 in all).
 - **Cheats** (main menu only, offline only, never saved).
-- **VR (Experimental)**: the "... VR" exe starts in VR (SteamVR, Quest Link); Dual Pistols (VR), Laser (VR) and
+- **VR (Experimental, still buggy; PC VR recommended)**, single player only (no Online Co-op, no 2 / 4 players): the "... VR" exe starts in VR (SteamVR, Quest Link); Dual Pistols (VR), Laser (VR) and
   Crosshair (VR) in Options > Gameplay; shake or flick the gun to reload; the world all around you; cut-scenes around
   you or on a cinema screen; chapter cards, credits and the title on a big screen in the dark; hands only while you
-  play; the desktop window as one eye, both eyes or the flat game (vr.ini `desktop_view`).
+  play; the desktop window as one eye, both eyes or the flat game (vr.ini `desktop_view`); the main menu first, on a
+  big screen in the headset (the right controller points); pause with Y or the left menu button (an on-screen hint).
+- **Meta Quest 3 standalone (EXTREMELY BUGGY, EXPERIMENTAL)**: a separate APK that runs on the headset itself. A first
+  test build with bugs and choppy gameplay: for now, playing on your PC with the headset (Quest Link / Air Link /
+  SteamVR) is the recommended way to play in VR.
 - **Horde Mode** (More Modes > Horde), **Experimental / Proof of Concept**: the arcade game from Chapter 1 with many
   more zombies at once, after HOTD1 Remake's Horde mode, with Survival's weapons as pickups. Horde Size: Low / Normal /
   High; its own top 10. Local games only.

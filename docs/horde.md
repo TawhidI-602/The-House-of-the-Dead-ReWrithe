@@ -17,7 +17,9 @@ development-only.)
   Arcade does (user 2026-11-03: "the normal arcade game with more enemies, not a chapter select"): the same start,
   chapter flow, continues, game over, name entry and rankings (the Horde table). **Horde Size: Low / Normal / High**
   below it (click: the next size; Normal by default). Chapter Select is the arcade's own (no Horde). Sonic Mode's
-  preset applies as to every game.
+  preset applies as to every game. With Gameplay > Character Select on (the default), the cards come first, as
+  before Arcade (fix140b, user 2026-11-10: "the more modes does not have the character select thing"; Default
+  Characters: the same game as without them). `--auto-start --horde-mode` (testing) starts it as the menu's Horde.
 - Command line: `--horde-mode [low|normal|high]` (Normal without a word) or `--horde-size low|normal|high`, with the
   arcade game's own options (`--chapter N`, `--players`, ...). Local games only (online co-op starts without it).
   (`--horde <arena>` / `--horde-test` are Survival Mode's old names and still start Survival.)

@@ -1764,3 +1764,6 @@ That is not a reply code (20 letters and digits, from your friend's Join page). 
 No reply code found in what you pasted (a reply code: 20 letters and digits, from your friend's Join page). = Không có mã trả lời nào trong nội dung bạn dán (mã trả lời: 20 chữ cái và chữ số, từ trang Tham gia của bạn bè).
 Waiting for your friends... = Đang chờ các bạn...
 Copy all your friends' reply codes from the chat at once and paste them here (Ctrl+V works too) = Sao chép cùng lúc mọi mã trả lời của bạn bè trong cuộc trò chuyện rồi dán vào đây (Ctrl+V cũng được)
+
+# vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
+{buttons}: Pause = {buttons}: Tạm dừng

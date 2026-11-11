@@ -132,6 +132,9 @@ public:
     // GitHub #29 (user 2026-11-03): a one-player game in player 2's seat (1), as the arcade's player 2 start button alone
     // gives it: chapter_start puts player 2 in play and player 1 waiting (arcade games only: not PC Mode / 4P)
     int soloSeat = 0;
+    // fix140a (user 2026-11-10: "I do not expect VR to support online. Only single player"): a VR run, player 1 only
+    // (player_join ignores the other seats' start buttons)
+    bool vrSolo = false;
     // GitHub #5 (Chapter Retry): players 1 / 2 as the chapter began (chapter_start, game_chapter_start): in play, score,
     // lives; the host's retry starts the chapter again and puts these back
     struct RetryPoint {

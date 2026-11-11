@@ -224,6 +224,19 @@ settings). The log says `openxr: display N Hz (offered 72 / 80 / 90 / 120; refre
 GPU at **sustained high** (`openxr: performance level sustained high: CPU set, GPU set`; a warning from the headset
 when it gets warm is logged as `openxr: performance notification ...`). If 90 Hz stutters: `refresh_rate = 72`, or
 `resolution_scale = 0.8`. The headset paces the game at whatever rate it runs (Smooth Motion blends the camera).
+questcrash (2026-11-10): the rate is asked even when the display is at it already (a rate left from before the app:
+the runtime fell back to 72 Hz once the session was focused, `display refresh rate 90 -> 72 Hz`), and asked again (up
+to 3 times, `openxr: asked 90 Hz again`) when the runtime moves the display off it.
+
+### The game thread's stack (questcrash, 2026-11-10)
+
+The game runs on its own thread with a **32 MB stack** (`quest: game thread stack 32774 KB` in hotd.log), not on SDL's
+SDLThread (a Java thread, about 1 MB). The runtime's task unwinds are C++ exceptions, and the NDK's unwinder (LLVM
+libunwind) allocas 1568 bytes for each `DW_CFA_remember_state` in a function's unwind info until the parse ends:
+`Runtime::dispatch` (the switch over every ported routine) has ~1400 of them, so the attract's first throw needed
+~1.3 MB and overflowed the stack (SIGSEGV in `CFI_Parser::parseFDEInstructions`, 1.4.0's first APK). A file
+`settings/quest_small_stack` starting with `1` keeps SDLThread (diagnostics only). The crash report on Android also has
+pc / sp / lr, the thread's stack bounds and the memory maps around the fault.
 
 **Performance (72 / 90 Hz on the Quest 3), what looks heavy:** the world is drawn twice (once per eye) at the headset's
 recommended size (about 1680 x 1760 per eye): `resolution_scale` is the main switch. The arcade sort (above) is off by
@@ -237,6 +250,33 @@ depth and the aim off by the hand's parallax (mean 66 arcade units in the previe
 
 Recentre (vr4): holding a thumbstick works without a valid head position too (no boundary: the heading only); taking
 the headset off for more than 3 s and putting it back recentres by itself (`auto_recentre`).
+
+### Performance pass (questperf, 2026-11-10)
+
+The user, after ~10 minutes on the Quest 3: "extremely clunky". Measured on the headset (the new `quest perf:` lines,
+below), 1.4.0 as it was: the attract and the menus at 90 Hz with no late frames once the fixes below were in, but
+**Chapter 1 play at 35-47 fps (about 40 late frames a second), the GPU at 17-26 ms a frame and 93 % busy**; the game
+thread used 15-26 % of one core, the sound board (68000 + SCSP, SDL's audio thread `SDLAudioP*`) 9-11 %: the CPU and
+the sound emulation are not the problem, the GPU is. Changes (Android only unless said):
+- **Frame pacing:** the game loop's clock was paced by the Android display's refresh (`paceNs`, not the headset's
+  90 Hz: the clock jumped and Smooth Motion's blend with it), and the menus kept their own cap under `xrWaitFrame`
+  (90 x 1.08, then Auto's "60 fps" step: 60 pictures on a 90 Hz display). Both off with the headset: `xrWaitFrame`
+  alone paces every frame.
+- **Menus:** no live background in the headset (the stills), no unseen attract for the stills, no settings pictures
+  made in the background (the pages show none on the Quest); the window's own picture (the flat screens on the big
+  screen) is 1920 x 1080 (`HotdActivity`: the surface's fixed size), not the panel's 4128 x 2208.
+- **GPU:** fixed foveated rendering (XR_FB_foveation, `foveation = high`, `foveation_dynamic = on`); the eyes' depth
+  discarded at the frame's end (`glInvalidateFramebuffer`: not written out of the tile memory); **dynamic
+  resolution** (`dynamic_resolution = on`): every half second Meta's GPU frame time against 85 % of the display's
+  period; over it the eyes are drawn into a smaller part of their swapchain images (the layer's `imageRect`, down to
+  0.6 x), back up 3 % a step when there is room; still late at 0.6 with `refresh_rate = auto`: 72 Hz for the session.
+- **vr.ini:** the player's `vr/vr.ini` in the files folder is read now (it was seeded but never read: the APK's copy
+  was). New keys: `foveation`, `foveation_dynamic`, `dynamic_resolution`, `perf_log`, `perf_cycle` (testing: every
+  10 s another foveation / resolution / around set-up, each logged as `quest perf: cycle part N`).
+- **The log:** `quest perf: <fps>, <late> (<refreshes missed>); wait, our frame, xrEndFrame ms; eye WxH, foveation;
+  Meta's counters (XR_META_performance_metrics: app/cpu_frametime, app/gpu_frametime, dropped frames, CPU / GPU
+  utilization)` once a second while the headset shows the game, and `quest perf: threads` every 5 s (each thread's
+  CPU in % of one core, from /proc/self/task).
 
 ## First test on the headset (checklist)
 
@@ -262,6 +302,115 @@ the headset off for more than 3 s and putting it back recentres by itself (`auto
 9. Take the headset off and on, open the Meta menu during play and close it: the game comes back; Quit from the Meta
    menu ends it.
 10. If the gun sits wrong in the hand: `gun_offset` / `gun_rotate` (docs/vr.md).
+
+## Simulating the Quest 3 (questsim, 2026-11-10)
+
+`--quest-sim` (or `HOTD_QUEST_SIM=1`) runs the PC's VR preview the way the Quest's path differs from the PC's
+(test-only, off by default; the PC game is unchanged):
+- OpenGL ES through ANGLE (the ES shader path the headset runs); `arcade_sort = off` (the Quest's default);
+- no depth readback: the aim's depth from the CPU ray (as `depthReadable_` on Android);
+- the Quest 3's eye buffers (Meta's default 1680 x 1760, x `resolution_scale`) and field of view (about 52 degrees to
+  the temple, 44 to the nose, 48 up / down per eye: ~110 x 96 for the pair);
+- the session's focus: when the session is not FOCUSED (the Meta menu over the game: VISIBLE; the headset off:
+  STOPPING) the game pauses as Alt+Tab does on the PC (Continue selected). This is new on the Quest too: before, the
+  creatures went on attacking while the Meta menu was open. `HOTD_QUEST_LIFECYCLE=<frame>` scripts it in the preview
+  (5 s VISIBLE, back, 5 s STOPPING, back, the app paused 2 s, resumed).
+
+With `--render` / `--vr-preview-test` it prints `QUEST BUDGET:` (per eye: triangles, draw calls, GL state calls, the
+pixels, the GPU memory estimate) and `QUEST WORST` (the 5 worst frames by triangles and by draw calls). Full game
+(`--quest-sim --vr-preview-test --chapter 1 --continue-chapters --strict --autofire --lives-kept 1 --default-route
+--frames 160000`): 100018 frames, Chapters 1-4 and the ending, 0 GL errors.
+
+| run | triangles / eye p50 / p99 / max | draw calls / eye p50 / p99 / max | state calls / eye max |
+|---|---|---|---|
+| Chapters 1-4 | 8 351 / 22 533 / 24 239 (Ch1 courtyard) | 68 / 194 / 261 (Ch3, frame 40986) | 1 624 |
+| attract (title) | 8 748 / 21 057 / 21 057 | 97 / 179 / 179 | 1 100 |
+| Survival (courtyard) | 13 218 / 22 239 / 23 223 | 138 / 215 / 230 | 1 546 |
+| Horde (Ch1) | 9 619 / 23 441 / 24 239 | 119 / 215 / 249 | 1 713 |
+
+Meta's standalone guidance is ~1 M triangles and a few hundred draw calls per eye-frame: the arcade's geometry is 2-3 %
+of the triangle budget and under the draw calls' everywhere, so no Quest-only cuts were made (the PC look unchanged).
+The open cost is fill rate: 2.96 M pixels per eye, 532 M pixels / s at 90 Hz before overdraw (the "all around" zones,
+the sky, the HUD panel and the cinema screen add to it; none measurable through ANGLE). If the headset drops frames:
+`resolution_scale = 0.8` (1344 x 1408), then `refresh_rate = 72`, then `around = off`. The eyes are drawn one after
+the other (no multiview): ~1 600 state calls per eye at worst, the CPU side to watch on Adreno's driver.
+
+Memory (the full run, PC + ANGLE): working set peak 1 435 MB, committed peak 2 077 MB (the Quest 3's app limit is
+roughly 5-6 GB of 8 GB); the GPU estimate: textures 93 MB, vertices 200 MB; the CPU aim ray's kept corners add about a
+quarter of the vertices' (~45 MB, VR only).
+
+The CPU aim ray (the Quest's aim) now tests the creatures' parts' own triangles (inside their boxes) and the arcade's
+generated skins (the joints between the parts), not the parts' whole boxes. `--vr-preview-test --vr-set
+aim_depth=cpu` (CPU rays against the eye's depth): 3000 frames, agreeing 48.4 % -> 57.5 % (the test needs 50 %: it
+failed before), nearer than the picture 32 % -> 20 %; 5000 frames 56.6 % -> 63.6 %, nearer 25 % -> 16 %. The rest of
+"nearer" is the Ragdoll walls (alpha-cut fences / grates the picture sees through, doors) and still open.
+`HOTD_AIM_BOXES=1` brings back the boxes (testing).
+
+## Settings on the Quest (questui, 2026-11-10)
+
+User 2026-11-10 (the first APK on the headset): "a lot of the settings don't apply to Meta Quest"; then: hide them, don't
+grey them. On Android (`game::menuQuest`, src/game/menu_pages.h) the rows that do nothing on the standalone headset are
+left out of the settings pages in both menu styles (Classic PC and Remake, the pause's Settings too); the PC (PC VR
+included: Quest Link / SteamVR) is unchanged (its menu pictures byte-identical). `--quest-sim` / `HOTD_QUEST_MENUS=1`
+show the Quest's pages on the PC (tests). Decided from the code paths the Android build runs (`__ANDROID__` + OpenXR):
+
+| page | row | Quest | why |
+|---|---|---|---|
+| Main menu > More Modes | Co-op | hidden | VR is single player (was greyed "Not available in VR"; PC VR keeps that) |
+| Main menu > More Modes | The Typing of the Dead 0 | hidden | a keyboard game, not in VR (PC VR: greyed) |
+| Game (the PC's Options) | Difficulty, Life, Continue, Auto Reload, Blood, volumes | kept | the game's rules / sound |
+| Video | Models, Aspect, Widen 2D Screens | kept | the models; Aspect sets the HUD panel's width in VR, Widen 2D the HUD's 2D screens |
+| Video | Menu Style, Live Background | kept | the big screen shows the menu as on the PC |
+| Video | Display Mode, Display, Resolution | hidden | the headset is the display (no window, no monitor; the eyes' size: vr.ini resolution_scale) |
+| Video | Frame Rate, Menu Frame Rate, Vsync, VRR (G-Sync / FreeSync) | hidden | the headset's xrWaitFrame paces every frame on Android (no limiter, no swap interval); the rate: vr.ini refresh_rate |
+| Video | Smooth Motion | kept | the 3D blended between game frames, in VR too |
+| Video | Hit Sparks, Gun Muzzle Flash, Shot Flash Size, Blood Particles, Hit Marks, Transparency | kept | the picture's effects, drawn in VR |
+| Video | Renderer | hidden | OpenGL ES on the device's own driver, always |
+| Video | Game Gamma, Menu Gamma, Black Level | kept | the gamma pass runs on the VR eyes; Black Level is in the palettes |
+| Video | CRT Filter, CRT Settings | hidden | the CRT filter is not drawn in VR (`!gVr`) |
+| Video | Crosshairs (Firing Range), Show Crosshairs | kept | the sights' style / colour and the HUD's sights |
+| Audio | every row (Sound, Voice, Reload Voice, Sound Chip, volumes, Music, Menu Music) | kept | the same sound on AAudio |
+| Controls | Player 1-4 Input, Keys & Buttons, Button Icons / Style, Icon Outline, Touchpad / Gyro Cursor (+ sensitivity), Mouse Sensitivity, Controller: Player 1-4, Light Guns, Light Gun: Player 1-4, Light Gun Type, Shot Flash, Gun Border, Calibrate Light Guns | hidden | no mouse, keyboard, gamepad or light gun: the Touch controllers are the gun and the pointer |
+| Controls | Dual Pistols (VR), Laser (VR), Crosshair (VR) | kept, moved here from Gameplay | the Touch controllers' settings (Reset to Defaults on Controls resets them) |
+| Gameplay | Blood Color, lives, Chapter Retry, Auto Reload, Free Play, cheats, cut-scenes, Score Display, Boss Names, Subtitles, Character Select, Sonic Mode, Title / FBI / PC Start-up screens, Advanced | kept | the game's rules |
+| Gameplay | Edge Reload | hidden | the mouse crosshair on the window's edge; in VR pointing down reloads |
+| Gameplay | Typing of the Dead 0 (its page) | hidden | not in VR |
+| Advanced | Game Speed, Music Numbering, Trailer Mode, Guards | kept | |
+| Advanced | Teammate Crosshair Flashes, 4P Boss Hit Points, 4P Enemy Toughness | hidden | VR is single player |
+| Mods | every mod | kept | data mods load on Android (keep big texture packs off: performance above) |
+| System | What's New, Language | kept | |
+| System | Repair / Change Files | hidden | the PC setup's file pickers; on the Quest the files are copied into the app's folder (the check runs at each start) |
+| System | Check for Updates | hidden | no update check on Android (an APK is updated by installing the new one) |
+| System | Desktop Shortcut, Add to Steam | hidden | Windows / Steam only |
+| Co-op page, Online Co-op | all | not reachable | Co-op hidden (above) |
+
+Nothing on the Quest is greyed for a reason of its own, so no "Not on Meta Quest" text was needed. Open: the menus' button
+prompts (bottom right in the Remake style) still show the keyboard's keys (E / Q / Esc / Enter), not the Touch buttons.
+
+## The white box in the main menu (questui, 2026-11-10)
+
+User 2026-11-10: "there was a white box in the main menu" on the headset. Not reproduced on the PC: `--quest-sim` runs
+(ANGLE's OpenGL ES, `--vr-set menu_panel=on` as on the Quest, the Quest's eye size, `HOTD_GL_DEBUG=1 HOTD_TEX_LOG=1`):
+0 GL errors, every upload "ok" (the big screen's texture, the Classic menu's picture, the attract); the menu's pictures
+(`--frontend-shot`) show no white area. Not yet run: the Remake style's own layers in quest-sim (the run was stopped). The leads, most likely first:
+
+1. **The big screen's pointer dot was a white square** (vr_scene.cpp panelFrame: a 1x1 white texture, 6 cm wide at
+   2.5 m, over the menu's own cursor wherever the right controller points). The PC preview never drew it (no tracked
+   controller). Now a ring (sprite mode 6) around the menu's cursor, red while the trigger is held.
+2. **The big screen's texture where the window's blit did not write**: it was made with no data (a native ES driver need
+   not clear it; ANGLE does) and filled only by `glBlitFramebuffer` from the window surface, unchecked. Now cleared to
+   black when made, and the blit's GL error is logged (`quest: menu screen blit WxH from fbo N ok / failed: GL error`).
+3. **An upload a native ES driver refuses** (ANGLE accepted every one): every 2D upload now goes through the ES layer's
+   log on Android, named at the menu's sites (`menu tex: <name> TexImage2D #tex WxH ifmt fmt type level 0 ok / err`;
+   names: remake black / backdrop / layer / hand, hud picture, live still / slide / attract target, pause backdrop, vr
+   white / menu screen, gamma copy; the first of each name and size, every failed one; on the PC `HOTD_TEX_LOG=1`).
+
+Found on the way (not the box): gamma.cpp's copy of a VR eye for Game / Menu Gamma other than 1.00 was an sRGB8 texture
+the ES layer widened to RGBA8, so the copy from the headset's sRGB eye was GL_INVALID_OPERATION on a native driver
+(ANGLE's preview eyes are RGBA8, never hit): SRGB8 is now uploaded as itself.
+
+If the next APK still shows it: a screenshot (the Meta button, then the trigger on Camera > Take photo) and
+`settings\hotd.log` (the `menu tex:` and `quest: menu screen blit` lines).
 
 ## Untested / open (needs the headset)
 

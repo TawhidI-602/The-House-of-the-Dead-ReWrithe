@@ -1763,3 +1763,6 @@ That is not a reply code (20 letters and digits, from your friend's Join page). 
 No reply code found in what you pasted (a reply code: 20 letters and digits, from your friend's Join page). = 貼上的內容中沒有回覆代碼（回覆代碼：朋友加入頁面上的 20 個字母和數字）。
 Waiting for your friends... = 正在等待你的朋友們...
 Copy all your friends' reply codes from the chat at once and paste them here (Ctrl+V works too) = 從聊天中一次複製所有朋友的回覆代碼並貼在這裡（Ctrl+V 也可以）
+
+# vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
+{buttons}: Pause = {buttons}: 暫停

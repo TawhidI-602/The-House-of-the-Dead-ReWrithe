@@ -85,6 +85,12 @@ struct MenuHooks {
     std::function<std::string()> gunNote;   // linuxmice: why no gun / mouse can be read (Linux: the input group), "": fine
 };
 
+// questui (user 2026-11-10: "a lot of the settings don't apply to Meta Quest"; hidden, not greyed): the standalone
+// Quest's menus: the rows that do nothing there left out (the window, the monitor, the renderer, the CRT filter, the
+// mouse / keyboard / pads / light guns, co-op, the PC's shortcuts and updates; docs/quest.md "Settings on the Quest"),
+// the VR rows on Controls. On on Android; on the PC only with --quest-sim / HOTD_QUEST_MENUS=1 (tests). The PC's own
+// menus (PC VR too) are unchanged
+extern bool menuQuest;
 // the rows of a category's page
 std::vector<Frontend::Extra> menuCategoryRows(int category, LaunchConfig& c, const MenuHooks& h);
 // fxux: a settings page's rows opened from the pause (Frontend::rowsFilter): "from the next game" notes, the rows a

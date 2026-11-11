@@ -860,15 +860,18 @@ std::vector<Frontend::MainItem> Frontend::mainMenuItems()
         items.push_back({-1, "More Modes", "", nullptr});
         items.back().heading = true;
         items.push_back({-1, "Chapter Select", "Start at any chapter", [this]() { screenChapters(); }});
-        items.push_back({-1, "Co-op", "2 players, 4 players or online",
-                         onCoop ? std::function<void()>([this]() { const auto f = onCoop; f(); }) : nullptr});
+        // (fix140a, user 2026-11-10: VR is single player only: no 2 / 4 players, no online; greyed as TotD 0)
+        // (questui, user 2026-11-10: on the standalone Quest left out, not greyed: menu_pages.h menuQuest)
+        if (!menuQuest)
+            items.push_back({-1, "Co-op", coopNoVr ? "Not available in VR" : "2 players, 4 players or online",
+                             onCoop && !coopNoVr ? std::function<void()>([this]() { const auto f = onCoop; f(); }) : nullptr});
         if (sonicValue)
             items.push_back({-1, "Sonic Mode: " + sonicValue(), "Faster play, own high scores (click: next preset)",
                              [this]() {
                                  if (onSonic) onSonic();
                                  screenMainMenu();
                              }});
-        if (startTotd) {   // The Typing of the Dead 0 (game/typing.h): the game played by typing
+        if (startTotd && !menuQuest) {   // The Typing of the Dead 0 (game/typing.h): the game played by typing (questui: not on the Quest)
             // (rel130, user 2026-11-05: in the release, labelled "Experimental / Proof of Concept": the item's tag line,
             // its help line, a notice when it starts: main.cpp / Hud::drawTotdNote)
             // (vr, user 2026-11-09: not playable in VR: greyed, the help line says why)
@@ -3496,7 +3499,9 @@ void Frontend::update(const FrontendInput& inRaw, uint32_t nowMs)
     nowMs_ = nowMs;
     // padglyphs: Button Prompts: one family always (its usual pad), the keyboard always, or Auto (the device used last)
     const int forced = padForced_ ? 0 : promptChoiceStyle(promptChoice);
-    if (forced < 0) {
+    if (vrStyle > 0 && !padForced_) {   // vrprompts: a VR run: the VR controller's buttons always (main.cpp sets it)
+        padPrompts_ = true, padType_ = vrStyle;
+    } else if (forced < 0) {
         padPrompts_ = false;
     } else if (forced > 0) {
         padPrompts_ = true, padType_ = forced;
@@ -3639,8 +3644,12 @@ void Frontend::render(std::vector<uint8_t>& canvas)
         return;
     }
     drawHelp();
-    if (const std::string h = hintFor(); !h.empty())   // uxpolish: the controls line at the very bottom
-        drawSmall(h, 0x1D5, true);
+    if (const std::string h = hintFor(); !h.empty()) {   // uxpolish: the controls line at the very bottom
+        if (padPrompts_ && isVrStyle(padType_))   // vrprompts: a VR controller's buttons (translated first)
+            drawSmallRaw(vrPromptLine(langOn() ? lang::tr(h) : h, padType_), 0x1D5, true);
+        else
+            drawSmall(h, 0x1D5, true);
+    }
     if (!hideHand && !rangeHand_)   // (menufb: in the Firing Range the crosshair, no hand)
         drawCursor();
     canvas_ = nullptr;
@@ -3778,6 +3787,11 @@ int frontendShot(const std::string& pcInstall, const std::string& png, int cx, i
         return findMods(dirs);
     }();
     hooks.modsRows = []() { return menuModRows(cfg, mods, nullptr, nullptr); };
+    if (menuQuest) {   // questui (HOTD_QUEST_MENUS=1): the Quest's pages, the VR rows as a headset run has them (vr.ini's defaults)
+        hooks.vrDualDefault = []() { return false; };
+        hooks.vrLaserDefault = []() { return true; };
+        hooks.vrCrosshairDefault = []() { return true; };
+    }
     for (int k = 0; k < kMenuCategories; ++k)
         fe.tabs.push_back(menuCategoryName(k));
     fe.sonicValue = []() { return std::string(sonicName(cfg.sonic)); };
@@ -4103,6 +4117,16 @@ int frontendShot(const std::string& pcInstall, const std::string& png, int cx, i
             in.down = false;
             fe.update(in, shotMs + 2u * unsigned(k) + 2);
         }
+        // fix140a: HOTD_FE_PRESS=n: the focused row pressed n times (Enter), as a player's clicks: the page rebuilt
+        // from the rows each time (the v1.4.0 crash: a stale row's value read after its click)
+        if (const char* pr = std::getenv("HOTD_FE_PRESS"))
+            for (int k = std::atoi(pr); k > 0; --k) {
+                in.press = true;
+                fe.update(in, shotMs + 200u + 2u * unsigned(k));
+                in.press = false;
+                fe.update(in, shotMs + 201u + 2u * unsigned(k));
+                std::printf("front end: pressed, focus %s\n", fe.focusText().c_str());
+            }
     } else if (fe.remakeScreen()) {   // (the mouse: the hand shown)
         FrontendInput in;
         in.mouseMoved = true;
