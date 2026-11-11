@@ -116,6 +116,7 @@ which ones feel best**: we are not sure yet what the defaults should be, and you
 - **Horde Mode and The Typing of the Dead 0 are experimental / proofs of concept.**
 - **The sound is not accurate yet** (see the note at the top).
 - **VR is experimental**: tested on SteamVR's virtual headset and in the preview, not on every headset; controller reports welcome.
+- **Survival on Chapter 4's roof: some creatures (the big zombie) have glitched textures**; fixed in the next update.
 - macOS and the Steam Deck: tested by their automatic builds only.
 - Windows Defender may flag `hotd.exe` (a false positive; see v1.3.0's notes for Restore / Allow).
 - Everything else as in v1.3.1.
