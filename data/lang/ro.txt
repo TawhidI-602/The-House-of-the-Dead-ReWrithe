@@ -1767,3 +1767,20 @@ Copy all your friends' reply codes from the chat at once and paste them here (Ct
 
 # vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
 {buttons}: Pause = {buttons}: Pauză
+
+# vrcomfort: Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR); questfb: Hands in Menus (VR)
+View (VR) = Vizualizare (VR)
+Immersive: the world all around you. Screen: the game on a big screen in front of you, for less motion sickness. VR only = Imersivă: lumea din jurul tău. Ecran: jocul pe un ecran mare în fața ta, pentru mai puțin rău de mișcare. Doar VR
+Immersive = Imersivă
+Screen = Ecran
+Screen Distance (VR) = Distanța ecranului (VR)
+How far away the big screen is (Screen view, cut-scenes on the screen, the menus). VR only = La ce distanță se află ecranul mare (vizualizarea Ecran, scenele pe ecran, meniurile). Doar VR
+Screen Size (VR) = Dimensiunea ecranului (VR)
+How big the big screen looks (Screen view, cut-scenes on the screen, the menus). VR only = Cât de mare pare ecranul mare (vizualizarea Ecran, scenele pe ecran, meniurile). Doar VR
+Cut-scenes (VR) = Scene (VR)
+World: the cut-scenes play all around you. Screen: on a big screen in front of you. VR only = Lume: scenele se desfășoară în jurul tău. Ecran: pe un ecran mare în fața ta. Doar VR
+World = Lume
+Comfort Vignette (VR) = Vinietă de confort (VR)
+Darkens the edges of the view while the camera turns fast, for less motion sickness. VR only = Întunecă marginile imaginii cât timp camera se rotește rapid, pentru mai puțin rău de mișcare. Doar VR
+Hands in Menus (VR) = Mâini în meniuri (VR)
+Your hands and gun in front of the menus' big screen. VR only = Mâinile și arma ta în fața ecranului mare al meniurilor. Doar VR

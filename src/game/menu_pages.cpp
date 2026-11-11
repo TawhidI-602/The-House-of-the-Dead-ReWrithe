@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -229,7 +230,7 @@ void menuInGameRows(std::vector<Frontend::Extra>& rows, const std::string& title
     // the rules rows that still apply at once (draw-only or this PC's own)
     static const char* const kLive[] = {"Hold to Skip Cut-scenes", "Score Display", "Teammate Crosshair Flashes", "Auto Reload",
                                         "Edge Reload", "Chapter Retry", "Advanced", "Music Numbering", "Invincibility", "Infinite Ammo",
-                                        "Dual Pistols (VR)", "Laser (VR)", "Crosshair (VR)"};
+                                        "Dual Pistols (VR)", "Laser (VR)", "Crosshair (VR)", "Hands in Menus (VR)"};
     static const char* const kNextRows[] = {"Models", "Aspect", "Sound", "Player 1 Input", "Player 2 Input", "Player 3 Input",
                                             "Player 4 Input", "Light Gun Type", "Players in Arcade", "Solo Player Seat"};
     static const char* const kLockRows[] = {"Repair / Change Files", "Check for Updates", "What's New", "Language", "Local 2 Players",
@@ -283,7 +284,9 @@ void menuReset(LaunchConfig& c, int page)
         break;
     case kCatControls:
         if (menuQuest)   // (questui: the Quest's Controls page holds the VR rows)
-            c.vrDual = d.vrDual, c.vrLaser = d.vrLaser, c.vrCrosshair = d.vrCrosshair;
+            c.vrDual = d.vrDual, c.vrLaser = d.vrLaser, c.vrCrosshair = d.vrCrosshair, c.vrMenuHands = d.vrMenuHands,
+            c.vrView = d.vrView, c.vrScreenDist = d.vrScreenDist, c.vrScreenSize = d.vrScreenSize, c.vrCutscenes = d.vrCutscenes,
+            c.vrVignette = d.vrVignette;   // (vrcomfort)
         c.p1Input = d.p1Input, c.p2Input = d.p2Input, c.p3Input = d.p3Input, c.p4Input = d.p4Input;
         c.gunKind = d.gunKind, c.gunFlash = d.gunFlash, c.gunBorder = d.gunBorder;   // (padpass)
         c.padPrompts = d.padPrompts, c.buttonStyle = d.buttonStyle, c.iconOutline = d.iconOutline;   // (padglyphs; menus3)
@@ -294,7 +297,9 @@ void menuReset(LaunchConfig& c, int page)
     case kCatGameplay:
         c.lives = d.lives;   // (#30: Starting Lives / Max Lives)
         c.chapterRetry = d.chapterRetry;   // (#5)
-        c.blood = d.blood, c.bloodRgb = d.bloodRgb, c.autoReload = d.autoReload, c.edgeReload = d.edgeReload, c.vrDual = d.vrDual, c.vrLaser = d.vrLaser, c.vrCrosshair = d.vrCrosshair, c.scoreDisplay = d.scoreDisplay, c.bossCodenames = d.bossCodenames, c.attractGore = d.attractGore, c.holdSkip = d.holdSkip, c.charSelect = d.charSelect, c.totdLive = d.totdLive, c.totdPractice = d.totdPractice, c.totdPacks = d.totdPacks, c.totdMutators = d.totdMutators, c.totdTts = d.totdTts;
+        c.blood = d.blood, c.bloodRgb = d.bloodRgb, c.autoReload = d.autoReload, c.edgeReload = d.edgeReload, c.vrDual = d.vrDual, c.vrLaser = d.vrLaser, c.vrCrosshair = d.vrCrosshair, c.vrMenuHands = d.vrMenuHands, c.scoreDisplay = d.scoreDisplay, c.bossCodenames = d.bossCodenames, c.attractGore = d.attractGore, c.holdSkip = d.holdSkip, c.charSelect = d.charSelect, c.totdLive = d.totdLive, c.totdPractice = d.totdPractice, c.totdPacks = d.totdPacks, c.totdMutators = d.totdMutators, c.totdTts = d.totdTts;
+        c.vrView = d.vrView, c.vrScreenDist = d.vrScreenDist, c.vrScreenSize = d.vrScreenSize, c.vrCutscenes = d.vrCutscenes;
+        c.vrVignette = d.vrVignette;   // (vrcomfort)
         c.subtitles = d.subtitles, c.subtitleSize = d.subtitleSize;   // (subs)
         subs::configure(c.subtitles, c.subtitleSize);
         c.sonic = d.sonic, c.title = d.title, c.fbi = d.fbi, c.freePlay = d.freePlay, c.pcSplash = d.pcSplash;   // (feat29)
@@ -341,6 +346,65 @@ static void vrRows(std::vector<X>& r, LaunchConfig& c, const MenuHooks& h)
                      "The crosshair where the gun aims (every gun); off, the aim still works. VR only"});
         listed(r, {"Off", "On"});
         experimental(r);   // (user 2026-11-10: "label vr experimental")
+        // questfb (user 2026-11-10: "add hands on the menu by default but allow people to turn them off"): on unless set
+        auto hands = [&c]() { return c.vrMenuHands != 0; };
+        r.push_back({"Hands in Menus (VR)", [hands]() { return onOff(hands()); }, [&c, save, hands]() { c.vrMenuHands = hands() ? 0 : 1; save(); },
+                     "Your hands and gun in front of the menus' big screen. VR only"});
+        listed(r, {"Off", "On"});
+        experimental(r);
+    }
+    // vrcomfort (user 2026-11-10, a player's wish: "a window at a certain distance to prevent motion sickness or an
+    // immersive mode", each player's own): vr.ini's comfort settings in game (the Quest's vr.ini is hard to reach).
+    // Not set (-1): vr.ini's value shown; a click sets it here (launcher.ini vrview= ...: launcher.h LaunchConfig)
+    if (h.vrComfortDefault) {
+        const auto d = h.vrComfortDefault;
+        auto view = [&c, d]() { return c.vrView >= 0 ? c.vrView : d(0); };
+        r.push_back({"View (VR)", [view]() { return std::string(view() ? "Screen" : "Immersive"); },
+                     [&c, save, view]() { c.vrView = view() ? 0 : 1; save(); },
+                     "Immersive: the world all around you. Screen: the game on a big screen in front of you, for less motion sickness. VR only"});
+        listed(r, {"Immersive", "Screen"});
+        experimental(r);
+        static const int kDist[4] = {2, 3, 4, 6};   // (metres)
+        auto distCm = [&c, d]() { return c.vrScreenDist > 0 ? c.vrScreenDist * 100 : d(3); };
+        auto distStep = [distCm]() {
+            for (int i = 0; i < 4; ++i)
+                if (kDist[i] * 100 == distCm()) return i;
+            return -1;
+        };
+        auto setDist = [&c, save](int k) { c.vrScreenDist = kDist[std::clamp(k, 0, 3)]; save(); };
+        r.push_back({"Screen Distance (VR)",
+                     [distCm]() {
+                         char b[24];
+                         std::snprintf(b, sizeof b, "%g m", double(distCm()) / 100.0);
+                         return std::string(b);
+                     },
+                     [distCm, setDist]() {   // (the next step up from the value now; after the last: the first)
+                         int k = 0;
+                         while (k < 4 && kDist[k] * 100 <= distCm()) ++k;
+                         setDist(k % 4);
+                     },
+                     "How far away the big screen is (Screen view, cut-scenes on the screen, the menus). VR only"});
+        indexed(r, namesOf(4, [](int i) { return std::to_string(kDist[i]) + " m"; }), distStep, setDist);
+        experimental(r);
+        static const char* const kSize[3] = {"Small", "Medium", "Large"};
+        auto size = [&c, d]() { return c.vrScreenSize >= 0 ? c.vrScreenSize : d(4); };
+        auto setSize = [&c, save](int k) { c.vrScreenSize = std::clamp(k, 0, 2); save(); };
+        r.push_back({"Screen Size (VR)", [size]() { return std::string(size() >= 0 ? kSize[size()] : "Custom"); },
+                     [size, setSize]() { setSize((size() + 1) % 3); },
+                     "How big the big screen looks (Screen view, cut-scenes on the screen, the menus). VR only"});
+        indexed(r, {"Small", "Medium", "Large"}, size, setSize);
+        experimental(r);
+        auto cuts = [&c, d]() { return c.vrCutscenes >= 0 ? c.vrCutscenes : d(1); };
+        r.push_back({"Cut-scenes (VR)", [cuts]() { return std::string(cuts() ? "Screen" : "World"); },
+                     [&c, save, cuts]() { c.vrCutscenes = cuts() ? 0 : 1; save(); },
+                     "World: the cut-scenes play all around you. Screen: on a big screen in front of you. VR only"});
+        listed(r, {"World", "Screen"});
+        experimental(r);
+        auto vig = [&c, d]() { return c.vrVignette >= 0 ? c.vrVignette != 0 : d(2) != 0; };
+        r.push_back({"Comfort Vignette (VR)", [vig]() { return onOff(vig()); }, [&c, save, vig]() { c.vrVignette = vig() ? 0 : 1; save(); },
+                     "Darkens the edges of the view while the camera turns fast, for less motion sickness. VR only"});
+        listed(r, {"Off", "On"});
+        experimental(r);
     }
 }
 

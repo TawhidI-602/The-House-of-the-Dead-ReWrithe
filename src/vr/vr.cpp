@@ -81,6 +81,7 @@ void Settings::set(const std::string& k, const std::string& v)
         else if (k == "flick_sensitivity") flickSensitivity = std::clamp(f > 0 ? f : 300.0f, 150.0f, 1500.0f);
         else if (k == "around") around = truthy(v);   // vr3 (docs/vr.md "All around you")
         else if (k == "cutscenes") cutscenes = v == "cinema" ? 1 : v == "world" ? 0 : std::clamp(std::atoi(v.c_str()), 0, 1);
+        else if (k == "view") view = v == "screen" ? 1 : v == "immersive" ? 0 : std::clamp(std::atoi(v.c_str()), 0, 1);   // vrcomfort
         else if (k == "cinema_distance") cinemaDistance = f > 0.5f ? f : cinemaDistance;
         else if (k == "cinema_width") cinemaWidth = f > 0.3f ? f : cinemaWidth;
         else if (k == "desktop_view")   // vrnull (docs/vr.md "The desktop window")

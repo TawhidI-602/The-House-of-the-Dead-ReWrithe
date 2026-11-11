@@ -624,6 +624,64 @@ static int gVrDualCfg = -1;
 // vrsight (user 2026-11-10): Gameplay > Laser (VR) / Crosshair (VR), the same way (launcher.ini vrlaser= / vrcrosshair=:
 // -1 not set, vr.ini laser / crosshair decide); vrFrame gives the scene the values now each frame
 static int gVrLaserCfg = -1, gVrCrossCfg = -1;
+// questfb (user 2026-11-10): Gameplay > Hands in Menus (VR) (launcher.ini vrmenuhands=: -1 not set = on, 0 off, 1 on),
+// and the game view whose models the big screen's hands are drawn with (the live attract's, else the game's; null: none)
+static int gVrMenuHandsCfg = -1;
+static game::GameView* gVrPanelView = nullptr;
+static std::unique_ptr<vr::Scene> gVr;   // (defined below: "vr (2026-11-03 ...")
+// vrcomfort (user 2026-11-10): Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR)
+// (launcher.ini vrview= / vrscreendist= / vrscreensize= / vrcutscenes= / vrvignette=; -1 not set: vr.ini decides)
+struct VrComfortCfg {
+    int view = -1, dist = -1, size = -1, cutscenes = -1, vignette = -1;
+};
+static VrComfortCfg gVrComfort;
+static void vrComfortTake(const game::LaunchConfig& c)
+{
+    gVrComfort = {c.vrView, c.vrScreenDist, c.vrScreenSize, c.vrCutscenes, c.vrVignette};
+}
+// the screen's width / its distance for Screen Size (VR)'s small / medium / large (medium: vr.ini's 4 m at 3 m)
+static constexpr float kVrScreenSize[3] = {0.9f, 4.0f / 3.0f, 1.8f};
+// the rows over vr.ini's values (Scene::ini), each frame before the scene draws (the menus' big screen too): the view,
+// the cut-scenes, the vignette; the cinema screen's (and the menus' big screen's) distance and width. Distance alone:
+// the screen keeps its angular size; size alone: vr.ini's distance
+static void vrComfortApply()
+{
+    if (!gVr)
+        return;
+    vr::Settings& s = gVr->settings;
+    const vr::Settings& ini = gVr->ini;
+    const VrComfortCfg& c = gVrComfort;
+    s.view = c.view >= 0 ? c.view : ini.view;
+    s.cutscenes = c.cutscenes >= 0 ? c.cutscenes : ini.cutscenes;
+    s.vignette = c.vignette >= 0 ? c.vignette != 0 : ini.vignette;
+    s.cinemaDistance = c.dist > 0 ? float(c.dist) : ini.cinemaDistance;
+    s.menuDistance = c.dist > 0 ? float(c.dist) : ini.menuDistance;
+    if (c.size >= 0) {
+        const float k = kVrScreenSize[std::clamp(c.size, 0, 2)];
+        s.cinemaWidth = k * s.cinemaDistance;
+        s.menuWidth = k * 0.96f * s.menuDistance;   // (the menus' own shape: vr.ini's 3.2 m at 2.5 m, 0.96 x medium)
+    } else {
+        s.cinemaWidth = ini.cinemaWidth * s.cinemaDistance / ini.cinemaDistance;
+        s.menuWidth = ini.menuWidth * s.menuDistance / ini.menuDistance;
+    }
+}
+// vr.ini's value for a comfort row (MenuHooks::vrComfortDefault)
+static int vrComfortDefault(int which)
+{
+    if (!gVr)
+        return which == 3 ? 300 : which == 4 ? 1 : 0;
+    const vr::Settings& ini = gVr->ini;
+    switch (which) {
+    case 0: return ini.view;
+    case 1: return ini.cutscenes;
+    case 2: return ini.vignette ? 1 : 0;
+    case 3: return int(std::lround(ini.cinemaDistance * 100.0f));
+    default:
+        for (int i = 0; i < 3; ++i)
+            if (std::abs(ini.cinemaWidth / ini.cinemaDistance - kVrScreenSize[i]) < 0.02f) return i;
+        return -1;
+    }
+}
 // the settings a game in progress takes from the menus' at once (the rest it read at its start: from the next game,
 // menu_pages.h menuInGameRows). Online the game rules stay the host's: only this PC's own draw / sound / input ones
 static void liveSettings(game::LaunchConfig& g, const game::LaunchConfig& m, bool online)
@@ -652,6 +710,10 @@ static void liveSettings(game::LaunchConfig& g, const game::LaunchConfig& m, boo
     gVrDualCfg = g.vrDual;
     g.vrLaser = m.vrLaser, g.vrCrosshair = m.vrCrosshair;   // vrsight
     gVrLaserCfg = g.vrLaser, gVrCrossCfg = g.vrCrosshair;
+    gVrMenuHandsCfg = g.vrMenuHands;   // questfb
+    g.vrView = m.vrView, g.vrScreenDist = m.vrScreenDist, g.vrScreenSize = m.vrScreenSize, g.vrCutscenes = m.vrCutscenes;
+    g.vrVignette = m.vrVignette;   // vrcomfort (VR is local)
+    vrComfortTake(g);
 }
 static bool gAutofireQuiet = false;   // the cut-scene viewer's seek: no "fire at" lines
 // the cut-scene viewer (game/scene_view.h; the Gallery's Cut-scenes page, --scene-view C:S)
@@ -749,7 +811,6 @@ static uint64_t gTrailerNote = 0;
 // play, the gun's ray as player 1's aim; null: off (nothing of VR runs). --vr-eye left / right / both (the preview's
 // window), --vr-head yaw,pitch,roll (degrees: the preview's head held there), --vr-preview-test (headless: the aim's
 // math, then --render with the preview, the round trip of the game's own aim each frame)
-static std::unique_ptr<vr::Scene> gVr;
 static std::string gVrBackend;
 static int gVrEye = 2;
 static bool gVrEyeSet = false;   // (vrnull: --vr-eye given: over vr.ini desktop_view)
@@ -864,6 +925,7 @@ static void vrFrame(game::Runtime& rt, game::GameView& view, game::Hud& hud, int
     // vrsight: Laser (VR) / Crosshair (VR) now (not set: vr.ini's)
     gVr->laserOn = gVrLaserCfg >= 0 ? gVrLaserCfg != 0 : gVr->settings.laser;
     gVr->crosshairOn = gVrCrossCfg >= 0 ? gVrCrossCfg != 0 : gVr->settings.crosshair;
+    vrComfortApply();   // vrcomfort: the Gameplay VR rows over vr.ini
     gVr->frame(f);
     if (gVr->lost()) {   // openxr: the runtime ended the session (its dashboard's quit, the headset gone): flat from now
         const bool exitAsked = gVr->exitAsked();   // (vrflow: the runtime's Quit: the game closes, below)
@@ -1100,7 +1162,8 @@ static void vrFlatFrame(SDL_Window* window, const char* where)
         int ww = 0, wh = 0, lw = 0, lh = 0;
         SDL_GetWindowSizeInPixels(window, &ww, &wh);
         SDL_GetWindowSize(window, &lw, &lh);
-        vr::Scene::Pointer p = gVr->panelFrame(0, ww, wh, lw, lh);
+        vrComfortApply();   // (vrcomfort: Screen Distance / Size (VR) on the menus' big screen)
+        vr::Scene::Pointer p = gVr->panelFrame(0, ww, wh, lw, lh, gVrMenuHandsCfg != 0 ? gVrPanelView : nullptr);
         // (testing, vrflow: HOTD_VR_PANEL_POINT=<u>,<v>: the ray held on that point of the big screen, 0..1 from the
         // top-left: the preview's scripted trigger clicks there; the preview's own ray follows the mouse it warps)
         if (static const char* pp = std::getenv("HOTD_VR_PANEL_POINT"); pp) {
@@ -5894,6 +5957,8 @@ int main(int argc, char* argv[])
     if (autoReloadOpt >= 0) cfg.autoReload = autoReloadOpt != 0;
     gVrDualCfg = cfg.vrDual;   // vr4: Gameplay > Dual Pistols (VR) (--vr-dual over it)
     gVrLaserCfg = cfg.vrLaser, gVrCrossCfg = cfg.vrCrosshair;   // vrsight: Laser (VR) / Crosshair (VR)
+    gVrMenuHandsCfg = cfg.vrMenuHands;   // questfb: Hands in Menus (VR)
+    vrComfortTake(cfg);   // vrcomfort: View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR)
     if (scoreDisplayOpt) cfg.scoreDisplay = true;
     if (gSubsModeOpt >= 0) cfg.subtitles = gSubsModeOpt;   // (subs)
     if (gSubsSizeOpt > 0) cfg.subtitleSize = std::clamp(gSubsSizeOpt, 25, 400);
@@ -7603,7 +7668,10 @@ int main(int argc, char* argv[])
                         t.frames, t.cinemaFrames, t.checked, t.checked ? t.sum / t.checked : 0.0, t.worst, t.over, t.blocked, t.depthHits);
             // ok: on average within 2 arcade units, and 98 % of the trips within 6 (an edge between two depths can
             // land the hit on the farther surface)
-            bool ok = t.checked > 0 && t.sum / t.checked < 2.0 && t.over * 50 <= t.checked;
+            // (vrcomfort: view = screen: no world round trips, the screen's below)
+            const bool screenView = gVr->settings.view == 1;
+            // (--quest-sim: GLES has no depth read-back, so no round trips are measured: the rest is checked)
+            bool ok = screenView || (gQuestSim && t.checked == 0) || (t.checked > 0 && t.sum / t.checked < 2.0 && t.over * 50 <= t.checked);
             // vr4 (offscreen_reload): the pulls by what they did, and the frames the game aimed well inside its screen
             // that the VR aim (the gun pointed there) did not take as on the screen: at most 2 % (a boss fight where
             // every shot reloads would fail here)
@@ -7633,6 +7701,8 @@ int main(int argc, char* argv[])
             std::printf("vr fix test: %d fireball draws moved out to 1.2 m; %d frames with the player's space's pitch held at "
                         "60 degrees; %d frames the left hand left out near the head\n", t.fireMoved, t.refPitchClamped,
                         t.leftNearHidden);   // (vrfix)
+            std::printf("vr menu hands test: %d big-screen frames, %d with the hands drawn (Hands in Menus %s)\n", t.panelFrames,
+                        t.panelHandFrames, gVrMenuHandsCfg != 0 ? "on" : "off");   // (questfb)
             ok = ok && t.handsShownOutside == 0 && t.handsHiddenInControl == 0;
             if (gVr->settings.vignette)   // bugs7: the comfort vignette ignores camera cuts (vr.ini vignette = on)
                 std::printf("vr vignette test: %d camera cuts ignored; the vignette over half %d frames\n", t.vignetteCuts,
@@ -7663,13 +7733,23 @@ int main(int argc, char* argv[])
                     sepOk = d.leftShots > 0 && d.leftReloads > 0 && d.leftEmptyRightNot > 0 && d.leftAlone > 0 && d.rightAlone > 0;
                 }
                 const bool dualOk = d.shots[0] > 0 && d.shots[1] > 0 && (d.shots[2] > 0 || d.sep) && rightHits > 0 && leftHits > 0 &&
-                                    d.hits[0] > 0 && t.leftChecked > 0 && t.leftSum / t.leftChecked < 2.0 && sepOk;
+                                    d.hits[0] > 0 && (screenView || (t.leftChecked > 0 && t.leftSum / t.leftChecked < 2.0)) && sepOk;   // (vrcomfort: on the screen the hits tell)
                 std::printf("vr dual test: %s (right gun %d hits, left gun %d hits)\n", dualOk ? "ok" : "FAILED", rightHits, leftHits);
                 ok = ok && dualOk;
             }
             if (gVr->settings.cutscenes == 1) {   // vr3: cutscenes = cinema: the cut-scenes were on the screen
                 std::printf("vr cinema test: %d frames on the cinema screen\n", t.cinemaFrames);
                 ok = ok && t.cinemaFrames > 0;
+            }
+            if (screenView) {   // vrcomfort: view = screen: play on the screen, the gun aimed through it
+                std::printf("vr screen view test: %d frames of play on the screen (screen %.1f m, %.2f m wide); %d round "
+                            "trips (the gun pointed at the last frame's aim on the screen), mean error %.3f, worst %.3f "
+                            "arcade units, %d over 2\n", t.screenPlayFrames, double(gVr->settings.cinemaDistance),
+                            double(gVr->settings.cinemaWidth), t.screenChecked,
+                            t.screenChecked ? t.screenSum / t.screenChecked : 0.0, t.screenWorst, t.screenOver);
+                // within half an arcade unit on average, 98 % within 2 (the screen's plane is exact: only the float math)
+                ok = ok && t.screenPlayFrames > 0 && t.screenChecked > 0 && t.screenSum / t.screenChecked < 0.5 &&
+                     t.screenOver * 50 <= t.screenChecked;
             }
             std::printf("vr preview test: %s\n", ok ? "ok" : "FAILED");
         }
@@ -12672,6 +12752,8 @@ int main(int argc, char* argv[])
                 saveCfg();
                 gVrDualCfg = menu.cfg.vrDual;   // (vr4: Dual Pistols (VR) at once, the paused game's too)
                 gVrLaserCfg = menu.cfg.vrLaser, gVrCrossCfg = menu.cfg.vrCrosshair;   // (vrsight: the same)
+                gVrMenuHandsCfg = menu.cfg.vrMenuHands;   // (questfb)
+                vrComfortTake(menu.cfg);   // (vrcomfort)
             };
             // vr4: Gameplay > Dual Pistols (VR) only in a VR run (its default: vr.ini dual_pistols)
             if (!gVrBackend.empty()) {
@@ -12679,6 +12761,7 @@ int main(int argc, char* argv[])
                 // vrsight: Laser (VR) / Crosshair (VR) the same way (their defaults: vr.ini laser / crosshair)
                 hooks.vrLaserDefault = []() { return gVr ? gVr->settings.laser : true; };
                 hooks.vrCrosshairDefault = []() { return gVr ? gVr->settings.crosshair : true; };
+                hooks.vrComfortDefault = vrComfortDefault;   // vrcomfort: View / Screen ... (VR): vr.ini's values
             }
             hooks.padsChanged = [&]() { pads.configure(menu.cfg); };   // (padfix: Controls > Aim Sensitivity)
             // padfix: the pad family the prompts show now (Button Style's grey choices): the pad used last, else
@@ -15297,7 +15380,9 @@ int main(int argc, char* argv[])
                     tourFrame = 0;
             }
             drawGunAids(menu.cfg, ww, wh, false);   // padpass: a Sinden's white border on the menus too
+            gVrPanelView = liveView ? liveView.get() : view.get();   // (questfb: the menus' hands)
             vrFlatFrame(window, "menu");   // (quest: on the big screen in VR)
+            gVrPanelView = nullptr;
             menuPace();   // (menuperf: on the display's beat, was a 16 ms sleep)
             int action = gOverGame ? -1 : feAction;   // (fxux: the in-game Settings start nothing)
             feAction = -1;
@@ -15572,7 +15657,9 @@ int main(int argc, char* argv[])
                 if (!shotAt.empty())   // a scripted run ends here
                     running = false;
             }
+            gVrPanelView = view.get();   // (questfb: the hands)
             vrFlatFrame(window, "end screen");   // (quest: on the big screen in VR)
+            gVrPanelView = nullptr;
             menuPace();   // (menuperf: on the display's beat, was a 16 ms sleep)
             if (back) {
                 leaveGame();

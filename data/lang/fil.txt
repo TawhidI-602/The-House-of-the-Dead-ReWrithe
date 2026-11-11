@@ -1764,3 +1764,20 @@ Copy all your friends' reply codes from the chat at once and paste them here (Ct
 
 # vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
 {buttons}: Pause = {buttons}: Pause
+
+# vrcomfort: Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR); questfb: Hands in Menus (VR)
+View (VR) = Tanaw (VR)
+Immersive: the world all around you. Screen: the game on a big screen in front of you, for less motion sickness. VR only = Immersive: ang mundo sa paligid mo. Screen: ang laro sa malaking screen sa harap mo, para hindi masyadong mahilo. VR lang
+Immersive = Immersive
+Screen = Screen
+Screen Distance (VR) = Layo ng Screen (VR)
+How far away the big screen is (Screen view, cut-scenes on the screen, the menus). VR only = Gaano kalayo ang malaking screen (Screen view, mga cut-scene sa screen, ang mga menu). VR lang
+Screen Size (VR) = Laki ng Screen (VR)
+How big the big screen looks (Screen view, cut-scenes on the screen, the menus). VR only = Gaano kalaki ang itsura ng malaking screen (Screen view, mga cut-scene sa screen, ang mga menu). VR lang
+Cut-scenes (VR) = Mga Cut-scene (VR)
+World: the cut-scenes play all around you. Screen: on a big screen in front of you. VR only = World: ang mga cut-scene ay nagpe-play sa paligid mo. Screen: sa malaking screen sa harap mo. VR lang
+World = World
+Comfort Vignette (VR) = Comfort Vignette (VR)
+Darkens the edges of the view while the camera turns fast, for less motion sickness. VR only = Pinapadilim ang mga gilid ng tanaw habang mabilis na umiikot ang camera, para hindi masyadong mahilo. VR lang
+Hands in Menus (VR) = Kamay sa mga Menu (VR)
+Your hands and gun in front of the menus' big screen. VR only = Ang iyong mga kamay at baril sa harap ng malaking screen ng mga menu. VR lang

@@ -1764,3 +1764,20 @@ Copy all your friends' reply codes from the chat at once and paste them here (Ct
 
 # vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
 {buttons}: Pause = {buttons}: Pauze
+
+# vrcomfort: Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR); questfb: Hands in Menus (VR)
+View (VR) = Weergave (VR)
+Immersive: the world all around you. Screen: the game on a big screen in front of you, for less motion sickness. VR only = Immersief: de wereld om je heen. Scherm: het spel op een groot scherm voor je, tegen wagenziekte. Alleen VR
+Immersive = Immersief
+Screen = Scherm
+Screen Distance (VR) = Afstand tot scherm (VR)
+How far away the big screen is (Screen view, cut-scenes on the screen, the menus). VR only = Hoe ver het grote scherm weg staat (schermweergave, filmpjes op het scherm, de menu's). Alleen VR
+Screen Size (VR) = Schermgrootte (VR)
+How big the big screen looks (Screen view, cut-scenes on the screen, the menus). VR only = Hoe groot het grote scherm eruitziet (schermweergave, filmpjes op het scherm, de menu's). Alleen VR
+Cut-scenes (VR) = Filmpjes (VR)
+World: the cut-scenes play all around you. Screen: on a big screen in front of you. VR only = Wereld: de filmpjes spelen zich om je heen af. Scherm: op een groot scherm voor je. Alleen VR
+World = Wereld
+Comfort Vignette (VR) = Comfortvignet (VR)
+Darkens the edges of the view while the camera turns fast, for less motion sickness. VR only = Verduistert de randen van het beeld terwijl de camera snel draait, tegen wagenziekte. Alleen VR
+Hands in Menus (VR) = Handen in menu's (VR)
+Your hands and gun in front of the menus' big screen. VR only = Je handen en pistool voor het grote scherm van de menu's. Alleen VR

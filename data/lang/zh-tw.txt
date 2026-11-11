@@ -1766,3 +1766,20 @@ Copy all your friends' reply codes from the chat at once and paste them here (Ct
 
 # vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
 {buttons}: Pause = {buttons}: 暫停
+
+# vrcomfort: Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR); questfb: Hands in Menus (VR)
+View (VR) = 檢視（VR）
+Immersive: the world all around you. Screen: the game on a big screen in front of you, for less motion sickness. VR only = 沉浸：世界環繞在你四周。螢幕：遊戲顯示在你面前的大螢幕上，減輕暈動症。僅限 VR
+Immersive = 沉浸
+Screen = 螢幕
+Screen Distance (VR) = 螢幕距離（VR）
+How far away the big screen is (Screen view, cut-scenes on the screen, the menus). VR only = 大螢幕有多遠（螢幕檢視、螢幕上的過場動畫、選單）。僅限 VR
+Screen Size (VR) = 螢幕大小（VR）
+How big the big screen looks (Screen view, cut-scenes on the screen, the menus). VR only = 大螢幕看起來有多大（螢幕檢視、螢幕上的過場動畫、選單）。僅限 VR
+Cut-scenes (VR) = 過場動畫（VR）
+World: the cut-scenes play all around you. Screen: on a big screen in front of you. VR only = 世界：過場動畫在你四周播放。螢幕：在你面前的大螢幕上播放。僅限 VR
+World = 世界
+Comfort Vignette (VR) = 舒適暗角（VR）
+Darkens the edges of the view while the camera turns fast, for less motion sickness. VR only = 攝影機快速轉動時壓暗視野邊緣，減輕暈動症。僅限 VR
+Hands in Menus (VR) = 選單中的手（VR）
+Your hands and gun in front of the menus' big screen. VR only = 在選單的大螢幕前顯示你的手和槍。僅限 VR

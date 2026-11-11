@@ -1034,7 +1034,11 @@ private:
     // auto: 72 Hz asked for the rest of the session
     void dynamicResolution(uint64_t now, XrTime period, bool late)
     {
-        constexpr float kMinScale = 0.6f;
+        // questfb (user 2026-11-10 on the Quest 3: "in game it looks a little worse ... the resolution", the menu blurry):
+        // the log had the scale at its floor all through Chapter 1 with the GPU still 11-15 ms (the pixels are not what
+        // costs), and pushed there by the loading's CPU-late frames (GPU 1.5 ms): the floor 0.8, and with the GPU's
+        // time known, late frames alone (the CPU's) no longer lower it
+        constexpr float kMinScale = 0.8f;
         if (late) ++dynLate_;
         ++dynFrames_;
         if (!dynT0_) dynT0_ = now;
@@ -1048,10 +1052,11 @@ private:
         }
         const double lateFrac = double(dynLate_) / double(std::max(dynFrames_, 1));
         const float was = eyeScale_;
-        if ((gpu > budget && gpu < 1000.0) || lateFrac > 0.1) {
+        const bool gpuKnown = gpu >= 0 && gpu < 1000.0;
+        if ((gpuKnown && gpu > budget) || (!gpuKnown && lateFrac > 0.1)) {
             const double f = gpu > budget && gpu < 1000.0 ? std::sqrt(budget / (gpu * 1.1)) : 0.9;
             eyeScale_ = std::max(kMinScale, float(double(eyeScale_) * std::clamp(f, 0.75, 0.97)));
-        } else if (gpu >= 0 && gpu < budget * 0.7 && dynLate_ == 0) {
+        } else if (gpuKnown && gpu < budget * 0.7) {
             eyeScale_ = std::min(1.0f, eyeScale_ + 0.03f);
         }
         if (std::abs(eyeScale_ - dynLogged_) >= 0.05f || (eyeScale_ == 1.0f && dynLogged_ != 1.0f)) {
@@ -1060,7 +1065,7 @@ private:
                     double(eyeScale_), eyeW(0), eyeH(0), gpu, budget, dynLate_, dynFrames_);
         }
         // the smallest and still late: 72 Hz (refresh_rate auto only; once a session)
-        dynFloorLate_ = was <= kMinScale + 0.001f && lateFrac > 0.1 ? dynFloorLate_ + 1 : 0;
+        dynFloorLate_ = was <= kMinScale + 0.001f && lateFrac > 0.1 && (!gpuKnown || gpu > budget) ? dynFloorLate_ + 1 : 0;
         if (dynFloorLate_ >= 6 && refreshWant_ == 0 && refreshAsked_ > 75.0f) {
             PFN_xrRequestDisplayRefreshRateFB request = nullptr;
             xrGetInstanceProcAddr(instance_, "xrRequestDisplayRefreshRateFB", reinterpret_cast<PFN_xrVoidFunction*>(&request));

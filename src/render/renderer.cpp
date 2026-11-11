@@ -3,6 +3,8 @@
 #include "assets/mods.h"
 #include "render/gamma.h"
 
+#include <SDL3/SDL.h>
+
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -538,6 +540,9 @@ void prepassDiscards() {
 )"  // (MSVC: the raw string's size limit)
 R"(
 void main() {
+#ifdef BAND_SHIFT_TEST
+    if (uBandShift > 1e30) discard;   // (sinkfix test: an extra uniform first, the others at other places)
+#endif
 #ifdef SORT_FRAGDEPTH
     gl_FragDepth = vSortDepth >= 0.0 ? vSortDepth : gl_FragCoord.z;   // Arcade Sort: the polygon's key (vertex shader)
 #endif
@@ -1077,88 +1082,56 @@ bool Renderer::init(std::string& err)
         return pr;
     };
     // depthfix: Depth Buffer's key band per pixel (KEY_BAND_FRAG: gl_FragDepth, so its own program: the other modes
-    // keep the early depth test). Used only when every uniform has the same location in both programs (the draw sends
-    // them by the main program's locations); else the band stays per vertex
+    // keep the early depth test). The draw sends the uniforms by the main program's locations (the members below)
     std::string bandErr;
-    programBand_ = link("#define KEY_BAND_FRAG 1\n", bandErr);
+    // (HOTD_BAND_SHIFT=1, testing: one more uniform in the band program, declared first, so that its other uniforms
+    // may get other locations than the main program's, as on the Quest's driver)
+    static const bool bandShift = std::getenv("HOTD_BAND_SHIFT") && *std::getenv("HOTD_BAND_SHIFT") == '1';
+    programBand_ = link(bandShift ? "#define KEY_BAND_FRAG 1\n#define BAND_SHIFT_TEST 1\nuniform float uBandShift;\n"
+                                  : "#define KEY_BAND_FRAG 1\n", bandErr);
     if (!programBand_)
-        std::fprintf(stderr, "renderer: key band program: %s (per vertex instead)\n", bandErr.c_str());
+        SDL_Log("renderer: key band program: %s (per vertex instead)", bandErr.c_str());
     program_ = link(nullptr, err);
     if (!program_) return false;
-    if (programBand_) {
-        for (const char* src : {kVertexShader, kFragmentShader})
-            for (const char* q = std::strstr(src, "uniform "); q && programBand_; q = std::strstr(q + 8, "uniform ")) {
-                const char* nm = std::strchr(q + 8, ' ');
-                if (!nm) break;
-                std::string name;
-                for (++nm; *nm && (std::isalnum((unsigned char)*nm) || *nm == '_'); ++nm) name += *nm;
-                if (!name.empty() && gl::GetUniformLocation(program_, name.c_str()) != gl::GetUniformLocation(programBand_, name.c_str())) {
-                    std::fprintf(stderr, "renderer: key band program: uniform %s at another place (per vertex instead)\n", name.c_str());
-                    gl::DeleteProgram(programBand_);
-                    programBand_ = 0;
-                }
-            }
-        gl::UseProgram(program_);
-    }
-    uSort_ = gl::GetUniformLocation(program_, "uSort");
-    uHybrid_ = gl::GetUniformLocation(program_, "uHybrid");
-    uKeyless_ = gl::GetUniformLocation(program_, "uKeyless");
-    uProj_ = gl::GetUniformLocation(program_, "uProj");
-    uBiasScale_ = gl::GetUniformLocation(program_, "uBiasScale");
-    uSortItem_ = gl::GetUniformLocation(program_, "uSortItem");
-    uPrepass_ = gl::GetUniformLocation(program_, "uPrepass");
-    uHasRepl_ = gl::GetUniformLocation(program_, "uHasRepl");
-    uPcFilter_ = gl::GetUniformLocation(program_, "uPcFilter");
-    uGreyRepl_ = gl::GetUniformLocation(program_, "uGreyRepl");
     gl::GenTextures(1, &palAnim_);
     setPaletteAnimation(nullptr);
     makeSpareTextures();
-    uViewProj_ = gl::GetUniformLocation(program_, "uViewProj");
-    uOffset_ = gl::GetUniformLocation(program_, "uOffset");
-    uRot_ = gl::GetUniformLocation(program_, "uRot");
-    uUVScroll_ = gl::GetUniformLocation(program_, "uUVScroll");
-    uShading_ = gl::GetUniformLocation(program_, "uShading");
-    uLighting_ = gl::GetUniformLocation(program_, "uLighting");
-    uLightDir_ = gl::GetUniformLocation(program_, "uLightDir");
-    uAmbient_ = gl::GetUniformLocation(program_, "uAmbient");
-    uFilter_ = gl::GetUniformLocation(program_, "uFilter");
-    uTransp_ = gl::GetUniformLocation(program_, "uTransp");
-    uCamPos_ = gl::GetUniformLocation(program_, "uCamPos");
-    uM2Known_ = gl::GetUniformLocation(program_, "uM2Known");
-    uM2Gamma_ = gl::GetUniformLocation(program_, "uM2Gamma");
-    uM2Black_ = gl::GetUniformLocation(program_, "uM2Black");
-    uCull_ = gl::GetUniformLocation(program_, "uCull");
-    uMip_ = gl::GetUniformLocation(program_, "uMip");
-    uPcCullSign_ = gl::GetUniformLocation(program_, "uPcCullSign");
-    uClampUV_ = gl::GetUniformLocation(program_, "uClampUV");
-    uDepthBias_ = gl::GetUniformLocation(program_, "uDepthBias");
-    uFloorY_ = gl::GetUniformLocation(program_, "uFloorY");
-    uFloorPull_ = gl::GetUniformLocation(program_, "uFloorPull");
-    uPush_ = gl::GetUniformLocation(program_, "uPush");
-    uFade_ = gl::GetUniformLocation(program_, "uFade");
-    uSideOnly_ = gl::GetUniformLocation(program_, "uSideOnly");
-    uSideClip_ = gl::GetUniformLocation(program_, "uSideClip");
-    uFlat_ = gl::GetUniformLocation(program_, "uFlat");
-    uTie_ = gl::GetUniformLocation(program_, "uTie");
-    uTieItem_ = gl::GetUniformLocation(program_, "uTieItem");
-    uIdMode_ = gl::GetUniformLocation(program_, "uIdMode");
-    uGrey_ = gl::GetUniformLocation(program_, "uGrey");
-    uRainbow_ = gl::GetUniformLocation(program_, "uRainbow");   // (cosmods)
-    uRainbowPhase_ = gl::GetUniformLocation(program_, "uRainbowPhase");
-    uBloodRgb_ = gl::GetUniformLocation(program_, "uBloodRgb");
-    uRainbowTable_ = gl::GetUniformLocation(program_, "uRainbowTable");
-    uRainbowGame_ = gl::GetUniformLocation(program_, "uRainbowGame");
-    uRainbowSync_ = gl::GetUniformLocation(program_, "uRainbowSync");
-    uBloodRows_ = gl::GetUniformLocation(program_, "uBloodRows");   // (rainbow2)
-    uSepia_ = gl::GetUniformLocation(program_, "uSepia");
-    uM2Light_ = gl::GetUniformLocation(program_, "uM2Light");
-    uM2Diffuse_ = gl::GetUniformLocation(program_, "uM2Diffuse");
-    uM2Ambient_ = gl::GetUniformLocation(program_, "uM2Ambient");
-    uM2SpecScale_ = gl::GetUniformLocation(program_, "uM2SpecScale");
-    uM2SpecCtl_ = gl::GetUniformLocation(program_, "uM2SpecCtl");
-    uCamFwd_ = gl::GetUniformLocation(program_, "uCamFwd");
-    uSideCover_ = gl::GetUniformLocation(program_, "uSideCover");
-    uCover_ = gl::GetUniformLocation(program_, "uCover");
+    // the uniforms the draw sends, by name (each member: its location in program_)
+    const std::pair<const char*, gl::GLint*> uniforms[] = {
+        {"uSort", &uSort_}, {"uHybrid", &uHybrid_}, {"uKeyless", &uKeyless_}, {"uProj", &uProj_},
+        {"uBiasScale", &uBiasScale_}, {"uSortItem", &uSortItem_}, {"uPrepass", &uPrepass_}, {"uHasRepl", &uHasRepl_},
+        {"uPcFilter", &uPcFilter_}, {"uGreyRepl", &uGreyRepl_}, {"uViewProj", &uViewProj_}, {"uOffset", &uOffset_},
+        {"uRot", &uRot_}, {"uUVScroll", &uUVScroll_}, {"uShading", &uShading_}, {"uLighting", &uLighting_},
+        {"uLightDir", &uLightDir_}, {"uAmbient", &uAmbient_}, {"uFilter", &uFilter_}, {"uTransp", &uTransp_},
+        {"uCamPos", &uCamPos_}, {"uM2Known", &uM2Known_}, {"uM2Gamma", &uM2Gamma_}, {"uM2Black", &uM2Black_},
+        {"uCull", &uCull_}, {"uMip", &uMip_}, {"uPcCullSign", &uPcCullSign_}, {"uClampUV", &uClampUV_},
+        {"uDepthBias", &uDepthBias_}, {"uFloorY", &uFloorY_}, {"uFloorPull", &uFloorPull_}, {"uPush", &uPush_},
+        {"uFade", &uFade_}, {"uSideOnly", &uSideOnly_}, {"uSideClip", &uSideClip_}, {"uFlat", &uFlat_},
+        {"uTie", &uTie_}, {"uTieItem", &uTieItem_}, {"uIdMode", &uIdMode_}, {"uGrey", &uGrey_},
+        {"uRainbow", &uRainbow_}, {"uRainbowPhase", &uRainbowPhase_}, {"uBloodRgb", &uBloodRgb_},   // (cosmods)
+        {"uRainbowTable", &uRainbowTable_}, {"uRainbowGame", &uRainbowGame_}, {"uRainbowSync", &uRainbowSync_},
+        {"uBloodRows", &uBloodRows_}, {"uSepia", &uSepia_}, {"uM2Light", &uM2Light_}, {"uM2Diffuse", &uM2Diffuse_},
+        {"uM2Ambient", &uM2Ambient_}, {"uM2SpecScale", &uM2SpecScale_}, {"uM2SpecCtl", &uM2SpecCtl_},
+        {"uCamFwd", &uCamFwd_}, {"uSideCover", &uSideCover_}, {"uCover", &uCover_},
+        {"uPalOver", &uPalOver_}, {"uPcTint", &uPcTint_}, {"uRamp", &uRamp_}, {"uRampStops", &uRampStops_},   // (v1.3.1, 4P)
+        {"uBodyHue", &uBodyHue_}};   // (cosmods: Rainbow Blood's creature colour)
+    for (const auto& [name, loc] : uniforms)
+        *loc = gl::GetUniformLocation(program_, name);
+    // sinkfix (user 2026-11-10 on the Quest 3: "in vr the first researcher is sinking to the pavement"): the locations
+    // are the driver's choice. Before, any uniform at another place in the band program (even a sampler, which link()
+    // sets in each program anyway) dropped that program (the band per vertex: the opening's feet in the kerb, as
+    // before vrnull; reproduced with HOTD_BAND_SHIFT: "uniform uPalAnim at another place (per vertex instead)"),
+    // which a native driver (the Quest's Adreno) may do while desktop OpenGL and ANGLE give both programs the same
+    // places. Now the draw swaps in the band program's own locations while that program is in use
+    bandLocs_.clear();
+    if (programBand_) {
+        for (const auto& [name, loc] : uniforms)
+            if (const gl::GLint b = gl::GetUniformLocation(programBand_, name); b != *loc) bandLocs_.push_back({loc, b});
+        if (!bandLocs_.empty())
+            SDL_Log("renderer: key band program: %zu uniform(s) at other places than the main program's (remapped)",
+                    bandLocs_.size());
+    }
+    gl::UseProgram(program_);
     gl::GenTextures(1, &coverTex_);   // render5: resized by draw when it is used; 1 x 1 until then (a complete texture)
     gl::BindTexture(gl::TEXTURE_2D, coverTex_);
     gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, 1, 1, 0, gl::RGBA, gl::UNSIGNED_BYTE, nullptr);
@@ -1629,6 +1602,13 @@ void Renderer::draw(const std::vector<DrawItem>& items, const Camera& cam, int w
     const float band = sort ? 0.0f : bandEnv ? std::max(0.0f, float(std::atof(bandEnv))) : cam.keyBand >= 0.0f ? cam.keyBand : cam.perPixelDepth ? kKeyBandFreeCam : kKeyBand;
     const bool bandFrag = band > 0.0f && programBand_ != 0;
     gl::UseProgram(bandFrag ? programBand_ : program_);
+    // sinkfix: the band program's own uniform locations where its driver placed them elsewhere (init), for this draw
+    struct LocSwap {
+        std::vector<std::pair<gl::GLint*, gl::GLint>>* locs;
+        void swap() const { for (auto& [m, l] : *locs) std::swap(*m, l); }
+        ~LocSwap() { if (locs) swap(); }
+    } locSwap{bandFrag && !bandLocs_.empty() ? &bandLocs_ : nullptr};
+    if (locSwap.locs) locSwap.swap();
     gl::ActiveTexture(gl::TEXTURE0 + 3);
     gl::BindTexture(gl::TEXTURE_2D, palAnim_);
     gl::ActiveTexture(gl::TEXTURE0 + 9);   // (render5: uCover, a complete texture under its sampler)
@@ -1752,14 +1732,8 @@ void Renderer::draw(const std::vector<DrawItem>& items, const Camera& cam, int w
         unitTex[unit] = tex;
         unitKnown[unit] = true;
     };
-    static gl::GLint uRamp = -2, uStops = -2, uBodyHue = -2, uPalOver = -2, uPcTint = -2;
-    if (uRamp == -2) {
-        uPalOver = gl::GetUniformLocation(program_, "uPalOver");   // (v1.3.1: the afterimages' own colours)
-        uPcTint = gl::GetUniformLocation(program_, "uPcTint");
-        uRamp = gl::GetUniformLocation(program_, "uRamp");
-        uStops = gl::GetUniformLocation(program_, "uRampStops");
-        uBodyHue = gl::GetUniformLocation(program_, "uBodyHue");   // (cosmods: Rainbow Blood's creature colour)
-    }
+    // (sinkfix: members fetched in init, this program's; were statics, the first renderer's program for every renderer)
+    const gl::GLint uRamp = uRamp_, uStops = uRampStops_, uBodyHue = uBodyHue_, uPalOver = uPalOver_, uPcTint = uPcTint_;
     int rampStopsSent = -1;
     // Renderer::debugTie / debugIds (debugging): the same for every item; the item's index only when either reads it
     gl::Uniform1f(uTie_, float(debugTie));

@@ -1767,3 +1767,20 @@ Copy all your friends' reply codes from the chat at once and paste them here (Ct
 
 # vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
 {buttons}: Pause = {buttons}: Παύση
+
+# vrcomfort: Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR); questfb: Hands in Menus (VR)
+View (VR) = Προβολή (VR)
+Immersive: the world all around you. Screen: the game on a big screen in front of you, for less motion sickness. VR only = Εμβυθιστική: ο κόσμος γύρω σου. Οθόνη: το παιχνίδι σε μεγάλη οθόνη μπροστά σου, για λιγότερη ναυτία. Μόνο VR
+Immersive = Εμβυθιστική
+Screen = Οθόνη
+Screen Distance (VR) = Απόσταση οθόνης (VR)
+How far away the big screen is (Screen view, cut-scenes on the screen, the menus). VR only = Πόσο μακριά βρίσκεται η μεγάλη οθόνη (προβολή Οθόνη, ενδιάμεσες σκηνές στην οθόνη, τα μενού). Μόνο VR
+Screen Size (VR) = Μέγεθος οθόνης (VR)
+How big the big screen looks (Screen view, cut-scenes on the screen, the menus). VR only = Πόσο μεγάλη φαίνεται η μεγάλη οθόνη (προβολή Οθόνη, ενδιάμεσες σκηνές στην οθόνη, τα μενού). Μόνο VR
+Cut-scenes (VR) = Ενδιάμεσες σκηνές (VR)
+World: the cut-scenes play all around you. Screen: on a big screen in front of you. VR only = Κόσμος: οι ενδιάμεσες σκηνές παίζουν γύρω σου. Οθόνη: σε μεγάλη οθόνη μπροστά σου. Μόνο VR
+World = Κόσμος
+Comfort Vignette (VR) = Βινιέτα άνεσης (VR)
+Darkens the edges of the view while the camera turns fast, for less motion sickness. VR only = Σκουραίνει τις άκρες της εικόνας ενώ η κάμερα γυρίζει γρήγορα, για λιγότερη ναυτία. Μόνο VR
+Hands in Menus (VR) = Χέρια στα μενού (VR)
+Your hands and gun in front of the menus' big screen. VR only = Τα χέρια και το όπλο σου μπροστά στη μεγάλη οθόνη των μενού. Μόνο VR

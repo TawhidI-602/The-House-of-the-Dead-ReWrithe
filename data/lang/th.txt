@@ -1767,3 +1767,20 @@ Copy all your friends' reply codes from the chat at once and paste them here (Ct
 
 # vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
 {buttons}: Pause = {buttons}: หยุด
+
+# vrcomfort: Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR); questfb: Hands in Menus (VR)
+View (VR) = มุมมอง (VR)
+Immersive: the world all around you. Screen: the game on a big screen in front of you, for less motion sickness. VR only = เต็มโลก: โลกรอบตัวคุณ หน้าจอ: เกมบนหน้าจอใหญ่ตรงหน้าคุณ เพื่อลดอาการเมา เฉพาะ VR
+Immersive = เต็มโลก
+Screen = หน้าจอ
+Screen Distance (VR) = ระยะหน้าจอ (VR)
+How far away the big screen is (Screen view, cut-scenes on the screen, the menus). VR only = หน้าจอใหญ่อยู่ไกลแค่ไหน (มุมมองหน้าจอ ฉากคัตซีนบนหน้าจอ เมนู) เฉพาะ VR
+Screen Size (VR) = ขนาดหน้าจอ (VR)
+How big the big screen looks (Screen view, cut-scenes on the screen, the menus). VR only = หน้าจอใหญ่ดูใหญ่แค่ไหน (มุมมองหน้าจอ ฉากคัตซีนบนหน้าจอ เมนู) เฉพาะ VR
+Cut-scenes (VR) = ฉากคัตซีน (VR)
+World: the cut-scenes play all around you. Screen: on a big screen in front of you. VR only = โลก: ฉากคัตซีนเล่นรอบตัวคุณ หน้าจอ: บนหน้าจอใหญ่ตรงหน้าคุณ เฉพาะ VR
+World = โลก
+Comfort Vignette (VR) = ขอบมืดเพื่อความสบาย (VR)
+Darkens the edges of the view while the camera turns fast, for less motion sickness. VR only = ทำให้ขอบภาพมืดลงขณะที่กล้องหมุนเร็ว เพื่อลดอาการเมา เฉพาะ VR
+Hands in Menus (VR) = มือในเมนู (VR)
+Your hands and gun in front of the menus' big screen. VR only = มือและปืนของคุณอยู่หน้าหน้าจอใหญ่ของเมนู เฉพาะ VR

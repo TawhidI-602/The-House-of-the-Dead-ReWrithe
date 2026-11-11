@@ -1764,3 +1764,20 @@ Copy all your friends' reply codes from the chat at once and paste them here (Ct
 
 # vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
 {buttons}: Pause = {buttons}: Pause
+
+# vrcomfort: Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR); questfb: Hands in Menus (VR)
+View (VR) = Visning (VR)
+Immersive: the world all around you. Screen: the game on a big screen in front of you, for less motion sickness. VR only = Oppslukende: verden rundt deg. Skjerm: spillet på en stor skjerm foran deg, for mindre reisesyke. Bare VR
+Immersive = Oppslukende
+Screen = Skjerm
+Screen Distance (VR) = Skjermavstand (VR)
+How far away the big screen is (Screen view, cut-scenes on the screen, the menus). VR only = Hvor langt unna den store skjermen er (skjermvisning, filmsekvenser på skjermen, menyene). Bare VR
+Screen Size (VR) = Skjermstørrelse (VR)
+How big the big screen looks (Screen view, cut-scenes on the screen, the menus). VR only = Hvor stor den store skjermen ser ut (skjermvisning, filmsekvenser på skjermen, menyene). Bare VR
+Cut-scenes (VR) = Filmsekvenser (VR)
+World: the cut-scenes play all around you. Screen: on a big screen in front of you. VR only = Verden: filmsekvensene spilles av rundt deg. Skjerm: på en stor skjerm foran deg. Bare VR
+World = Verden
+Comfort Vignette (VR) = Komfortvignett (VR)
+Darkens the edges of the view while the camera turns fast, for less motion sickness. VR only = Mørkner kantene av synsfeltet mens kameraet snur raskt, for mindre reisesyke. Bare VR
+Hands in Menus (VR) = Hender i menyer (VR)
+Your hands and gun in front of the menus' big screen. VR only = Hendene og pistolen dine foran menyenes store skjerm. Bare VR

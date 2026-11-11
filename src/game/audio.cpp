@@ -343,6 +343,12 @@ bool Audio::init(const std::string& pcRoot, bool device, std::string& err)
     }
     if (!device)
         return true;
+#if defined(__ANDROID__)
+    // questfb (user 2026-11-10 on the Quest 3: "the audio had crackling"): AAudio's low-latency mode takes tiny bursts
+    // that the game's 15-17 ms CPU spikes in Chapter 1 (the Quest's log) leave empty; its default mode keeps a deeper
+    // buffer (a few ms more latency; the gun's sound is still well under a frame pair late)
+    SDL_SetHint(SDL_HINT_ANDROID_LOW_LATENCY_AUDIO, "0");
+#endif
     if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
         err = std::string("audio: ") + SDL_GetError();
         return false;

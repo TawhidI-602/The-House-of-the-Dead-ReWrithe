@@ -1766,3 +1766,20 @@ Copy all your friends' reply codes from the chat at once and paste them here (Ct
 
 # vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
 {buttons}: Pause = {buttons}: Pausa
+
+# vrcomfort: Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR); questfb: Hands in Menus (VR)
+View (VR) = Vista (RV)
+Immersive: the world all around you. Screen: the game on a big screen in front of you, for less motion sickness. VR only = Inmersiva: el mundo a tu alrededor. Pantalla: el juego en una pantalla grande frente a ti, para marearse menos. Solo en RV
+Immersive = Inmersiva
+Screen = Pantalla
+Screen Distance (VR) = Distancia de pantalla (RV)
+How far away the big screen is (Screen view, cut-scenes on the screen, the menus). VR only = A qué distancia está la pantalla grande (vista Pantalla, escenas en la pantalla, los menús). Solo en RV
+Screen Size (VR) = Tamaño de pantalla (RV)
+How big the big screen looks (Screen view, cut-scenes on the screen, the menus). VR only = Qué tan grande se ve la pantalla grande (vista Pantalla, escenas en la pantalla, los menús). Solo en RV
+Cut-scenes (VR) = Escenas (RV)
+World: the cut-scenes play all around you. Screen: on a big screen in front of you. VR only = Mundo: las escenas se reproducen a tu alrededor. Pantalla: en una pantalla grande frente a ti. Solo en RV
+World = Mundo
+Comfort Vignette (VR) = Viñeta de confort (RV)
+Darkens the edges of the view while the camera turns fast, for less motion sickness. VR only = Oscurece los bordes de la vista mientras la cámara gira rápido, para marearse menos. Solo en RV
+Hands in Menus (VR) = Manos en los menús (RV)
+Your hands and gun in front of the menus' big screen. VR only = Tus manos y tu pistola frente a la pantalla grande de los menús. Solo en RV

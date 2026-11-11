@@ -1767,3 +1767,20 @@ Copy all your friends' reply codes from the chat at once and paste them here (Ct
 
 # vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
 {buttons}: Pause = {buttons}: Tạm dừng
+
+# vrcomfort: Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR); questfb: Hands in Menus (VR)
+View (VR) = Góc nhìn (VR)
+Immersive: the world all around you. Screen: the game on a big screen in front of you, for less motion sickness. VR only = Nhập vai: thế giới bao quanh bạn. Màn hình: trò chơi trên màn hình lớn trước mặt bạn, để đỡ chóng mặt. Chỉ VR
+Immersive = Nhập vai
+Screen = Màn hình
+Screen Distance (VR) = Khoảng cách màn hình (VR)
+How far away the big screen is (Screen view, cut-scenes on the screen, the menus). VR only = Màn hình lớn ở cách bao xa (góc nhìn Màn hình, cảnh phim trên màn hình, các menu). Chỉ VR
+Screen Size (VR) = Kích thước màn hình (VR)
+How big the big screen looks (Screen view, cut-scenes on the screen, the menus). VR only = Màn hình lớn trông to cỡ nào (góc nhìn Màn hình, cảnh phim trên màn hình, các menu). Chỉ VR
+Cut-scenes (VR) = Cảnh phim (VR)
+World: the cut-scenes play all around you. Screen: on a big screen in front of you. VR only = Thế giới: cảnh phim diễn ra xung quanh bạn. Màn hình: trên màn hình lớn trước mặt bạn. Chỉ VR
+World = Thế giới
+Comfort Vignette (VR) = Viền mờ thoải mái (VR)
+Darkens the edges of the view while the camera turns fast, for less motion sickness. VR only = Làm tối các cạnh của khung hình khi camera xoay nhanh, để đỡ chóng mặt. Chỉ VR
+Hands in Menus (VR) = Tay trong menu (VR)
+Your hands and gun in front of the menus' big screen. VR only = Tay và súng của bạn trước màn hình lớn của các menu. Chỉ VR

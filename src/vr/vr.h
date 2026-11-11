@@ -122,6 +122,11 @@ struct Settings {
     int cutscenes = 0;
     float cinemaDistance = 3.0f;
     float cinemaWidth = 4.0f;
+    // vrcomfort (user 2026-11-10, a player's wish: "a window at a certain distance to prevent motion sickness or an
+    // immersive mode"; docs/vr.md "Screen view"): 0 immersive (the world around you, the default), 1 screen (the whole
+    // game, play too, on the cinema screen: cinemaDistance / cinemaWidth; the gun aims where its ray meets the screen).
+    // In game: Options > Gameplay > View (VR) over it (launcher.ini vrview=)
+    int view = 0;
     // vrnull (user 2026-11-09, docs/vr.md "The desktop window"): the game's window during VR: 0 eye (one eye, the
     // left, filling the window cropped to its shape), 1 both (the two eyes side by side), 2 spectator (the flat game's
     // picture from the game camera with the HUD and player 1's sight: for watching / streaming). The preview's own
@@ -181,7 +186,7 @@ struct Settings {
 #endif
     bool foveationDynamic = true;
     bool perfCycle = false;
-    // questperf: the Quest's dynamic resolution: the eyes drawn into a smaller part of their images (down to 0.6 x
+    // questperf: the Quest's dynamic resolution: the eyes drawn into a smaller part of their images (down to 0.8 x; questfb, was 0.6 x
     // resolution_scale) while the GPU's frame time is over the display's budget, back up when there is room; at the
     // smallest and still late with refresh_rate auto, the display goes to 72 Hz for the session
 #if defined(__ANDROID__)

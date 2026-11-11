@@ -269,6 +269,13 @@ bool LaunchConfig::load(const std::string& file)
         if (k == "charselect") { charSelect = n != 0; continue; }   // charsel: Gameplay > Character Select
         if (k == "vrdual") { vrDual = std::clamp(n, -1, 1); continue; }   // vr4: Gameplay > Dual Pistols (VR)
         if (k == "vrlaser") { vrLaser = std::clamp(n, -1, 1); continue; }   // vrsight: Gameplay > Laser (VR)
+        if (k == "vrmenuhands") { vrMenuHands = std::clamp(n, -1, 1); continue; }   // questfb: Gameplay > Hands in Menus (VR)
+        // vrcomfort: Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR)
+        if (k == "vrview") { vrView = std::clamp(n, -1, 1); continue; }
+        if (k == "vrscreendist") { vrScreenDist = n == 2 || n == 3 || n == 4 || n == 6 ? n : -1; continue; }
+        if (k == "vrscreensize") { vrScreenSize = std::clamp(n, -1, 2); continue; }
+        if (k == "vrcutscenes") { vrCutscenes = std::clamp(n, -1, 1); continue; }
+        if (k == "vrvignette") { vrVignette = std::clamp(n, -1, 1); continue; }
         if (k == "vrcrosshair") { vrCrosshair = std::clamp(n, -1, 1); continue; }   // vrsight: Gameplay > Crosshair (VR)
         if (k == "soundchip") { soundChip = n == 1 ? 1 : 0; continue; }   // sound2: Audio > Sound Chip
         if (bindsIniLine(k, v, keys, padBinds)) {}   // keybind: key1.fire= / padbind1.fire= ...
@@ -531,7 +538,7 @@ void LaunchConfig::save(const std::string& file) const
     f << "arcade=" << toBase(arcade, base) << "\npc=" << toBase(pc, base) << "\nmodels=" << models << "\nsound=" << sound << "\nvoice=" << voice << "\nreloadvoice=" << (reloadVoice ? 1 : 0) << "\nsoundchip=" << soundChip << "\nspanishpc=" << toBase(spanishPc, base) << "\nplayers=" << players << "\np2input=" << p2Input
       << "\ndifficulty=" << difficulty << "\nlives=" << lives << "\nstartlives=" << livesStartOf(lives) << "\nmaxlives=" << livesMostOf(lives) << "\nsoloseat=" << soloSeat << "\nchapterretry=" << (chapterRetry ? 1 : 0) << "\nblood=" << blood << "\ncuts=" << (cuts ? 1 : 0) << "\ntitle=" << (title ? 1 : 0) << "\nfbi=" << (fbi ? 1 : 0) << "\npcsplash=" << (pcSplash ? 1 : 0) << "\ngametext=" << gameText << "\nlang=" << language
       << "\nsubtitles=" << subtitles << "\nsubtitlesize=" << subtitleSize
-      << "\naspect=" << aspect << "\nwiden2d=" << widen2d << "\nfullscreen=" << ((util::fullscreenLive() >= 0 ? util::fullscreenLive() != 0 : fullscreen) ? 1 : 0) <<"\nautoreload=" << (autoReload ? 1 : 0) << "\nedgereload=" << (edgeReload ? 1 : 0) << "\nvrdual=" << vrDual << "\nvrlaser=" << vrLaser << "\nvrcrosshair=" << vrCrosshair <<"\nscoredisplay=" << (scoreDisplay ? 1 : 0) << "\nbossnames=" << (bossCodenames ? 1 : 0) << "\nattractgore=" << (attractGore ? 1 : 0) << "\nupdatecheck=" << (updateCheck ? 1 : 0) << "\nlastversion=" << lastVersion << "\nholdskip=" << (holdSkip ? 1 : 0)
+      << "\naspect=" << aspect << "\nwiden2d=" << widen2d << "\nfullscreen=" << ((util::fullscreenLive() >= 0 ? util::fullscreenLive() != 0 : fullscreen) ? 1 : 0) <<"\nautoreload=" << (autoReload ? 1 : 0) << "\nedgereload=" << (edgeReload ? 1 : 0) << "\nvrdual=" << vrDual << "\nvrlaser=" << vrLaser << "\nvrcrosshair=" << vrCrosshair << "\nvrmenuhands=" << vrMenuHands << "\nvrview=" << vrView << "\nvrscreendist=" << vrScreenDist << "\nvrscreensize=" << vrScreenSize << "\nvrcutscenes=" << vrCutscenes << "\nvrvignette=" << vrVignette <<"\nscoredisplay=" << (scoreDisplay ? 1 : 0) << "\nbossnames=" << (bossCodenames ? 1 : 0) << "\nattractgore=" << (attractGore ? 1 : 0) << "\nupdatecheck=" << (updateCheck ? 1 : 0) << "\nlastversion=" << lastVersion << "\nholdskip=" << (holdSkip ? 1 : 0)
       << "\ndisplaymode=" << ((util::fullscreenLive() >= 0 ? util::fullscreenLive() != 0 : fullscreen) ? (exclusive ? 2 : 1) : 0)
       << "\nexclusive=" << (exclusive ? 1 : 0)
       << "\nresolution_fullscreen=" << util::sizeKey({resFullW, resFullH}) << "\nresolution_window=" << util::sizeKey({resWinW, resWinH})

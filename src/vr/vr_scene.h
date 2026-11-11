@@ -43,6 +43,10 @@ public:
     bool active() const { return backend_ != nullptr; }
     Backend* backend() { return backend_.get(); }
     Settings settings;
+    // vrcomfort: vr.ini's settings (with --vr-set) as loaded: Options > Gameplay's VR rows (View, Screen Distance /
+    // Size, Cut-scenes, Comfort Vignette) put their values over `settings` each frame, their "not set" is these
+    // (main.cpp vrComfortApply)
+    Settings ini;
     std::vector<std::string> overrides;   // vr3: "key=value" applied over vr.ini at init (main.cpp --vr-set)
 
     struct Frame {
@@ -118,7 +122,8 @@ public:
         bool back = false;           // B / Y / a menu button (Esc)
         bool enter = false;          // A / X (Enter)
     };
-    Pointer panelFrame(unsigned srcFbo, int w, int h, int pointW, int pointH);
+    // (questfb: handsView, the game view whose hand models are drawn in front of the screen; null: no hands)
+    Pointer panelFrame(unsigned srcFbo, int w, int h, int pointW, int pointH, game::GameView* handsView = nullptr);
     // the backend's session ended for good (Backend::lost): main.cpp drops VR
     bool lost() const;
     bool exitAsked() const;   // vrflow: lost because the runtime asked the app to quit (Backend::exitAsked)
@@ -159,9 +164,15 @@ public:
         int handsFirstPerson = 0;   // vrfix: shown in a first-person cut-scene (no player body drawn: by design)
         int fireMoved = 0;          // vrfix: the Magician's fireball draws moved out to 1.2 m from the game camera
         int refPitchClamped = 0;   // vrfix: frames the game camera pitched over 60 degrees (the player's space held at 60)
-        int leftNearHidden = 0;    // vrfix: frames the empty left hand was left out (its palm within 25 cm of the head)
+        int leftNearHidden = 0;    // vrfix: (questfb: no longer counted: the left hand near the face is drawn again)
+        int panelFrames = 0, panelHandFrames = 0;   // questfb: the big screen's frames, those with the hands drawn
         // bugs7: camera cuts (an instant jump) the comfort vignette ignored; frames it was on over 0.5 (vignette = on)
         int vignetteCuts = 0, vignetteOnFrames = 0;
+        // vrcomfort (view = screen): frames of play on the screen, the round trips there (the game's aim -> the
+        // cursor on the screen -> the gun's ray meeting the screen -> the aim: the gun points where the last frame's
+        // aim was; arcade units)
+        int screenPlayFrames = 0, screenChecked = 0, screenOver = 0;
+        double screenSum = 0, screenWorst = 0;
     } test;
 
     // the last frame's state (logs, tests)
@@ -228,16 +239,23 @@ private:
     // vrfix (user's PC VR playthrough 2026-11-10: the name entry was a black void, only the hands): the name entry on
     // the cinema screen, aimed through it: the gun's ray where it meets the screen (seat space, metres: o -> p), that
     // point as the arcade's aim (x, y; hit: the ray meets the screen), the hands in seat space (game units)
+    // vrcomfort (view = screen): all of the game on the cinema screen, aimed the same way: the right gun (screenAim_)
+    // and the left one with dual pistols (screenAimL_); down: the gun pointed steeply down (the player's own down:
+    // the seat's); sight: the sights drawn on the picture (in control / paused, the name entry)
     struct ScreenAim {
-        bool on = false, hit = false;
+        bool on = false, hit = false, down = false;
         float x = 0, y = 0, o[3] = {0, 0, 0}, p[3] = {0, 0, 0};
-    } screenAim_;
+    } screenAim_, screenAimL_;
+    bool screenSight_ = false;
+    float screenTarget_[2] = {0, 0};   // (--vr-preview-test: the aim the cursor was put on last frame)
+    bool screenTargetSet_ = false;
     std::vector<DrawItem> cinemaHands_;
     float refYaw_ = 0.0f;      // vrfix: the player's space's last heading (held while the game camera is near vertical)
     bool refYawSet_ = false;
     bool leftNear_ = false;    // vrfix: the empty left hand too near the head (not drawn)
     int firstPersonRun_ = 0;   // vrfix: frames running of an in-game world cut-scene with no player body drawn
     bool firstPersonLast_ = false;   // (the hands shown by a first-person cut-scene last frame: no blink into control)
+    bool handsShownPrev_ = false;    // (--vr-preview-test: the hands shown last frame: a blink is counted)
     std::vector<DrawItem> nearLayer_;   // vrfix: the hands and the extra-life item over the world (the HUD's depth test)
     const Frame* frame_ = nullptr;   // (the frame being drawn: drawCinema's sight)
     // vrnull: the flat picture + HUD into cinemaFbo_ (the cinema's screen; desktop_view spectator); flatFrame_: drawn

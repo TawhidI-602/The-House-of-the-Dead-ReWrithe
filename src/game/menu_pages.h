@@ -43,6 +43,9 @@ struct MenuHooks {
     std::function<bool()> vrDualDefault;                // vr4: a VR run: vr.ini's dual_pistols (null: flat, no Dual Pistols row)
     std::function<bool()> vrLaserDefault;               // vrsight: a VR run: vr.ini's laser (null: flat, no Laser (VR) row)
     std::function<bool()> vrCrosshairDefault;           // vrsight: a VR run: vr.ini's crosshair (null: no Crosshair (VR) row)
+    // vrcomfort: a VR run: vr.ini's value for the comfort rows (0 view, 1 cutscenes, 2 vignette, 3 the screen's distance
+    // in cm, 4 its size: 0 small / 1 medium / 2 large, -1 none of them); null: flat, no rows
+    std::function<int(int which)> vrComfortDefault;
     std::function<void()> filesCheck;                   // the text launcher (files check, data folders)
     std::function<void()> whatsNew;                     // setup2: the What's New page (the setup window)
     std::function<void()> shortcut;                     // create the desktop shortcut

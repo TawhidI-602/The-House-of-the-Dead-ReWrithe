@@ -1773,3 +1773,20 @@ Copy all your friends' reply codes from the chat at once and paste them here (Ct
 
 # vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
 {buttons}: Pause = {buttons}: השהיה
+
+# vrcomfort: Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR); questfb: Hands in Menus (VR)
+View (VR) = תצוגה (VR)
+Immersive: the world all around you. Screen: the game on a big screen in front of you, for less motion sickness. VR only = סוחפת: העולם סביבך. מסך: המשחק על מסך גדול לפניך, להפחתת בחילת תנועה. ב-VR בלבד
+Immersive = סוחפת
+Screen = מסך
+Screen Distance (VR) = מרחק המסך (VR)
+How far away the big screen is (Screen view, cut-scenes on the screen, the menus). VR only = מה המרחק של המסך הגדול (תצוגת מסך, סצנות על המסך, התפריטים). ב-VR בלבד
+Screen Size (VR) = גודל המסך (VR)
+How big the big screen looks (Screen view, cut-scenes on the screen, the menus). VR only = כמה גדול המסך הגדול נראה (תצוגת מסך, סצנות על המסך, התפריטים). ב-VR בלבד
+Cut-scenes (VR) = סצנות (VR)
+World: the cut-scenes play all around you. Screen: on a big screen in front of you. VR only = עולם: הסצנות מתנגנות סביבך. מסך: על מסך גדול לפניך. ב-VR בלבד
+World = עולם
+Comfort Vignette (VR) = הצללת נוחות (VR)
+Darkens the edges of the view while the camera turns fast, for less motion sickness. VR only = מחשיך את קצוות התצוגה בזמן שהמצלמה מסתובבת מהר, להפחתת בחילת תנועה. ב-VR בלבד
+Hands in Menus (VR) = ידיים בתפריטים (VR)
+Your hands and gun in front of the menus' big screen. VR only = הידיים והאקדח שלך לפני המסך הגדול של התפריטים. ב-VR בלבד

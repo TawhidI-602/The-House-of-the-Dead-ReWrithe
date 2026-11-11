@@ -135,6 +135,45 @@ depth buffer a real distance, which the aim reads.
   too, so the camera moves at the display's rate, not the game's 57.5 Hz.
 - The HUD stays on the screen plane, never glued to the face.
 
+### Screen view and the comfort rows in the game
+
+vrcomfort (user 2026-11-10, from a player's comment: "a window at a certain distance to prevent motion sickness or an
+immersive mode to feel like you're inside the game", each player's own). On the Quest vr.ini is hard to reach, so the
+comfort settings are rows of **Options > Gameplay** (the Quest's Controls page), Experimental, only in a VR run (all of
+them apply on the Quest too: none hidden), taken at once (the pause's Settings too):
+
+| Row | Values | launcher.ini | vr.ini (when not set) |
+| --- | --- | --- | --- |
+| View (VR) | Immersive / Screen | `vrview=` 0 / 1 | `view = immersive` / `screen` |
+| Screen Distance (VR) | 2 / 3 / 4 / 6 m | `vrscreendist=` 2 / 3 / 4 / 6 | `cinema_distance` (3), `menu_distance` (2.5) |
+| Screen Size (VR) | Small / Medium / Large | `vrscreensize=` 0 / 1 / 2 | `cinema_width` (4), `menu_width` (3.2) |
+| Cut-scenes (VR) | World / Screen | `vrcutscenes=` 0 / 1 | `cutscenes = world` / `cinema` |
+| Comfort Vignette (VR) | Off / On | `vrvignette=` 0 / 1 | `vignette` (off) |
+
+Each launcher.ini key is -1 until the row is clicked: vr.ini decides (and the row shows vr.ini's value; a Screen Size
+vr.ini's widths match none of shows Custom). Nothing changes for a player who never touches them.
+
+- **View (VR) = Screen**: the whole game, play included, on the cinema screen ("Cut-scenes": the flat picture with the
+  HUD, the bars and the fades, in a dark room, fixed in your own space: the game camera's turns and cuts never move
+  you). The guns aim at the screen as the name entry's does: each gun's ray (seat space) meets the screen's plane, and
+  that point on the picture is the arcade aim, exactly (no depth involved). The sight is drawn into the picture where
+  the gun meets it, the laser runs from the muzzle to the screen, the hands are in front of it (only in control, as in
+  the world). Off the screen as the world's guns: aimed below the screen or the gun pointed down
+  (`reload_pitch` under your own horizon) a pull reloads; beside / above / away from it `offscreen_reload` decides
+  (below: nothing). Dual pistols: both guns on the screen. The vignette is not drawn on the screen (nothing turns).
+- **Screen Distance / Size**: the cinema screen (Screen view, cut-scenes on the screen, the chapter cards, the name
+  entry) and the menus' big screen. Size is the screen's width as a part of its distance: Small 0.9 x, Medium 1.33 x
+  (vr.ini's 4 m at 3 m, about 67 degrees), Large 1.8 x (the menus' screen 0.96 x that: its own 3.2 m at 2.5 m).
+  Distance alone keeps vr.ini's angular size (farther = bigger, the same in view; only the eyes' depth changes).
+- Code: `vr::Settings::view`, `Scene::ini` (vr.ini as loaded) and main.cpp `vrComfortApply` (the rows over it each
+  frame, the menus' big screen too), `Scene::frame`'s cinema branch (`screenAim_` / `screenAimL_`), `menu_pages.cpp
+  vrRows` (`MenuHooks::vrComfortDefault`).
+- Test: `--vr-preview-test --vr-set view=screen` puts the preview's cursor on the game's aim on the screen each frame;
+  the next frame the gun (it points at the cursor) must meet the screen at that aim: `vr screen view test: 1843 frames
+  of play on the screen (screen 3.0 m, 4.00 m wide); 2999 round trips ..., mean error 0.000, worst 0.000 arcade
+  units, 0 over 2` (3000 frames). With `--vr-dual` the VR guns are player 1's input: right gun 23 hits, left 14 (3000
+  frames). launcher.ini `vrview=1 vrscreendist=6 vrscreensize=2`: the same at 6 m, 10.8 m wide.
+
 ### The HUD and close creatures
 
 vr4 (2026-11-09). The HUD panel is drawn over everything (no depth test), `panel_distance` (3 m) ahead. A creature

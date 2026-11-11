@@ -201,6 +201,10 @@ private:
     gl::GLuint coverTex_ = 0;
     int coverW_ = 0, coverH_ = 0;
     gl::GLint uSideCover_ = -1, uCover_ = -1;
+    gl::GLint uPalOver_ = -1, uPcTint_ = -1, uRamp_ = -1, uRampStops_ = -1, uBodyHue_ = -1;
+    // sinkfix: the members whose uniform sits at another location in programBand_ (that location), swapped in while
+    // the band program draws (init / draw)
+    std::vector<std::pair<gl::GLint*, gl::GLint>> bandLocs_;
     bool sortFragDepth_ = false;   // earlyz: Arcade Sort through gl_FragDepth (HOTD_SORT_FRAGDEPTH / _EXACT), else vertex depth
     std::vector<size_t> order_, orderArcade_;   // draw: the items' order in the depth-writing passes (kept: no allocation)
     void uploadReplacements(const StageReplacements& rp, GpuStage& g);

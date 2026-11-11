@@ -192,6 +192,7 @@ bool Scene::init(std::unique_ptr<Backend> backend, const std::string& vrDir, std
     for (const std::string& o : overrides)   // (--vr-set key=value)
         if (const size_t eq = o.find('='); eq != std::string::npos)
             settings.set(o.substr(0, eq), o.substr(eq + 1));
+    ini = settings;   // (vrcomfort: the in-game VR rows' "not set" values)
     if (!backend) {
         err = "vr: no backend";
         return false;
@@ -551,7 +552,8 @@ void Scene::frame(const Frame& f)
         pressHeld_ = true;
     }
     frame_ = &f;   // (vrfix: name entry / cinema-screen aim)
-    screenAim_ = ScreenAim{};
+    screenAim_ = screenAimL_ = ScreenAim{};
+    screenSight_ = false;
     cinemaHands_.clear();
 
     // the 2D HUD into the panel (the game area's shape, 960 lines)
@@ -567,7 +569,9 @@ void Scene::frame(const Frame& f)
     // vrend (user 2026-11-10): the full-screen 2D screens (the chapter cards, the staff roll, GAME OVER) always on the
     // cinema screen: big and centred, the room dark around (they are made for the 4:3 screen alone)
     const bool card = game::Hud::vrScreen2D(rt);
-    bool cinema = card || (f.cutscene && settings.cutscenes == 1);
+    // vrcomfort (view = screen): everything on the cinema screen, play too (screenView: the guns aim at the screen)
+    const bool screenView = settings.view == 1;
+    bool cinema = card || (f.cutscene && settings.cutscenes == 1) || screenView;
     if (f.hud) f.hud->noBars = f.cutscene && !cinema;
     // vrfade (user 2026-11-10: "the white flash doesn't account for the whole eye"): the full-screen fades left out of
     // the panel (it is only the 4:3 screen's rectangle in the view), drawn over each eye's whole view (drawFades)
@@ -610,7 +614,9 @@ void Scene::frame(const Frame& f)
     // the gun hand of every player skeleton, 0x717 Rogan's left, 0x36B the empty hand) in the game's draw list for 15
     // frames running (firstPersonRun_, counted in the draw below: a body seen hides them at once)
     const uint32_t subNow = rt.mem.u32(game::A::G::game_submode);
-    const bool cutInGame = f.cutscene && !cinema && rt.mem.at<int16_t>(game::A::G::game_mode) == 4 && subNow != 7 &&
+    // (vrcomfort: view = screen: the cut-scene on the screen, the hands in front of it the same way: no 2-frame blink
+    // into control after a first-person shot, as handblink in the world)
+    const bool cutInGame = f.cutscene && (!cinema || (screenView && !card)) && rt.mem.at<int16_t>(game::A::G::game_mode) == 4 && subNow != 7 &&
                            subNow != 8 && subNow < 9 && !rt.clear.active;
     if (!cutInGame) firstPersonRun_ = 0;
     const bool firstPersonCut = cutInGame && firstPersonRun_ >= 15;
@@ -630,8 +636,16 @@ void Scene::frame(const Frame& f)
         if (paused) ++test.handsPaused;
         else if (showHands && outside && firstPersonCut) ++test.handsFirstPerson;   // (vrfix: by design)
         else if (showHands && outside) ++test.handsShownOutside;
-        else if (!showHands && playing) ++test.handsHiddenInControl;
+        // (counted: hidden with player 1 in control for 2 frames (controlRun_'s by-design 1-frame wait at a hand-over is
+        // not a fault: Chapter 1's last frame before the clear), or a blink: shown the frame before (handblink))
+        else if (!showHands && playing && (controlRun_ >= 2 || handsShownPrev_)) {
+            ++test.handsHiddenInControl;
+            if (std::getenv("HOTD_VR_HANDS_TRACE"))
+                SDL_Log("vr hands: frame %llu hidden in control (controlRun %d, cut %d, firstPersonLast %d, chapter clear %d)",
+                        (unsigned long long)rt.frameCount, controlRun_, int(f.cutscene), int(firstPersonLast_), int(rt.clear.active));
+        }
         if (showHands) ++test.handsShown;
+        handsShownPrev_ = showHands;
         static const bool trace = std::getenv("HOTD_VR_HANDS_TRACE") != nullptr;
         static int last = -1;
         if (trace && int(showHands) != last)
@@ -763,17 +777,9 @@ void Scene::frame(const Frame& f)
             hands.push_back(hi);
         if (showHands && gun[0].on && view.placedItem(1, kGunHandModel, gunLW.r, gunLW.t, hi))   // (dual pistols: mirrored)
             hands.push_back(hi);
-        // vrfix (user's playthrough 2026-11-10, 18:06 / 23:30: the left hand huge in front of the face, filling the view):
-        // the empty hand is not drawn while its palm is within 25 cm of the head (back from 30 cm: no flicker at the
-        // edge); it has nothing to do there, and a model that near only blocks the view (the gun hand stays: it aims)
-        {
-            const Rigid palm = poseToLocal(fs_.hand[0].grip, 1.0f), head = poseToLocal(fs_.head, 1.0f);
-            const float dv[3] = {palm.t[0] - head.t[0], palm.t[1] - head.t[1], palm.t[2] - head.t[2]};
-            const float dm = std::sqrt(dot3(dv, dv));
-            if (fs_.head.valid) leftNear_ = leftNear_ ? dm < 0.30f : dm < 0.25f;
-            if (leftNear_ && left && showHands) ++test.leftNearHidden;
-        }
-        if (showHands && left && !leftNear_ && view.placedItem(1, kLeftHandModel, leftW.r, leftW.t, hi))
+        // (questfb, user 2026-11-10 on the Quest: the empty left hand near the face is drawn again, as the gun hand is:
+        // vrfix's hiding within 25 cm reverted)
+        if (showHands && left && view.placedItem(1, kLeftHandModel, leftW.r, leftW.t, hi))
             hands.push_back(hi);
         RenderOptions handOpt = view.opt;
         handOpt.clearColor = false;   // (over the eye's picture; their own depth: never inside a wall)
@@ -793,34 +799,77 @@ void Scene::frame(const Frame& f)
             // screen's plane, that point is the arcade's aim (drawCinema draws the sight there, the laser to it and the
             // hands in front of the screen)
             const uint32_t sub = rt.mem.u32(game::A::G::game_submode);
-            if (rt.mem.at<int16_t>(game::A::G::game_mode) == 4 && (sub == 9 || sub == 10)) {
+            const bool nameEntry = rt.mem.at<int16_t>(game::A::G::game_mode) == 4 && (sub == 9 || sub == 10);
+            // vrcomfort (view = screen): all of play the same way: each gun's ray meets the screen, that point is its
+            // aim; off the screen as the world's guns (below it / pointed down: a reload; beside: offscreen_reload)
+            const int ch = settings.hudLines, cw = int(std::lround(float(ch) * halfW / 192.0f));   // (flatPicture's)
+            const float D = settings.cinemaDistance * upm, hw = settings.cinemaWidth * 0.5f * upm, hh = hw * float(ch) / float(cw);
+            if (nameEntry || screenView) {
                 screenAim_.on = true;
-                const Rigid seatGun = poseToLocal(fs_.hand[1].aim, upm) * tune(settings.gunOffset, settings.gunRotate) * gunAnchor();
-                const Rigid seatLeft = poseToLocal(fs_.hand[0].grip, upm) * tune(settings.leftOffset, settings.leftRotate) * leftAnchor();
-                if (right) {
+                screenSight_ = nameEntry || showAim;
+                auto meet = [&](const Rigid& seatG, ScreenAim& s) {
                     float o[3], b[3], d[3];
-                    seatGun.apply(kGunMuzzle, o);
+                    seatG.apply(kGunMuzzle, o);
                     const float back[3] = {kGunMuzzle[0], kGunMuzzle[1] + 1.0f, kGunMuzzle[2]};
-                    seatGun.apply(back, b);
+                    seatG.apply(back, b);
                     for (int k = 0; k < 3; ++k) d[k] = o[k] - b[k];
                     normalize3(d);
-                    const int ch = settings.hudLines, cw = int(std::lround(float(ch) * halfW / 192.0f));   // (flatPicture's)
-                    const float D = settings.cinemaDistance * upm, hw = settings.cinemaWidth * 0.5f * upm, hh = hw * float(ch) / float(cw);
                     float t = settings.aimDistance * upm;
                     if (d[2] > 1e-4f && (D - o[2]) / d[2] > 0.0f) {
                         t = (D - o[2]) / d[2];
-                        screenAim_.hit = true;
-                        screenAim_.x = (o[0] + d[0] * t) / hw * halfW;
-                        screenAim_.y = (o[1] + d[1] * t) / hh * 192.0f;
+                        s.hit = true;
+                        s.x = (o[0] + d[0] * t) / hw * halfW;
+                        s.y = (o[1] + d[1] * t) / hh * 192.0f;
+                    } else {
+                        s.x = d[0] < 0 ? -4000.0f : 4000.0f;   // (pointed away from the screen)
                     }
-                    for (int k = 0; k < 3; ++k) screenAim_.o[k] = o[k] / upm, screenAim_.p[k] = (o[k] + d[k] * t) / upm;
-                }
+                    s.down = d[1] < -std::sin(settings.reloadPitch * kPi / 180.0f);   // (the seat's up: the player's own)
+                    for (int k = 0; k < 3; ++k) s.o[k] = o[k] / upm, s.p[k] = (o[k] + d[k] * t) / upm;
+                };
+                const Rigid seatGun = poseToLocal(fs_.hand[1].aim, upm) * tune(settings.gunOffset, settings.gunRotate) * gunAnchor();
+                const Rigid seatLeft = poseToLocal(fs_.hand[0].grip, upm) * tune(settings.leftOffset, settings.leftRotate) * leftAnchor();
+                const Rigid seatGunL = poseToLocal(fs_.hand[0].aim, upm) * tune(offL, rotL) * gunAnchorLeft();
+                if (right) meet(seatGun, screenAim_);
+                if (gun[0].on) screenAimL_.on = true, meet(seatGunL, screenAimL_);   // (dual pistols: the left gun)
                 // (the hands' texture set: the model's own; the name entry's area 2 and its colour rows 0xC-0xE turned
                 // them gold and red)
                 if (showHands && right && view.placedItem(0, kGunHandModel, seatGun.r, seatGun.t, hi))
                     hi.variant = hi.model->preferredVariant, cinemaHands_.push_back(hi);
+                if (showHands && gun[0].on && view.placedItem(1, kGunHandModel, seatGunL.r, seatGunL.t, hi))
+                    hi.variant = hi.model->preferredVariant, cinemaHands_.push_back(hi);
                 if (showHands && left && view.placedItem(1, kLeftHandModel, seatLeft.r, seatLeft.t, hi))
                     hi.variant = hi.model->preferredVariant, cinemaHands_.push_back(hi);
+            }
+            if (screenView) {
+                if (controlRun_ >= 2) ++test.screenPlayFrames;
+                // --vr-preview-test (view = screen): the gun points where the cursor was put last frame (the preview's
+                // gun follows the cursor a frame late): its aim on the screen against that aim
+                if (followGameAim && screenTargetSet_ && screenAim_.hit) {
+                    const double err = std::max(std::abs(screenAim_.x - screenTarget_[0]), std::abs(screenAim_.y - screenTarget_[1]));
+                    ++test.screenChecked;
+                    test.screenSum += err;
+                    test.screenWorst = std::max(test.screenWorst, err);
+                    if (err > 2.0) ++test.screenOver;
+                }
+                screenTargetSet_ = false;
+                if (followGameAim) {   // the cursor onto the game's own aim on the screen
+                    const float ax = testAimSet ? testAim[0] : rt.gun[0].x, ay = testAimSet ? testAim[1] : rt.gun[0].y;
+                    if (std::abs(ax) < halfW && std::abs(ay) < 192.0f) {
+                        const float P[3] = {ax / halfW * hw / upm, ay / 192.0f * hh / upm, D / upm};   // (seat, metres)
+                        Rigid eyeL;
+                        float vp[16], c[4];
+                        seatViewProj(fs_.eye[1], eyeL, vp);
+                        for (int r = 0; r < 4; ++r) c[r] = vp[r] * P[0] + vp[4 + r] * P[1] + vp[8 + r] * P[2] + vp[12 + r];
+                        if (c[3] > 0) {
+                            backend_->setCursor(1, (c[0] / c[3]) * 0.5f + 0.5f, 0.5f - (c[1] / c[3]) * 0.5f);
+                            screenTarget_[0] = ax, screenTarget_[1] = ay, screenTargetSet_ = true;
+                        }
+                    }
+                }
+                // the preview: the cursor's ray as far as the screen (its gun aims at the point the cursor shows)
+                float co[3], cd[3];
+                if (backend_->desktopCursorRay(co, cd) && -cd[2] > 1e-4f)
+                    backend_->cursorDistance((D / upm + co[2]) / -cd[2]);   // (tracking -z = the seat's +z)
             }
             drawCinema(view, items, base, halfW);
             ++test.cinemaFrames;
@@ -1217,7 +1266,16 @@ void Scene::frame(const Frame& f)
     lastHitDist = gun[1].dist;
     lastAim = aimFromRay(gcam, gunO, gunD, gun[1].dist, playerUp, settings.reloadPitch);
     std::copy(gun[1].hit, gun[1].hit + 3, lastAim.hit);
-    if (screenAim_.on) {   // vrfix: the name entry: the aim where the ray meets the cinema screen (off it: off the screen)
+    // vrcomfort (view = screen): a gun's aim where its ray meets the screen, off it as it points (below the screen or
+    // pointed down: pullAction's reload; beside it / away: offscreen_reload)
+    auto fromScreen = [&](const ScreenAim& s, AimResult& a) {
+        a.onScreen = s.hit && std::abs(s.x) < halfW && std::abs(s.y) < 192.0f;
+        a.x = std::clamp(s.x, -4000.0f, 4000.0f), a.y = s.hit ? std::clamp(s.y, -4000.0f, 4000.0f) : 0.0f;
+        a.down = s.down, a.behind = !s.hit;
+    };
+    if (screenAim_.on && screenView) {
+        fromScreen(screenAim_, lastAim);
+    } else if (screenAim_.on) {   // vrfix: the name entry: the aim where the ray meets the cinema screen (off it: off the screen)
         const bool on = screenAim_.hit && std::abs(screenAim_.x) < halfW && std::abs(screenAim_.y) < 192.0f;
         lastAim.x = on ? screenAim_.x : (screenAim_.x < 0 ? -4000.0f : 4000.0f);
         lastAim.y = on ? screenAim_.y : 0.0f;
@@ -1251,6 +1309,7 @@ void Scene::frame(const Frame& f)
     if (gun[0].on) {
         lastAimLeft = aimFromRay(gcam, gun[0].o, gun[0].d, gun[0].dist, playerUp, settings.reloadPitch);
         std::copy(gun[0].hit, gun[0].hit + 3, lastAimLeft.hit);
+        if (screenAimL_.on && screenView) fromScreen(screenAimL_, lastAimLeft);   // (vrcomfort: on the screen)
         Aim::Gun& l = pending_.left;
         l.valid = true;
         l.x = std::clamp(lastAimLeft.x, -4000.0f, 4000.0f);
@@ -1425,18 +1484,23 @@ void Scene::drawCinema(game::GameView& view, const std::vector<DrawItem>& items,
     // vrfix: the name entry: player 1's sight on the picture where the gun meets the screen (the flat game's crosshair)
     unsigned sightTex = 0;
     float sightAspect = 1.0f;
-    if (screenAim_.on && screenAim_.hit && crosshairOn && frame_ && frame_->hud &&
+    // (vrcomfort, view = screen: the same in play, in control / paused: screenSight_; dual pistols: the left gun's too)
+    if (screenAim_.on && screenSight_ && crosshairOn && frame_ && frame_->hud &&
         frame_->hud->vrSight(*frame_->rt, 0, ch, sightTex, sightAspect)) {
         gl::BindFramebuffer(gl::FRAMEBUFFER, cinemaFbo_);
         gl::Viewport(0, 0, cw, ch);
-        float aim[4][2] = {};
-        view.fromArcade(screenAim_.x, screenAim_.y, cw, ch, aim[0][0], aim[0][1]);
         bool cross[4];
         game::Hud& hud = *frame_->hud;
         std::copy(hud.drawCross, hud.drawCross + 4, cross);
         std::fill(hud.drawCross, hud.drawCross + 4, false);
         hud.drawCross[0] = true;
-        hud.drawSights(*frame_->rt, cw, ch, aim);
+        for (const ScreenAim* s : {&screenAim_, &screenAimL_}) {
+            if (!s->on || !s->hit)
+                continue;
+            float aim[4][2] = {};
+            view.fromArcade(s->x, s->y, cw, ch, aim[0][0], aim[0][1]);
+            hud.drawSights(*frame_->rt, cw, ch, aim);
+        }
         std::copy(cross, cross + 4, hud.drawCross);
     }
     gl::BindTexture(gl::TEXTURE_2D, cinemaTex_);
@@ -1455,8 +1519,10 @@ void Scene::drawCinema(game::GameView& view, const std::vector<DrawItem>& items,
         gl::Disable(gl::CULL_FACE);
         const float v[20] = {-hw, -hh, D, 0, 0, hw, -hh, D, 1, 0, -hw, hh, D, 0, 1, hw, hh, D, 1, 1};
         drawSprite(v, 4, cinemaTex_, 4, white, vp);
-        if (screenAim_.on && laserOn && !cinemaHands_.empty()) {   // vrfix: the laser from the muzzle to the screen
-            const float *o = screenAim_.o, *p = screenAim_.p;
+        for (const ScreenAim* s : {&screenAim_, &screenAimL_}) {   // vrfix: the laser from the muzzle to the screen
+            if (!s->on || !screenSight_ || !laserOn || cinemaHands_.empty() || (s == &screenAim_ && !fs_.hand[1].active))
+                continue;
+            const float *o = s->o, *p = s->p;
             float dir[3] = {p[0] - o[0], p[1] - o[1], p[2] - o[2]}, toEye[3] = {eyeL.t[0] - o[0], eyeL.t[1] - o[1], eyeL.t[2] - o[2]}, side[3];
             cross3(dir, toEye, side);
             normalize3(side);
@@ -1533,7 +1599,7 @@ Scene::Aim Scene::takeAim()
 }
 
 // quest (2026-11-03): a flat screen on a big screen in VR (vr_scene.h panelFrame, docs/quest.md)
-Scene::Pointer Scene::panelFrame(unsigned srcFbo, int w, int h, int pointW, int pointH)
+Scene::Pointer Scene::panelFrame(unsigned srcFbo, int w, int h, int pointW, int pointH, game::GameView* handsView)
 {
     Pointer out;
     if (!backend_ || w <= 0 || h <= 0)
@@ -1633,6 +1699,34 @@ Scene::Pointer Scene::panelFrame(unsigned srcFbo, int w, int h, int pointW, int 
     panelBack_ = back, panelEnter_ = enter;
     if (out.press) backend_->haptic(fs_.hand[1].active ? 1 : 0, 0.3f, 0.02f);
 
+    // questfb (user 2026-11-10 on the Quest: "add hands on the menu by default but allow people to turn them off";
+    // Gameplay > Hands in Menus (VR)): the gun hand and the empty left hand in front of the big screen, the game's own
+    // models from handsView (seat space in game units, as drawCinema's name-entry hands; null: none)
+    std::vector<DrawItem> menuHands;
+    const float upm = settings.unitsPerMetre;
+    if (handsView) {
+        DrawItem hi;
+        auto tune = [&](const float offset[3], const float rotate[3]) {   // (frame()'s: vr.ini's hand offsets)
+            Pose p;
+            std::copy(offset, offset + 3, p.pos);
+            quatFromYawPitchRoll(rotate[1] * kPi / 180.0f, rotate[0] * kPi / 180.0f, rotate[2] * kPi / 180.0f, p.rot);
+            p.valid = true;
+            return poseToLocal(p, upm);
+        };
+        if (fs_.hand[1].active && fs_.hand[1].aim.valid) {
+            const Rigid g = poseToLocal(fs_.hand[1].aim, upm) * tune(settings.gunOffset, settings.gunRotate) * gunAnchor();
+            if (handsView->placedItem(0, kGunHandModel, g.r, g.t, hi))
+                hi.variant = hi.model->preferredVariant, menuHands.push_back(hi);
+        }
+        if (settings.leftHand && fs_.hand[0].active && fs_.hand[0].grip.valid) {
+            const Rigid l = poseToLocal(fs_.hand[0].grip, upm) * tune(settings.leftOffset, settings.leftRotate) * leftAnchor();
+            if (handsView->placedItem(1, kLeftHandModel, l.r, l.t, hi))
+                hi.variant = hi.model->preferredVariant, menuHands.push_back(hi);
+        }
+    }
+    ++test.panelFrames;
+    if (!menuHands.empty() && test.panelHandFrames++ == 0) SDL_Log("vr: the menus' hands drawn (Hands in Menus (VR))");
+
     for (int i : {1, 0}) {
         const Eye& e = fs_.eye[i];
         gl::BindFramebuffer(gl::FRAMEBUFFER, backend_->eyeFramebuffer(i));
@@ -1680,6 +1774,23 @@ Scene::Pointer Scene::panelFrame(unsigned srcFbo, int w, int h, int pointW, int 
         gl::Disable(gl::BLEND);
         gl::Enable(gl::DEPTH_TEST);
         gl::BindVertexArray(0);
+        if (!menuHands.empty()) {   // questfb: the hands over the big screen (their own depth)
+            const Rigid eyeU = poseToLocal(e.pose, upm);
+            Renderer::EyeView ev;
+            eyeU.viewMatrix(ev.view);
+            ev.tanLeft = e.fov.tanLeft, ev.tanRight = e.fov.tanRight, ev.tanUp = e.fov.tanUp, ev.tanDown = e.fov.tanDown;
+            Camera hc;
+            hc.nearZ = std::min(1.0f, 0.05f * upm);
+            ev.nearZ = hc.nearZ;
+            std::copy(eyeU.t, eyeU.t + 3, hc.pos);
+            hc.perPixelDepth = true;
+            RenderOptions handOpt = handsView->opt;
+            handOpt.clearColor = false;
+            handsView->renderer.eye = &ev;
+            handsView->renderer.draw(menuHands, hc, e.width, e.height, handOpt);
+            handsView->renderer.eye = nullptr;
+            gl::BindVertexArray(0);
+        }
     }
     backend_->endFrame(fs_);
 #if !defined(__ANDROID__)

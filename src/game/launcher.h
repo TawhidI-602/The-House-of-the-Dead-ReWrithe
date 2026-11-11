@@ -353,6 +353,16 @@ struct LaunchConfig {
     // vrsight (user 2026-11-10): Gameplay > Laser (VR) / Crosshair (VR), a VR run's rows only: -1 not set (vr.ini laser /
     // crosshair decide), 0 off, 1 on (launcher.ini vrlaser= / vrcrosshair=)
     int vrLaser = -1, vrCrosshair = -1;
+    // questfb (user 2026-11-10: "add hands on the menu by default but allow people to turn them off"): Gameplay > Hands
+    // in Menus (VR), a VR run's row only: -1 not set (on), 0 off, 1 on (launcher.ini vrmenuhands=)
+    int vrMenuHands = -1;
+    // vrcomfort (user 2026-11-10, a player's wish: comfort options in game, vr.ini is hard to reach on the Quest):
+    // Gameplay > View (VR) (0 immersive, 1 screen: vr.ini view), Screen Distance (VR) (2 / 3 / 4 / 6 metres: vr.ini
+    // cinema_distance / menu_distance), Screen Size (VR) (0 small, 1 medium, 2 large: the screen's width 0.9 / 1.33 /
+    // 1.8 x its distance), Cut-scenes (VR) (0 world, 1 screen: vr.ini cutscenes), Comfort Vignette (VR) (0 off, 1 on:
+    // vr.ini vignette); VR runs' rows only, -1 not set: vr.ini decides (launcher.ini vrview= / vrscreendist= /
+    // vrscreensize= / vrcutscenes= / vrvignette=)
+    int vrView = -1, vrScreenDist = -1, vrScreenSize = -1, vrCutscenes = -1, vrVignette = -1;
     bool updateCheck = true;     // Options > System > Check for Updates (util/update_check.h)
     // setup2: the version that last ran with these settings (launcher.ini lastversion=; another one: What's New once)
     std::string lastVersion;

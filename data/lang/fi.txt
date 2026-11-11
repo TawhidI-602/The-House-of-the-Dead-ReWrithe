@@ -1764,3 +1764,20 @@ Copy all your friends' reply codes from the chat at once and paste them here (Ct
 
 # vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
 {buttons}: Pause = {buttons}: Tauko
+
+# vrcomfort: Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR); questfb: Hands in Menus (VR)
+View (VR) = Näkymä (VR)
+Immersive: the world all around you. Screen: the game on a big screen in front of you, for less motion sickness. VR only = Immersiivinen: maailma ympärilläsi. Näyttö: peli suurella näytöllä edessäsi, vähentää pahoinvointia. Vain VR
+Immersive = Immersiivinen
+Screen = Näyttö
+Screen Distance (VR) = Näytön etäisyys (VR)
+How far away the big screen is (Screen view, cut-scenes on the screen, the menus). VR only = Kuinka kaukana iso näyttö on (Näyttö-näkymä, välianimaatiot näytöllä, valikot). Vain VR
+Screen Size (VR) = Näytön koko (VR)
+How big the big screen looks (Screen view, cut-scenes on the screen, the menus). VR only = Kuinka suurelta iso näyttö näyttää (Näyttö-näkymä, välianimaatiot näytöllä, valikot). Vain VR
+Cut-scenes (VR) = Välianimaatiot (VR)
+World: the cut-scenes play all around you. Screen: on a big screen in front of you. VR only = Maailma: välianimaatiot toistetaan ympärilläsi. Näyttö: suurella näytöllä edessäsi. Vain VR
+World = Maailma
+Comfort Vignette (VR) = Mukavuusvinjetti (VR)
+Darkens the edges of the view while the camera turns fast, for less motion sickness. VR only = Tummentaa näkymän reunat kameran kääntyessä nopeasti, vähentää pahoinvointia. Vain VR
+Hands in Menus (VR) = Kädet valikoissa (VR)
+Your hands and gun in front of the menus' big screen. VR only = Kätesi ja aseesi valikoiden ison näytön edessä. Vain VR

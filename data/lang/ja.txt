@@ -1772,3 +1772,20 @@ Copy all your friends' reply codes from the chat at once and paste them here (Ct
 
 # vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
 {buttons}: Pause = {buttons}: ポーズ
+
+# vrcomfort: Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR); questfb: Hands in Menus (VR)
+View (VR) = 表示 (VR)
+Immersive: the world all around you. Screen: the game on a big screen in front of you, for less motion sickness. VR only = 没入：自分のまわり全体に世界が広がります。スクリーン：目の前の大きなスクリーンでゲームを表示し、酔いを軽減します。VRのみ
+Immersive = 没入
+Screen = スクリーン
+Screen Distance (VR) = スクリーン距離 (VR)
+How far away the big screen is (Screen view, cut-scenes on the screen, the menus). VR only = 大きなスクリーンまでの距離（スクリーン表示、スクリーン上のカットシーン、メニュー）。VRのみ
+Screen Size (VR) = スクリーンサイズ (VR)
+How big the big screen looks (Screen view, cut-scenes on the screen, the menus). VR only = 大きなスクリーンの見た目の大きさ（スクリーン表示、スクリーン上のカットシーン、メニュー）。VRのみ
+Cut-scenes (VR) = カットシーン (VR)
+World: the cut-scenes play all around you. Screen: on a big screen in front of you. VR only = ワールド：カットシーンが自分のまわりで再生されます。スクリーン：目の前の大きなスクリーンで再生されます。VRのみ
+World = ワールド
+Comfort Vignette (VR) = 快適ビネット (VR)
+Darkens the edges of the view while the camera turns fast, for less motion sickness. VR only = カメラが素早く回転している間、視界の端を暗くして酔いを軽減します。VRのみ
+Hands in Menus (VR) = メニューの手 (VR)
+Your hands and gun in front of the menus' big screen. VR only = メニューの大きなスクリーンの前に手と銃を表示します。VRのみ

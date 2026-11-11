@@ -1767,3 +1767,20 @@ Copy all your friends' reply codes from the chat at once and paste them here (Ct
 
 # vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
 {buttons}: Pause = {buttons}: Duraklat
+
+# vrcomfort: Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR); questfb: Hands in Menus (VR)
+View (VR) = Görünüm (VR)
+Immersive: the world all around you. Screen: the game on a big screen in front of you, for less motion sickness. VR only = Sürükleyici: dünya tam etrafınızda. Ekran: oyun önünüzdeki büyük bir ekranda, daha az mide bulantısı için. Yalnızca VR
+Immersive = Sürükleyici
+Screen = Ekran
+Screen Distance (VR) = Ekran Mesafesi (VR)
+How far away the big screen is (Screen view, cut-scenes on the screen, the menus). VR only = Büyük ekranın ne kadar uzakta olduğu (Ekran görünümü, ekrandaki ara sahneler, menüler). Yalnızca VR
+Screen Size (VR) = Ekran Boyutu (VR)
+How big the big screen looks (Screen view, cut-scenes on the screen, the menus). VR only = Büyük ekranın ne kadar büyük göründüğü (Ekran görünümü, ekrandaki ara sahneler, menüler). Yalnızca VR
+Cut-scenes (VR) = Ara Sahneler (VR)
+World: the cut-scenes play all around you. Screen: on a big screen in front of you. VR only = Dünya: ara sahneler etrafınızda oynar. Ekran: önünüzdeki büyük bir ekranda. Yalnızca VR
+World = Dünya
+Comfort Vignette (VR) = Konfor Vinyeti (VR)
+Darkens the edges of the view while the camera turns fast, for less motion sickness. VR only = Kamera hızlı dönerken görüntünün kenarlarını karartır, daha az mide bulantısı için. Yalnızca VR
+Hands in Menus (VR) = Menülerde Eller (VR)
+Your hands and gun in front of the menus' big screen. VR only = Elleriniz ve silahınız menülerin büyük ekranının önünde. Yalnızca VR

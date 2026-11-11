@@ -1772,3 +1772,20 @@ Copy all your friends' reply codes from the chat at once and paste them here (Ct
 
 # vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
 {buttons}: Pause = {buttons}: 일시 정지
+
+# vrcomfort: Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR); questfb: Hands in Menus (VR)
+View (VR) = 보기 (VR)
+Immersive: the world all around you. Screen: the game on a big screen in front of you, for less motion sickness. VR only = 몰입형: 내 주변을 둘러싼 세계. 화면: 눈앞의 큰 화면에서 게임을 표시하여 멀미를 줄입니다. VR 전용
+Immersive = 몰입형
+Screen = 화면
+Screen Distance (VR) = 화면 거리 (VR)
+How far away the big screen is (Screen view, cut-scenes on the screen, the menus). VR only = 큰 화면이 얼마나 멀리 있는지 (화면 보기, 화면 속 컷신, 메뉴). VR 전용
+Screen Size (VR) = 화면 크기 (VR)
+How big the big screen looks (Screen view, cut-scenes on the screen, the menus). VR only = 큰 화면이 얼마나 크게 보이는지 (화면 보기, 화면 속 컷신, 메뉴). VR 전용
+Cut-scenes (VR) = 컷신 (VR)
+World: the cut-scenes play all around you. Screen: on a big screen in front of you. VR only = 월드: 컷신이 내 주변에서 재생됩니다. 화면: 눈앞의 큰 화면에서 재생됩니다. VR 전용
+World = 월드
+Comfort Vignette (VR) = 편안함 비네트 (VR)
+Darkens the edges of the view while the camera turns fast, for less motion sickness. VR only = 카메라가 빠르게 회전하는 동안 시야 가장자리를 어둡게 하여 멀미를 줄입니다. VR 전용
+Hands in Menus (VR) = 메뉴에서 손 (VR)
+Your hands and gun in front of the menus' big screen. VR only = 메뉴의 큰 화면 앞에 손과 총을 표시합니다. VR 전용

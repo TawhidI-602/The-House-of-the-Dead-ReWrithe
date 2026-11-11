@@ -1764,3 +1764,20 @@ Copy all your friends' reply codes from the chat at once and paste them here (Ct
 
 # vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
 {buttons}: Pause = {buttons}: Jeda
+
+# vrcomfort: Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR); questfb: Hands in Menus (VR)
+View (VR) = Paparan (VR)
+Immersive: the world all around you. Screen: the game on a big screen in front of you, for less motion sickness. VR only = Mendalam: dunia di sekeliling anda. Skrin: permainan pada skrin besar di hadapan anda, untuk kurang loya. VR sahaja
+Immersive = Mendalam
+Screen = Skrin
+Screen Distance (VR) = Jarak Skrin (VR)
+How far away the big screen is (Screen view, cut-scenes on the screen, the menus). VR only = Sejauh mana skrin besar (paparan Skrin, adegan pada skrin, menu). VR sahaja
+Screen Size (VR) = Saiz Skrin (VR)
+How big the big screen looks (Screen view, cut-scenes on the screen, the menus). VR only = Sebesar mana skrin besar kelihatan (paparan Skrin, adegan pada skrin, menu). VR sahaja
+Cut-scenes (VR) = Adegan (VR)
+World: the cut-scenes play all around you. Screen: on a big screen in front of you. VR only = Dunia: adegan dimainkan di sekeliling anda. Skrin: pada skrin besar di hadapan anda. VR sahaja
+World = Dunia
+Comfort Vignette (VR) = Vinyet Keselesaan (VR)
+Darkens the edges of the view while the camera turns fast, for less motion sickness. VR only = Menggelapkan tepi paparan semasa kamera berputar laju, untuk kurang loya. VR sahaja
+Hands in Menus (VR) = Tangan dalam Menu (VR)
+Your hands and gun in front of the menus' big screen. VR only = Tangan dan senjata anda di hadapan skrin besar menu. VR sahaja

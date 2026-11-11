@@ -1767,3 +1767,20 @@ Copy all your friends' reply codes from the chat at once and paste them here (Ct
 
 # vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
 {buttons}: Pause = {buttons}: مکث
+
+# vrcomfort: Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR); questfb: Hands in Menus (VR)
+View (VR) = نما (VR)
+Immersive: the world all around you. Screen: the game on a big screen in front of you, for less motion sickness. VR only = فراگیر: دنیا در اطراف شما. صفحه: بازی روی یک صفحه بزرگ جلوی شما، برای کاهش سرگیجه. فقط VR
+Immersive = فراگیر
+Screen = صفحه
+Screen Distance (VR) = فاصله صفحه (VR)
+How far away the big screen is (Screen view, cut-scenes on the screen, the menus). VR only = صفحه بزرگ چقدر دور است (نمای صفحه، سینمایی‌ها روی صفحه، منوها). فقط VR
+Screen Size (VR) = اندازه صفحه (VR)
+How big the big screen looks (Screen view, cut-scenes on the screen, the menus). VR only = صفحه بزرگ چقدر بزرگ به نظر می‌رسد (نمای صفحه، سینمایی‌ها روی صفحه، منوها). فقط VR
+Cut-scenes (VR) = سینمایی‌ها (VR)
+World: the cut-scenes play all around you. Screen: on a big screen in front of you. VR only = دنیا: سینمایی‌ها در اطراف شما پخش می‌شوند. صفحه: روی یک صفحه بزرگ جلوی شما. فقط VR
+World = دنیا
+Comfort Vignette (VR) = حاشیه تیره راحتی (VR)
+Darkens the edges of the view while the camera turns fast, for less motion sickness. VR only = لبه‌های تصویر را هنگام چرخش سریع دوربین تیره می‌کند، برای کاهش سرگیجه. فقط VR
+Hands in Menus (VR) = دست‌ها در منوها (VR)
+Your hands and gun in front of the menus' big screen. VR only = دست‌ها و اسلحه شما جلوی صفحه بزرگ منوها. فقط VR

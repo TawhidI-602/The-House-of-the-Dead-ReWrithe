@@ -1767,3 +1767,20 @@ Copy all your friends' reply codes from the chat at once and paste them here (Ct
 
 # vrflow: the VR pause hint ({buttons}: the controller's buttons, e.g. "Y / Menu", "Left B")
 {buttons}: Pause = {buttons}: Szünet
+
+# vrcomfort: Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR); questfb: Hands in Menus (VR)
+View (VR) = Nézet (VR)
+Immersive: the world all around you. Screen: the game on a big screen in front of you, for less motion sickness. VR only = Magával ragadó: a világ körülötted. Képernyő: a játék egy nagy képernyőn előtted, a kevesebb rosszullétért. Csak VR
+Immersive = Magával ragadó
+Screen = Képernyő
+Screen Distance (VR) = Képernyő távolsága (VR)
+How far away the big screen is (Screen view, cut-scenes on the screen, the menus). VR only = Milyen messze van a nagy képernyő (Képernyő nézet, átvezetők a képernyőn, a menük). Csak VR
+Screen Size (VR) = Képernyő mérete (VR)
+How big the big screen looks (Screen view, cut-scenes on the screen, the menus). VR only = Mekkorának látszik a nagy képernyő (Képernyő nézet, átvezetők a képernyőn, a menük). Csak VR
+Cut-scenes (VR) = Átvezetők (VR)
+World: the cut-scenes play all around you. Screen: on a big screen in front of you. VR only = Világ: az átvezetők körülötted játszódnak le. Képernyő: egy nagy képernyőn előtted. Csak VR
+World = Világ
+Comfort Vignette (VR) = Komfort vignetta (VR)
+Darkens the edges of the view while the camera turns fast, for less motion sickness. VR only = Elsötétíti a nézet szélét, amíg a kamera gyorsan fordul, a kevesebb rosszullétért. Csak VR
+Hands in Menus (VR) = Kezek a menükben (VR)
+Your hands and gun in front of the menus' big screen. VR only = A kezeid és a fegyvered a menük nagy képernyője előtt. Csak VR
