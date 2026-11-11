@@ -28,7 +28,9 @@
 #include <dlfcn.h>
 #include <pthread.h>
 #include <signal.h>
+#if defined(__ANDROID__)   // (questcrash's registers only; macOS refuses <ucontext.h> without _XOPEN_SOURCE)
 #include <ucontext.h>
+#endif
 #include <unistd.h>
 #include <vector>
 #if defined(__ANDROID__) && __ANDROID_API__ < 33

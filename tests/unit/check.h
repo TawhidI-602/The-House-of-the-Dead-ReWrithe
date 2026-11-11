@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <functional>
 #include <type_traits>
