@@ -7,6 +7,7 @@
 
 namespace hotd::game::wii {
 
+// Human-readable names are used by the remapping page; the masks themselves stay in Wii report format.
 const char* ButtonName(uint16_t button) {
     switch(button) {
         case B: return "B";
@@ -20,6 +21,8 @@ const char* ButtonName(uint16_t button) {
     }
 }
 
+// Keep each action-to-button mapping one-to-one. Invalid action indices and buttons not offered by the UI
+// are rejected rather than silently changing a different action or persisting an unsupported control.
 bool AssignButton(Profile& profile,int action,uint16_t button) {
     if(action<0 || action>=int(profile.buttons.size()) ||
        std::find(Bindable.begin(),Bindable.end(),button)==Bindable.end()) return false;
@@ -29,6 +32,8 @@ bool AssignButton(Profile& profile,int action,uint16_t button) {
     return true;
 }
 
+// Apply a projective transform: divide the transformed X/Y numerators by the third homogeneous coordinate.
+// A near-zero denominator is a point at infinity and must not be allowed into cursor coordinates.
 bool AimCalibration::Apply(AimPoint p, AimPoint& out) const {
     const double z=h[6]*p.x+h[7]*p.y+h[8];
     if (!std::isfinite(z) || std::abs(z)<1e-8) return false;
@@ -36,8 +41,12 @@ bool AimCalibration::Apply(AimPoint p, AimPoint& out) const {
     return std::isfinite(out.x) && std::isfinite(out.y);
 }
 
+// Fit the eight free coefficients of a 3x3 homography (h[8] is fixed to 1) from four source/target pairs.
+// The caller supplies samples in target order: top-left, top-right, bottom-right, bottom-left.
 bool AimCalibration::Fit(const std::array<AimPoint,4>& s) {
     const std::array<AimPoint,4> target{{{.15,.15},{.85,.15},{.85,.85},{.15,.85}}};
+    // Reject crossed, collinear or nearly collapsed sample quads before solving; they cannot define a
+    // stable screen mapping and would otherwise produce extreme coefficients or a flipped cursor.
     double sign=0;
     for(int i=0;i<4;++i) {
         const auto a=s[i],b=s[(i+1)%4],c=s[(i+2)%4];
@@ -52,6 +61,8 @@ bool AimCalibration::Fit(const std::array<AimPoint,4>& s) {
         const double b[9]{0,0,0,x,y,1,-v*x,-v*y,v};
         std::copy(a,a+9,m[i*2]); std::copy(b,b+9,m[i*2+1]);
     }
+    // Solve the 8x8 linear system with Gauss-Jordan elimination and partial pivoting. Choosing the
+    // largest available pivot reduces numerical error when the user's four samples are unevenly spaced.
     for(int col=0;col<8;++col) {
         int pivot=col;
         for(int r=col+1;r<8;++r) if(std::abs(m[r][col])>std::abs(m[pivot][col])) pivot=r;
@@ -74,6 +85,8 @@ bool AimCalibration::Fit(const std::array<AimPoint,4>& s) {
     return true;
 }
 
+// Parse into a temporary Settings object and publish it only after the file has been read. Bad individual
+// values keep their defaults; invalid button sets or singular calibration matrices are ignored.
 bool Settings::Load(const std::string& file) {
     std::ifstream f(file);
     if(!f) return false;
@@ -98,6 +111,7 @@ bool Settings::Load(const std::string& file) {
                     if(!(v>>number) || std::find(Bindable.begin(),Bindable.end(),number)==Bindable.end()) valid=false;
                     else b=static_cast<uint16_t>(number);
                 }
+                // A partially parsed or duplicated mapping is discarded as a whole; never save a half-remap.
                 for(int i=0;i<4;++i) for(int j=0;j<i;++j) if(binding[i]==binding[j]) valid=false;
                 if(valid) profile.buttons=binding;
             }
@@ -105,6 +119,7 @@ bool Settings::Load(const std::string& file) {
                 AimCalibration c;
                 bool valid=true;
                 for(double& x:c.h) if(!(v>>x) || !std::isfinite(x) || std::abs(x)>1000) valid=false;
+                // Finite coefficients alone are not enough: a singular matrix has no usable inverse mapping.
                 const double det=c.h[0]*(c.h[4]*c.h[8]-c.h[5]*c.h[7])
                     -c.h[1]*(c.h[3]*c.h[8]-c.h[5]*c.h[6])
                     +c.h[2]*(c.h[3]*c.h[7]-c.h[4]*c.h[6]);
@@ -120,6 +135,8 @@ bool Settings::Load(const std::string& file) {
     return true;
 }
 
+// Store one global policy plus independent P1-P4 profiles. The action order matches Profile::buttons;
+// calibration is omitted until a player has completed a valid four-point fit.
 bool Settings::Save(const std::string& file) const {
     std::ofstream f(file,std::ios::trunc);
     if(!f) return false;
@@ -140,8 +157,13 @@ bool Settings::Save(const std::string& file) const {
     return bool(f);
 }
 
+// HID reports have different fixed layouts. Validate the report ID and its minimum length before reading
+// any offsets, so a short disconnect/malformed packet cannot expose uninitialized bytes as controller input.
 bool DecodeReport(const uint8_t* b,size_t n,Remote& r) {
     if(!b || n<3) return false;
+    // Supported input report IDs and their minimum byte counts:
+    // 0x20=status/battery, 0x21=memory-read data, 0x22=acknowledgement,
+    // 0x30=buttons, 0x31=buttons+accelerometer, 0x33=buttons+accelerometer+extended IR.
     size_t required=0;
     switch(b[0]) {
         case 0x20: required=7; break;
@@ -153,15 +175,22 @@ bool DecodeReport(const uint8_t* b,size_t n,Remote& r) {
         default: return false;
     }
     if(n<required) return false;
+    // Button bytes are big-endian. 'pressed' accumulates only 0->1 transitions; held buttons stay in buttons.
+    // The first two payload bytes are the button word (high byte first); 0x1f9f keeps defined controls
+    // and strips reserved bits before the state is exposed to menu/game code.
     const uint16_t buttons=static_cast<uint16_t>(((b[1]<<8)|b[2])&0x1f9f);
     r.pressed|=buttons & ~r.buttons;
     r.buttons=buttons;
     if(b[0]==0x20) r.battery=std::clamp(int(b[6])*100/0xc0,0,100);
     if(b[0]==0x33) {
+        // Report 0x33 carries the extended IR payload beginning at byte 6. Each dot packs 10-bit X/Y
+        // across three bytes; 0x3ff/0x2ff are invalid sentinels for the camera's 1024x768 coordinate space.
         std::array<AimPoint,4> dots{};
         int count=0;
         for(int i=0;i<4;++i) {
             const auto* d=b+6+i*3;
+            // Each IR dot uses two low bytes plus two high bits packed into the third byte:
+            // bits 4-5 extend X to 10 bits; bits 6-7 extend Y to 10 bits.
             const int x=d[0]+((d[2]&0x30)<<4);
             const int y=d[1]+((d[2]&0xc0)<<2);
             if(x<1023 && y<768) dots[count++]={double(x),double(y)};
@@ -169,6 +198,8 @@ bool DecodeReport(const uint8_t* b,size_t n,Remote& r) {
         r.dots=count;
         r.tracking=count>=2;
         if(r.tracking) {
+            // The sensor can report up to four blobs. Use the most widely separated pair as the two
+            // sensor-bar emitters; very close points are not a reliable direction/center measurement.
             int left=0,right=1;
             double best=-1;
             for(int i=0;i<count;++i) for(int j=i+1;j<count;++j) {
@@ -177,6 +208,7 @@ bool DecodeReport(const uint8_t* b,size_t n,Remote& r) {
                 if(d>best) { best=d; left=i; right=j; }
             }
             if(best<16) { r.tracking=false; return true; }
+            // Normalize to [0,1]. X is inverted because the remote's camera axis is opposite screen X.
             r.raw={1.0-(dots[left].x+dots[right].x)/(2*1023.0),
                    (dots[left].y+dots[right].y)/(2*767.0)};
         }
@@ -184,9 +216,13 @@ bool DecodeReport(const uint8_t* b,size_t n,Remote& r) {
     return true;
 }
 
+// Wii Remote memory writes carry a three-byte address and at most 16 payload bytes in a 22-byte report.
+// Returning a zeroed report for invalid input lets callers reject bad writes without an out-of-bounds copy.
 std::array<uint8_t,22> WriteRegister(uint32_t addr,const uint8_t* data,size_t n) {
     std::array<uint8_t,22> b{};
     if(n>16 || !n || !data) return b;
+    // 0x16 is the memory-write command and 0x04 selects the Wii Remote register space; the address
+    // follows as three big-endian bytes, then the payload length and payload.
     b[0]=0x16; b[1]=0x04; b[2]=uint8_t(addr>>16); b[3]=uint8_t(addr>>8);
     b[4]=uint8_t(addr); b[5]=uint8_t(n);
     std::copy(data,data+n,b.begin()+6);

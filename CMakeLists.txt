@@ -370,6 +370,8 @@ file(CONFIGURE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/dispatch_arcade.inc 
 target_include_directories(hotd_flags INTERFACE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 configure_file(src/res/hotd_version.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/hotd_version.h @ONLY)
 target_link_libraries(hotd_flags INTERFACE hotd_engine hotd_logic)
+# The protocol/game adapter is shared; only the HID transport differs by OS. Android deliberately gets a no-op
+# backend because a native Android transport is not implemented.
 if(WIN32)
     target_link_libraries(hotd_flags INTERFACE winhttp hid setupapi bthprops)   # update check and native Wii Remote HID
     target_sources(hotd_game_obj PRIVATE src/game/wiimote_win.cpp)

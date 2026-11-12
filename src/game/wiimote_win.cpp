@@ -20,6 +20,7 @@
 namespace hotd::game::wii {
 namespace {
 using Clock=std::chrono::steady_clock;
+// Small RAII wrapper for Win32 handles used during discovery and overlapped I/O.
 class Handle {
 public:
     HANDLE value=INVALID_HANDLE_VALUE;
@@ -28,6 +29,8 @@ public:
     Handle(const Handle&)=delete;Handle& operator=(const Handle&)=delete;
     explicit operator bool()const{return value && value!=INVALID_HANDLE_VALUE;}
 };
+// Write an output report with the HID descriptor's required report length. Overlapped I/O is bounded so a
+// removed/unresponsive remote cannot stall shutdown indefinitely; pending I/O is cancelled on timeout.
 bool Write(HANDLE h,const uint8_t* data,size_t size,size_t outputLength,bool rumble=false) {
     if(size>64 || outputLength>64)return false;
     uint8_t report[64]{};std::copy(data,data+size,report);
@@ -50,6 +53,8 @@ public:
     std::atomic<int> player{0};
     explicit Device(std::wstring p,int slot):path(std::move(p)),player(slot){}
     ~Device(){stop=true;if(thread.joinable())thread.join();}
+    // Open only Nintendo's known remote product IDs, validate the descriptor's input/output report sizes,
+    // then require a real status response (not just a DolphinBar's empty HID channel) before claiming a slot.
     bool Open() {
         handle.value=CreateFileW(path.c_str(),GENERIC_READ|GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,FILE_FLAG_OVERLAPPED,nullptr);
         if(!handle)return false;
@@ -87,7 +92,12 @@ private:
     bool Send(std::initializer_list<uint8_t> bytes){
         return Write(handle.value,bytes.begin(),bytes.size(),outputLength,rumbleRequested.load(std::memory_order_relaxed));
     }
+    // Program the same IR sensitivity/register sequence used by the other native backends and select
+    // 0x33 extended reports so one common decoder can handle all three operating systems.
     bool InitIR(){
+        // Register map for this setup sequence: 0xB00030 enables the IR camera; 0xB00000 and 0xB0001A
+        // receive the camera's two sensitivity tables; 0xB00033 selects extended IR mode 3. The final
+        // 0x12,0x04,0x33 command requests continuous report 0x33 (buttons + accelerometer + extended IR).
         const uint8_t start=8,mode=3;
         const uint8_t sensitivity1[]{2,0,0,0x71,1,0,0xaa,0,0x64},sensitivity2[]{0x63,3};
         if(!Send({0x13,4}) || !Send({0x1a,4}))return false;
@@ -98,6 +108,8 @@ private:
         }
         return Send({0x12,4,0x33}); // continuous buttons, accelerometer and 12-byte extended IR
     }
+    // One overlapped input read is kept pending at a time. Short waits let this thread service rumble/LED
+    // changes and watchdogs without busy-spinning; pending reads are cancelled and joined on teardown.
     void Run(){
         if(!InitIR()){alive=false;return;}
         Handle event(CreateEventW(nullptr,TRUE,FALSE,nullptr));if(!event){alive=false;return;}
@@ -141,6 +153,8 @@ private:
         alive=false;
     }
 };
+// Enumerate present HID interfaces and retain only Nintendo VID paths, including DolphinBar Mode 4.
+// This pass runs before Bluetooth inquiry so already-paired remotes reconnect quickly without re-pairing.
 std::vector<std::wstring> HidPaths(){
     std::vector<std::wstring> paths;GUID guid;HidD_GetHidGuid(&guid);
     HDEVINFO list=SetupDiGetClassDevsW(&guid,nullptr,nullptr,DIGCF_PRESENT|DIGCF_DEVICEINTERFACE);
@@ -157,6 +171,8 @@ std::vector<std::wstring> HidPaths(){
     }
     SetupDiDestroyDeviceInfoList(list);return paths;
 }
+// Windows owns pairing for this backend: discover the Nintendo name, authenticate an unpaired remote,
+// then enable its HID service. Existing HID sessions are scanned separately before this slower inquiry.
 bool DiscoverBluetooth(const std::atomic<bool>& stop){
     bool radioFound=false;BLUETOOTH_FIND_RADIO_PARAMS rp{sizeof(rp)};HANDLE raw=nullptr;
     HBLUETOOTH_RADIO_FIND radios=BluetoothFindFirstRadio(&rp,&raw);if(!radios)return false;
@@ -174,12 +190,16 @@ bool DiscoverBluetooth(const std::atomic<bool>& stop){
             if(device.fConnected)continue;
             if(!device.fAuthenticated){
                 WCHAR pin[7]{};
-                // Red SYNC pairs with the host address; 1+2 guest pairing uses the remote address.
+                // Nintendo remotes use different six-byte PIN conventions depending on pairing mode:
+                // red SYNC uses the host Bluetooth address; the 1+2 guest method uses the remote address.
+                // Try both so either pairing flow can authenticate without asking the user for a PIN.
                 for(int i=0;i<6;++i)pin[i]=ri.address.rgBytes[i];
                 DWORD paired=BluetoothAuthenticateDevice(nullptr,radio.value,&device,pin,6);
                 if(paired!=ERROR_SUCCESS && !stop){for(int i=0;i<6;++i)pin[i]=device.Address.rgBytes[i];BluetoothAuthenticateDevice(nullptr,radio.value,&device,pin,6);}
             }
             if(!stop){const GUID hidService{0x00001124,0,0x1000,{0x80,0,0,0x80,0x5f,0x9b,0x34,0xfb}};
+                // Authentication alone is not enough: enable the standard HID service so the remote appears
+                // in HidPaths() and can be opened through the same input-report path as an already-paired unit.
                 BluetoothSetServiceState(radio.value,&device,&hidService,BLUETOOTH_SERVICE_ENABLE);}
         }while(BluetoothFindNextDevice(found,&device));
         BluetoothFindDeviceClose(found);
@@ -223,6 +243,8 @@ private:
     bool enabled=false,continuous_=false,requested=false,clear=false,scanning=false;
     std::string message="Select Connect and press the red SYNC button";
     std::thread worker;
+    // As on Linux/macOS, this worker alone mutates the player-slot table. A manual scan lasts 20 seconds;
+    // a user-requested disconnect blocks that path until the next scan, and temporary losses keep the slot key.
     void Run(){
         auto deadline=Clock::now();
         while(!stop){

@@ -24,6 +24,8 @@ static std::array<uint8_t,22> Report(uint16_t buttons,int x=500,int y=380,bool t
 }
 
 int main() {
+    // Exercise the platform-independent protocol layer; native Bluetooth pairing and HID timing require
+    // physical hardware and are intentionally kept out of this deterministic test executable.
     Remote remote;
     auto b=Report(B);
     Check(DecodeReport(b.data(),b.size(),remote),"decode valid extended IR report");
@@ -42,6 +44,7 @@ int main() {
     uint8_t malformed[4]{0x33,0,0,0};
     Check(!DecodeReport(malformed,sizeof(malformed),remote),"reject truncated report");
 
+    // Four skewed samples should still map exactly to the four menu targets after the homography is fitted.
     AimCalibration calibration;
     const std::array<AimPoint,4> samples{{{.25,.20},{.75,.24},{.78,.77},{.22,.73}}};
     Check(calibration.Fit(samples),"fit four-point aim calibration");
@@ -53,6 +56,7 @@ int main() {
               "calibration maps each sample to its target");
     }
 
+    // Settings tests cover default bindings, uniqueness, persistence for all four seats and legacy migration.
     Settings defaults;
     Check(defaults.rumble,"rumble is enabled by default");
     Check(defaults.player[0].buttons==std::array<uint16_t,4>{B,A,One,Plus},

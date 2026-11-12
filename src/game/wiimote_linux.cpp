@@ -26,11 +26,14 @@ namespace hotd::game::wii {
 namespace {
 using Clock=std::chrono::steady_clock;
 
+// Accept the original RVL-CNT-01 and the newer RVL-CNT-01-TR product IDs; do not claim unrelated Nintendo HID devices.
 bool IsRemote(int fd) {
     struct hidraw_devinfo info{};
     if(ioctl(fd,HIDIOCGRAWINFO,&info)<0) return false;
     return info.vendor==0x057e && (info.product==0x0306 || info.product==0x0330);
 }
+// Prefer the kernel's Bluetooth unique/physical identity so a reconnect can reclaim the same player slot.
+// Device path is only a last-resort key for drivers that do not expose either property.
 std::string UniqueId(int fd,const std::string& fallback) {
     char value[256]{};
     if(ioctl(fd,HIDIOCGRAWUNIQ(sizeof(value)),value)>=0 && value[0]) return value;
@@ -38,6 +41,8 @@ std::string UniqueId(int fd,const std::string& fallback) {
     if(ioctl(fd,HIDIOCGRAWPHYS(sizeof(value)),value)>=0 && value[0]) return value;
     return fallback;
 }
+// Enumerate hidraw nodes directly. We intentionally do not open evdev/mouse interfaces: IR remains game input,
+// not an operating-system pointer, and BlueZ/the kernel remain responsible for pairing and authentication.
 std::vector<std::pair<std::string,std::string>> HidrawDevices() {
     std::vector<std::pair<std::string,std::string>> out;
     std::error_code ec;
@@ -64,6 +69,8 @@ public:
     bool Open() {
         fd=open(path.c_str(),O_RDWR|O_NONBLOCK|O_CLOEXEC);
         if(fd<0 || !IsRemote(fd)) return false;
+        // A DolphinBar can expose an HID interface for an empty channel. Request status and require a valid
+        // response before reserving a seat; presence in /dev alone is not proof that a remote is connected.
         const uint8_t request[]{0x15,0};
         if(!Write(request,sizeof(request))) return false;
         uint8_t report[64]{};
@@ -80,6 +87,7 @@ public:
         thread=std::thread([this]{Run();});
         return true;
     }
+    // Copy the latest state atomically and consume the accumulated press edges exactly once per poll.
     Remote Poll() {
         std::lock_guard lock(mutex);
         Remote r=state;
@@ -95,6 +103,7 @@ private:
     std::mutex mutex;
     Remote state;
     std::atomic<bool> rumbleRequested{false};
+    // Output reports share bit 0 of byte 1 with the rumble flag, so preserve all other command bits.
     bool Write(const uint8_t* bytes,size_t size) {
         if(fd<0 || size>64) return false;
         uint8_t report[64]{};
@@ -106,7 +115,12 @@ private:
     bool Send(std::initializer_list<uint8_t> bytes) {
         return Write(bytes.begin(),bytes.size());
     }
+    // Enable the IR camera, write its two sensitivity blocks, select extended mode 3, then request report
+    // 0x33 (buttons + accelerometer + 12-byte IR). Short pauses let the remote apply each register write.
     bool InitIR() {
+        // Register map for this setup sequence: 0xB00030 enables the IR camera; 0xB00000 and 0xB0001A
+        // receive the camera's two sensitivity tables; 0xB00033 selects extended IR mode 3. The final
+        // 0x12,0x04,0x33 command requests continuous report 0x33 (buttons + accelerometer + extended IR).
         const uint8_t start=8,mode=3;
         const uint8_t sensitivity1[]{2,0,0,0x71,1,0,0xaa,0,0x64},sensitivity2[]{0x63,3};
         if(!Send({0x13,4}) || !Send({0x1a,4})) return false;
@@ -118,6 +132,8 @@ private:
         }
         return Send({0x12,4,0x33});
     }
+    // This is the only thread that performs reads/writes on this hidraw fd after Open() has handed it off.
+    // A 300 ms report gap drops stale buttons/IR tracking; five seconds without reports retires the session.
     void Run() {
         if(!InitIR()) {alive=false;return;}
         auto last=Clock::now(),statusAt=last;
@@ -164,6 +180,8 @@ private:
     }
 };
 
+// Backend-wide worker serializes discovery, slot ownership and disconnect requests. Device threads only
+// own their own descriptors and publish Remote snapshots under each Device's mutex.
 class NativeBackend final : public Backend {
 public:
     NativeBackend():worker([this]{Run();}){}
@@ -180,6 +198,8 @@ public:
         {std::lock_guard lock(mutex);requested=true;blocked.clear();}
         cv.notify_all();
     }
+    // A deliberate disconnect blocks this device identity until the next explicit Scan(), preventing the
+    // discovery loop from immediately reconnecting the remote the user just asked to release.
     void Disconnect(int p) override {
         if(p<0 || p>=kPlayers) return;
         {std::lock_guard lock(mutex);disconnect[p]=true;}
@@ -196,6 +216,7 @@ public:
         {std::lock_guard lock(mutex);device=devices[p];}
         if(device) device->SetRumble(enabled);
     }
+    // A known identity keeps its slot reserved during a temporary link loss so reconnecting does not shuffle P1-P4.
     Snapshot Poll() override {
         std::lock_guard lock(mutex);
         Snapshot s;s.scanning=scanning;s.message=message;
@@ -216,6 +237,8 @@ private:
     bool enabled=false,continuous_=false,requested=false,clear=false,scanning=false;
     std::string message="Pair a Wii Remote in Bluetooth settings, then scan here";
     std::thread worker;
+    // Manual scans open a 20-second discovery window; continuous mode ignores that deadline while enabled.
+    // Retired devices are destroyed after releasing mutex because their destructors join worker threads.
     void Run() {
         auto deadline=Clock::now();
         while(!stop) {
@@ -248,6 +271,7 @@ private:
                 {
                     std::lock_guard lock(mutex);
                     if(!enabled || blocked.count(key)) continue;
+                    // Reclaim the previous seat for the same physical identity before considering an empty slot.
                     for(int i=0;i<kPlayers;++i)
                         if(keys[i]==key && (!devices[i] || !devices[i]->alive)) {slot=i;break;}
                     if(slot<0 && std::find(keys.begin(),keys.end(),key)!=keys.end()) continue;

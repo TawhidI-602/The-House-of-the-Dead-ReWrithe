@@ -8437,6 +8437,9 @@ int main(int argc, char* argv[])
     Gun guns[game::kInputPlayers];   // players 3 / 4: the 4P mode (docs/coop4.md)
     // pads (game/pads.h): gamepads (stick / gyro aim) and light guns (absolute pointer devices) per player
     game::Pads pads;
+    // Keep the Wii Remote adapter beside Pads/LightGuns: it feeds the same GunState and pause structures,
+    // but its native HID backend owns discovery and device I/O. Support stays opt-in through wiimotes.ini;
+    // the environment switch is a development/test shortcut, not a new default.
     game::Wiimotes wiimotes;
     wiimotes.Load(cache + "wiimotes.ini");   // native Bluetooth Wii Remotes; disabled unless opted in in this file
     if (const char* wii = std::getenv("HOTD_WII_REMOTES"); wii && std::string(wii) == "1") {
@@ -12865,6 +12868,8 @@ int main(int argc, char* argv[])
                 if (remote.reserved) return std::string("Disconnected / reserved");
                 return wiimotes.Status().scanning ? std::string("Searching...") : std::string("Not connected");
             };
+            // Build the per-player page from live snapshots. Capture p/action by value in row callbacks so
+            // a delayed menu click cannot accidentally act on the loop's later player/action index.
             wiimotePlayerPage = [&, saveWiimotes, wiimoteStatus](int p) {
                 using X2 = game::Frontend::Extra;
                 std::vector<X2> rows;
@@ -12949,6 +12954,8 @@ int main(int argc, char* argv[])
                 };
                 fe.screenExtras();
             };
+            // Global controls (support, rumble, scan) lead to one independent profile page per player.
+            // Settings changes are written immediately so a menu exit or crash does not lose remaps/calibration.
             wiimotePage = [&, saveWiimotes, wiimoteStatus]() {
                 using X2 = game::Frontend::Extra;
                 std::vector<X2> rows;
@@ -12987,6 +12994,8 @@ int main(int argc, char* argv[])
                 fe.screenExtras();
             };
             hooks.wiimotePage = [&]() { wiimotePage(); };
+            // Device polling continues every game-loop iteration, but rebuilding this menu at 60+ Hz is wasteful.
+            // Refresh connection/calibration text at 4 Hz while leaving gameplay input unthrottled.
             wiimoteMenuRefresh = [&]() {
                 static Uint64 at = 0;
                 if (fe.screen() != 100 ||
@@ -13807,6 +13816,8 @@ int main(int argc, char* argv[])
             padsPending = false;
         }
         pads.refresh();   // pads: hot-plug on every screen
+        // Snapshot asynchronous HID input before menu/game routing. Calibration and remap capture run on every
+        // screen; their completion flags are persisted here, outside the backend worker thread.
         wiimotes.Refresh();   // Wiimotes: four independent native HID connections on the platform backend
         wiimotes.CaptureCalibration();   // menu and game alike: A captures; B cancels the selected player's IR target
         wiimotes.CaptureBinding();       // the selected player/action captures the next supported Wii Remote button
@@ -13826,6 +13837,8 @@ int main(int argc, char* argv[])
         }
         float wiimoteMenuX = 0.5f, wiimoteMenuY = 0.5f;
         int wiimoteMenuPointerPlayer = -1;
+        // Use normalized IR coordinates for the front-end hand cursor. Clicks are translated to front-end input,
+        // not SDL mouse motion/button events; the operating-system cursor is never moved or captured.
         const bool wiimoteMenuPointer = screen == Screen::Menu &&
             wiimotes.MenuPointer(wiimoteMenuX, wiimoteMenuY, &wiimoteMenuPointerPlayer);
         bool wiimoteMenuClick = false;
@@ -13840,6 +13853,8 @@ int main(int argc, char* argv[])
                     break;
                 }
             }
+            // The boot-attract page already handles SDL Return/gamepad Start. Inject that same event instead
+            // of creating a second attract-state transition specific to Wii Remotes.
             if (startPressed) {
                 SDL_Event start{};
                 start.type = SDL_EVENT_KEY_DOWN;
@@ -13855,6 +13870,10 @@ int main(int argc, char* argv[])
             // Translate each remote's own profile to frontend navigation. The IR pointer below is injected as
             // FrontendInput coordinates, never as SDL mouse motion or an operating-system cursor.
             // Front-end navigation has a fixed Wii Remote layout, separate from the remappable gameplay actions.
+            // Menu controls intentionally use a fixed layout (D-pad / A / B), not remappable gameplay actions.
+            // This keeps setup navigation usable even before Fire/Reload bindings have been configured.
+            // These are private accumulator bits, not physical report masks. They let A and B be folded into
+            // the same held-state table as D-pad directions before mapping the result to Enter/Escape.
             static constexpr uint16_t kWiiMenuConfirm = 0x2000, kWiiMenuBack = 0x8000;
             static uint16_t previousWiiMenu = 0;
             uint16_t currentWiiMenu = 0;
@@ -13885,6 +13904,8 @@ int main(int argc, char* argv[])
                 {kWiiMenuConfirm, SDL_SCANCODE_RETURN, SDLK_RETURN},
                 {kWiiMenuBack, SDL_SCANCODE_ESCAPE, SDLK_ESCAPE}
             };
+            // Convert the combined held mask into SDL key transitions. The previous mask prevents a held
+            // direction/confirm button from emitting another key-down every frame.
             // Several buttons share Enter; combine their state before emitting transitions.
             for (const auto& k : menuKeys) {
                 const bool down = (currentWiiMenu & k.button) != 0;
@@ -13907,6 +13928,8 @@ int main(int argc, char* argv[])
         pads.gamePlayer[0] = gNet ? gNet->localPlayer() : 0;
         pads.gamePlayer[1] = gNet ? (gNet->multi() ? (gNet->secondSeat() > 0 ? gNet->secondSeat() : gNet->localPlayer())
                                      : host.runtime().coop4_on() ? gNet->localPlayer() + 2 : 1 - gNet->localPlayer()) : 1;
+        // Reuse the pad subsystem's local-seat mapping, including online host/client swaps and 4P seats,
+        // so a remote controls the same game player as the corresponding input slot.
         for (int p = 0; p < game::kInputPlayers; ++p) wiimotes.gamePlayer[p] = pads.gamePlayer[p];
         if (menuAudioHeld && screen != Screen::Menu) {   // left the menu while inactive (the idle -> attract)
             audio.pause(false);
@@ -16969,6 +16992,8 @@ int main(int argc, char* argv[])
             continue;
         }
         // pads: the gamepads' and light guns' buttons / positions into the guns, the start buttons, the pause
+        // All three sources write into the existing per-player gun/pause state. Apply Wiimote input under the
+        // same gameplay gate so it cannot inject shots during menus, attract, scene playback or shutdown.
         if (screen == Screen::Game && running && !feAttract && !gScene.active()) {
             pads.apply(rt, guns, pause, pauseIn, lw, lh);
             lightGuns.apply(rt, guns, paused, lw, lh);

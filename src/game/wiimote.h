@@ -21,33 +21,44 @@ constexpr int kWiimotePlayers = 4;
 
 namespace wii {
 constexpr int kPlayers = kWiimotePlayers;
+// Button bits as they appear in the high/low button bytes of a Wii Remote input report.
+// Keep these masks in protocol form so the decoder, menu navigation and remapping share one definition.
 constexpr uint16_t Two=0x0001, One=0x0002, B=0x0004, A=0x0008, Minus=0x0010,
                    Home=0x0080, Left=0x0100, Right=0x0200, Down=0x0400, Up=0x0800, Plus=0x1000;
+// Buttons offered by the remapping UI. D-pad directions remain reserved for menu navigation.
 constexpr std::array<uint16_t, 7> Bindable{B,A,Plus,Home,One,Two,Minus};
 const char* ButtonName(uint16_t button);
 
+// Normalized infrared-camera coordinates. DecodeReport flips X to match the game's screen-space convention.
 struct AimPoint { double x=0, y=0; };
 struct AimCalibration {
+    // 3x3 projective transform (homography), stored row-major and normalized with h[8] == 1.
     std::array<double,9> h{1,0,0,0,1,0,0,0,1};
     bool calibrated=false;
     bool Apply(AimPoint raw, AimPoint& mapped) const;
     bool Fit(const std::array<AimPoint,4>& samples);
 };
 struct Profile {
-    // Fire, reload, confirm, start / pause. Duplicate bindings are rejected on load.
+    // Action order is part of the settings-file format: Fire, Reload, Confirm, Start / Pause.
+    // Duplicate physical buttons are rejected both when loading and when assigning from the menu.
     std::array<uint16_t,4> buttons{B,A,One,Plus};
     AimCalibration calibration;
     int smoothing=1;  // 0 off, 1 light, 2 strong
 };
 bool AssignButton(Profile& profile, int action, uint16_t button);
 struct Settings {
+    // Support is opt-in; continuous controls whether discovery keeps running after a manual scan window.
+    // Rumble is independent so users can keep IR/input while disabling the Wii Remote's binary motor.
     bool enabled=false, continuous=false, rumble=true;
     std::array<Profile,kPlayers> player;
     bool Load(const std::string& file);
     bool Save(const std::string& file) const;
 };
 struct Remote {
+    // connected means the HID session is alive; reserved means this identity still owns the player slot
+    // and can reclaim it after a transient disconnect. They intentionally are not equivalent.
     bool connected=false, reserved=false, tracking=false;
+    // buttons is the current held mask; pressed contains rising edges since the previous backend poll.
     uint16_t buttons=0, pressed=0;
     int battery=-1, dots=0;
     AimPoint raw{0.5,0.5};
@@ -57,9 +68,13 @@ struct Snapshot {
     bool scanning=false;
     std::string message="Wii Remote support is off";
 };
+// Decode one HID input report and update held buttons, press edges, battery and IR state.
 bool DecodeReport(const uint8_t* bytes, size_t size, Remote& remote);
+// Build the Wii Remote memory-write output report used to configure the IR camera.
 std::array<uint8_t,22> WriteRegister(uint32_t address, const uint8_t* bytes, size_t size);
 
+// OS-specific transport. Implementations own their worker/device threads and return a snapshot;
+// callers never read HID descriptors or touch platform handles from the game thread.
 class Backend {
 public:
     virtual ~Backend()=default;
@@ -73,6 +88,8 @@ public:
 std::unique_ptr<Backend> CreateBackend();
 } // namespace wii
 
+// Game-facing adapter: turns backend reports into ReWrithe gun/pause/menu input and game-event rumble.
+// It is deliberately platform-neutral; only the Backend implementation knows about Bluetooth/HID APIs.
 class Wiimotes {
 public:
     Wiimotes();
@@ -108,6 +125,8 @@ public:
     std::string BindingText(int player, int action) const;
     bool MenuPointer(float& x, float& y, int* player = nullptr);
     bool bindingChanged = false;
+    // While calibrating/remapping, consume that remote's controls so setup presses cannot leak into gameplay.
+    // The *_MenuBlockedPlayer_ state also waits for the last held button to be released before restoring menu input.
     bool MenuInputSuppressed() const { return Calibrating() || calibrationMenuBlockedPlayer_ >= 0 ||
         bindingPlayer_ >= 0 || bindingMenuBlockedPlayer_ >= 0; }
     bool CalibrationTarget(float& x, float& y) const;
@@ -119,6 +138,7 @@ public:
 private:
     std::unique_ptr<wii::Backend> backend_;
     wii::Snapshot snapshot_;
+    // Per-player history used for disconnect/pause handling, aim smoothing and event-based rumble.
     std::array<bool,kWiimotePlayers> lost_{};
     std::array<bool,kWiimotePlayers> seen_{};
     std::array<wii::AimPoint,kWiimotePlayers> smoothedAim_{};

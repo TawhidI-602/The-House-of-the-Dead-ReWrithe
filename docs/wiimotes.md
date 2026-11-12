@@ -34,6 +34,18 @@ Linux device access also requires the logged-in user to have read/write permissi
 
 Each connection is assigned to one of P1-P4. The backend reserves a disconnected slot while the device identity remains known, and the game keeps each player's aim and button state separate. The four-player mode must be enabled in the game for P3/P4 gameplay.
 
+## Developer notes
+
+The implementation is split into three layers:
+
+- `wiimote_protocol.cpp` is platform-independent. It owns report decoding, button-edge detection, memory-write report construction, settings validation and the four-point projective calibration.
+- `wiimote.cpp` adapts decoded snapshots to ReWrithe's existing light-gun, pause-menu and front-end input paths. It also turns game-state changes (damage, score increases and registered reloads) into timed rumble pulses.
+- `wiimote_win.cpp`, `wiimote_linux.cpp` and `wiimote_mac.cpp` own the native HID transport and worker threads. Linux/macOS use the operating system's existing Bluetooth pairing; Windows additionally performs native discovery/authentication. The unsupported-platform backend keeps common game code buildable without a transport.
+
+`Remote::buttons` is the current held-button mask; `Remote::pressed` is a rising-edge mask. A backend poll consumes its copy of the edge mask, while the game-facing adapter preserves pending edges until the frame input path calls `ClearEdges()`. `connected` describes a live HID session; `reserved` describes ownership of a player slot, which can survive a temporary disconnect so the same remote can reclaim its seat.
+
+IR calibration maps four ordered camera samples (top-left, top-right, bottom-right, bottom-left) to the corresponding screen targets with a 3x3 homography. The fit rejects crossed/degenerate sample quads and singular solutions. All three native transports request extended report `0x33`, allowing the same decoder to process button and IR data on every platform.
+
 ## Validation
 
 The protocol decoder, button edge handling, four-point homography calibration and four-player settings have automated tests. Pairing, IR quality and four simultaneous physical remotes still need hardware validation on each operating system.

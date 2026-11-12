@@ -23,6 +23,7 @@ namespace hotd::game::wii {
 namespace {
 using Clock=std::chrono::steady_clock;
 
+// IOHID properties are CoreFoundation objects; validate their type before asking for a numeric value.
 int NumberProperty(IOHIDDeviceRef device,CFStringRef key) {
     CFTypeRef value=IOHIDDeviceGetProperty(device,key);
     if(!value || CFGetTypeID(value)!=CFNumberGetTypeID()) return -1;
@@ -37,6 +38,7 @@ std::string StringProperty(IOHIDDeviceRef device,CFStringRef key) {
     if(!CFStringGetCString((CFStringRef)value,text,sizeof(text),kCFStringEncodingUTF8)) return {};
     return text;
 }
+// Prefer a serial, then the IOHID location. CFHash is only a process-local fallback when neither is exposed.
 std::string DeviceId(IOHIDDeviceRef device) {
     const auto serial=StringProperty(device,CFSTR(kIOHIDSerialNumberKey));
     if(!serial.empty()) return serial;
@@ -58,6 +60,7 @@ public:
         if(device) CFRetain(device);
         key=DeviceId(device);
     }
+    // Device retains the IOHID object while its callback/run-loop thread is alive; join before releasing it.
     ~Device() {
         stop=true;
         if(thread.joinable()) thread.join();
@@ -85,6 +88,8 @@ private:
     std::atomic<bool> rumbleRequested{false};
     std::array<uint8_t,64> reportBuffer{};
     std::atomic<int64_t> lastReportNs{0};
+    // IOHID callbacks may supply the report ID separately from the payload. Normalize both API forms into
+    // the same byte layout expected by DecodeReport(), then publish the timestamp for the watchdog.
     static void Input(void* context,IOReturn result,void*,IOHIDReportType,uint32_t reportId,uint8_t* data,CFIndex length) {
         if(result!=kIOReturnSuccess || !context || length<0 || length>63) return;
         auto* self=static_cast<Device*>(context);
@@ -118,7 +123,11 @@ private:
     bool Send(std::initializer_list<uint8_t> bytes) {
         return Send(bytes.begin(),bytes.size());
     }
+    // Configure the camera registers and switch to extended IR input, matching the Linux/Windows decoder.
     bool InitIR() {
+        // Register map for this setup sequence: 0xB00030 enables the IR camera; 0xB00000 and 0xB0001A
+        // receive the camera's two sensitivity tables; 0xB00033 selects extended IR mode 3. The final
+        // 0x12,0x04,0x33 command requests continuous report 0x33 (buttons + accelerometer + extended IR).
         const uint8_t start=8,mode=3;
         const uint8_t sensitivity1[]{2,0,0,0x71,1,0,0xaa,0,0x64},sensitivity2[]{0x63,3};
         if(!Send({0x13,4}) || !Send({0x1a,4})) return false;
@@ -130,6 +139,8 @@ private:
         }
         return Send({0x12,4,0x33});
     }
+    // IOKit delivers input on this thread's CFRunLoop. Keep that run loop alive while checking connection
+    // timeouts and output state; do not block it on a synchronous input read.
     void Run() {
         IOHIDDeviceRegisterInputReportCallback(device,reportBuffer.data(),reportBuffer.size(),Input,this);
         IOHIDDeviceScheduleWithRunLoop(device,CFRunLoopGetCurrent(),kCFRunLoopDefaultMode);
@@ -178,6 +189,8 @@ private:
     }
 };
 
+// The OS has already paired the remote. Match Nintendo vendor ID here, then filter product IDs with IsRemote().
+// Retain returned IOHIDDeviceRefs because the manager/set that discovered them is released before Open().
 std::vector<IOHIDDeviceRef> HidDevices() {
     std::vector<IOHIDDeviceRef> out;
     IOHIDManagerRef manager=IOHIDManagerCreate(kCFAllocatorDefault,kIOHIDOptionsTypeNone);
@@ -209,6 +222,8 @@ std::vector<IOHIDDeviceRef> HidDevices() {
     return out;
 }
 
+// The backend worker owns the slot table; each Device owns one IOHID handle and one CFRunLoop thread.
+// A device identity is kept with its slot across temporary disconnects, just as in the Linux backend.
 class NativeBackend final : public Backend {
 public:
     NativeBackend():worker([this]{Run();}){}
@@ -261,6 +276,8 @@ private:
     bool enabled=false,continuous_=false,requested=false,clear=false,scanning=false;
     std::string message="Pair a Wii Remote in Bluetooth settings, then scan here";
     std::thread worker;
+    // Scan only already-paired HID devices (pairing belongs to macOS Bluetooth settings). Manual scans last
+    // 20 seconds unless continuous mode is enabled. Destroy retired sessions outside mutex: their destructors join.
     void Run() {
         auto deadline=Clock::now();
         while(!stop) {

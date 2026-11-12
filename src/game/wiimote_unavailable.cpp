@@ -1,6 +1,8 @@
 #include "game/wiimote.h"
 namespace hotd::game::wii {
 namespace {
+// Compile-time fallback for platforms without a native HID transport. All methods are safe no-ops so the
+// game-facing Wiimotes adapter can remain in the common build without platform-specific #ifdefs.
 class UnavailableBackend final : public Backend {
 public:
     void Enable(bool,bool) override {}

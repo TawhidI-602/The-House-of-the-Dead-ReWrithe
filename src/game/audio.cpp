@@ -402,7 +402,8 @@ void Audio::boardLoop()
         rl.unlock();
 #ifdef HOTD_HAVE_ARCADE_SOUND
         // The board thread is idle when HOTD_ARCADE_SOUND is off (boardReady_ can never become true).
-        // Keep its implementation out of builds whose no-board SoundBoard stub has no command/render API.
+        // The no-board stub intentionally has no command/render methods, so this guard is also required
+        // at compile time: optional arcade audio must not break builds that disable the arcade sound board.
         for (uint32_t c : due)
             board_->command(c);
         std::fill(buf.begin(), buf.begin() + size_t(n) * 2, 0.0f);
