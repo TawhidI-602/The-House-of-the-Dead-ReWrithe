@@ -400,10 +400,14 @@ void Audio::boardLoop()
             end = std::min(end, cmds_.front().first);   // the next code goes in at its own frame
         const int n = int(end - emuPos_);
         rl.unlock();
+#ifdef HOTD_HAVE_ARCADE_SOUND
+        // The board thread is idle when HOTD_ARCADE_SOUND is off (boardReady_ can never become true).
+        // Keep its implementation out of builds whose no-board SoundBoard stub has no command/render API.
         for (uint32_t c : due)
             board_->command(c);
         std::fill(buf.begin(), buf.begin() + size_t(n) * 2, 0.0f);
         board_->render(buf.data(), n, 1.0f);   // (as mix() did: into zeros, gain 1)
+#endif
         rl.lock();
         size_t w = (ringRead_ + ringFill_) % ringCap_;
         for (int i = 0; i < n; ++i, w = (w + 1) % ringCap_) {
