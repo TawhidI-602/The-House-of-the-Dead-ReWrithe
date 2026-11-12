@@ -180,7 +180,12 @@ __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 #define _pclose pclose
 #endif
 
+#ifdef HOTD_HAVE_ARCADE_SOUND
 void hotd_scsp_set_chip(int chip);   // sound2: Audio > Sound Chip (src/audio/sound_board.cpp)
+#else
+// The Sound Chip option has no effect when the optional arcade sound board is not built.
+static void hotd_scsp_set_chip(int) {}
+#endif
 
 // leftovers: an environment variable the C runtime's std::getenv sees (SDL_setenv_unsafe sets the process
 // environment on Windows, which the CRT's copy that frontendShot / langTool read does not follow)
