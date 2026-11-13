@@ -4,6 +4,40 @@ All notable changes for players. The format follows [Keep a Changelog](https://k
 follow [Semantic Versioning](https://semver.org/). The game shows this version's section once after an update and in
 Options > System > What's New.
 
+## [1.4.1] - 2026-11-13
+
+**About the sound:** it is still not "accurate" everywhere. Tell me which track or sound effect sounds off, and where
+(#26).
+
+### Added
+- **Wii Remote support** (Experimental; Windows, Linux, macOS): use a Wii Remote as a pointer gun, off until you enable
+  it (Options > Controls > Wii Remotes). Added by **zedhqx4** (GitHub PR #85); the protocol and calibration notes come
+  from **GitFist**'s hotd2-re.
+- **Mixed Models** (Options > Video > Models: Arcade / PC / Mixed): pick the models per group on the Mixed Models page:
+  Players and humans, Creatures, Bosses, World, Effects, HUD and Arcade Extras. Where the PC files lack a model (the cut
+  creatures too), the arcade model fills in. Not on the Quest (#49).
+- **PC Renderer** (Options > Video): Software or Direct3D (#79).
+- **A new main menu**: Story Mode, More Modes, Extras, Options and Quit, with Survival and Horde sub-menus (#89).
+- **Custom splash screens**: mods of the type `splash` (PNG / JPG) (#83).
+- **VR**: **Gun Hand (VR)** Right / Left (#86); creatures that appear outside the flat view fade in, and the scenery at
+  the sides shows (#78); **Cut-scene Crosshairs** Hide / Subtle / Show (default Hide; flat game and VR, #80). 
+
+### Changed
+- **Sound (Accurate)**: the lead melody of the boss, Chapter 2, Chapter 3, chapter clear and Magician songs now matches
+  the arcade sound, checked against a recording of an arcade board (#87).
+- Remake menu: with the keyboard or a pad, a page opens on its first row, and Back returns to the group's item.
+
+### Fixed
+- G's voice as Player 1 and the Solo Player Seat crosshair (#88).
+- The attract's third demo (#84).
+- Sophie's body with PC models (#81).
+- Survival, Chapter 4's roof: the glitched creature textures.
+- Linux and macOS: build fixes.
+
+### Known issues
+- VR is experimental; the Quest build is extremely buggy (PC VR is recommended).
+- The tempo of the arcade music is about 4 % fast compared with a board recording (#26).
+
 ## [1.4.0] - 2026-11-10
 
 **About the sound:** it is not "accurate" yet. I tried to make improvements to the arcade sound chip

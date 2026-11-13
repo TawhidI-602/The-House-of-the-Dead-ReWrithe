@@ -254,6 +254,7 @@ bool LaunchConfig::load(const std::string& file)
         const int n = std::atoi(v.c_str());
         // gunfb: Show Crosshairs / Shot Flash Size (their own ifs: the chain below is at MSVC's nesting limit)
         if (k == "showcrosshairs") { showCrosshairs = n != 0; continue; }
+        if (k == "pcrenderer") { pcRenderer = v == "d3d" || v == "direct3d" || n == 1 ? 1 : 0; continue; }   // pcd3d (#79): Video > PC Renderer
         if (k == "shotflashsize") { shotFlashSize = std::clamp(n, 0, 2); continue; }
         if (k == "bossnames") { bossCodenames = n != 0; continue; }   // spanish3: 0 Full, 1 Codenames Only
         if (k == "netstun") { netStun = n != 0; continue; }   // natpunch: hole punching's STUN (Address Lookup)
@@ -270,6 +271,8 @@ bool LaunchConfig::load(const std::string& file)
         if (k == "vrdual") { vrDual = std::clamp(n, -1, 1); continue; }   // vr4: Gameplay > Dual Pistols (VR)
         if (k == "vrlaser") { vrLaser = std::clamp(n, -1, 1); continue; }   // vrsight: Gameplay > Laser (VR)
         if (k == "vrmenuhands") { vrMenuHands = std::clamp(n, -1, 1); continue; }   // questfb: Gameplay > Hands in Menus (VR)
+        if (k == "vrgunhand") { vrGunHand = std::clamp(n, -1, 1); continue; }   // vr141: Gameplay > Gun Hand (VR)
+        if (k == "cutcross") { cutCross = std::clamp(n, 0, 2); continue; }   // vr141: Gameplay > Cut-scene Crosshairs
         // vrcomfort: Gameplay > View / Screen Distance / Screen Size / Cut-scenes / Comfort Vignette (VR)
         if (k == "vrview") { vrView = std::clamp(n, -1, 1); continue; }
         if (k == "vrscreendist") { vrScreenDist = n == 2 || n == 3 || n == 4 || n == 6 ? n : -1; continue; }
@@ -277,11 +280,13 @@ bool LaunchConfig::load(const std::string& file)
         if (k == "vrcutscenes") { vrCutscenes = std::clamp(n, -1, 1); continue; }
         if (k == "vrvignette") { vrVignette = std::clamp(n, -1, 1); continue; }
         if (k == "vrcrosshair") { vrCrosshair = std::clamp(n, -1, 1); continue; }   // vrsight: Gameplay > Crosshair (VR)
+        if (k == "mixedmodels") { mixedPc = mixedModelsParse(v); continue; }   // mixmodels (#49): Video > Mixed Models' rows
+        if (k == "mixextras") { mixExtras = n != 0; continue; }   // (user 2026-11-13: Mixed Models > Arcade Extras)
         if (k == "soundchip") { soundChip = n == 1 ? 1 : 0; continue; }   // sound2: Audio > Sound Chip
         if (bindsIniLine(k, v, keys, padBinds)) {}   // keybind: key1.fire= / padbind1.fire= ...
         else if (k == "arcade") arcade = fromBase(v, base);
         else if (k == "pc") pc = fromBase(v, base);
-        else if (k == "models") models = std::clamp(n, 0, 1);
+        else if (k == "models") models = std::clamp(n, 0, 2);   // (mixmodels: 2 Mixed)
         else if (k == "sound") sound = std::clamp(n, 0, 2);
         else if (k == "voice") voice = std::clamp(n, 0, 2);   // (spanish; spanish2: 2 English, 0 Auto)
         else if (k == "reloadvoice") reloadVoice = n != 0;
@@ -535,15 +540,15 @@ void LaunchConfig::save(const std::string& file) const
         }
     } c{std::ofstream(file + ".new"), file};
     std::ofstream& f = c.f;
-    f << "arcade=" << toBase(arcade, base) << "\npc=" << toBase(pc, base) << "\nmodels=" << models << "\nsound=" << sound << "\nvoice=" << voice << "\nreloadvoice=" << (reloadVoice ? 1 : 0) << "\nsoundchip=" << soundChip << "\nspanishpc=" << toBase(spanishPc, base) << "\nplayers=" << players << "\np2input=" << p2Input
+    f << "arcade=" << toBase(arcade, base) << "\npc=" << toBase(pc, base) << "\nmodels=" << models << "\nmixedmodels=" << mixedModelsKey(mixedPc) << "\nmixextras=" << (mixExtras ? 1 : 0) << "\nsound=" << sound << "\nvoice=" << voice << "\nreloadvoice=" << (reloadVoice ? 1 : 0) << "\nsoundchip=" << soundChip << "\nspanishpc=" << toBase(spanishPc, base) << "\nplayers=" << players << "\np2input=" << p2Input
       << "\ndifficulty=" << difficulty << "\nlives=" << lives << "\nstartlives=" << livesStartOf(lives) << "\nmaxlives=" << livesMostOf(lives) << "\nsoloseat=" << soloSeat << "\nchapterretry=" << (chapterRetry ? 1 : 0) << "\nblood=" << blood << "\ncuts=" << (cuts ? 1 : 0) << "\ntitle=" << (title ? 1 : 0) << "\nfbi=" << (fbi ? 1 : 0) << "\npcsplash=" << (pcSplash ? 1 : 0) << "\ngametext=" << gameText << "\nlang=" << language
       << "\nsubtitles=" << subtitles << "\nsubtitlesize=" << subtitleSize
-      << "\naspect=" << aspect << "\nwiden2d=" << widen2d << "\nfullscreen=" << ((util::fullscreenLive() >= 0 ? util::fullscreenLive() != 0 : fullscreen) ? 1 : 0) <<"\nautoreload=" << (autoReload ? 1 : 0) << "\nedgereload=" << (edgeReload ? 1 : 0) << "\nvrdual=" << vrDual << "\nvrlaser=" << vrLaser << "\nvrcrosshair=" << vrCrosshair << "\nvrmenuhands=" << vrMenuHands << "\nvrview=" << vrView << "\nvrscreendist=" << vrScreenDist << "\nvrscreensize=" << vrScreenSize << "\nvrcutscenes=" << vrCutscenes << "\nvrvignette=" << vrVignette <<"\nscoredisplay=" << (scoreDisplay ? 1 : 0) << "\nbossnames=" << (bossCodenames ? 1 : 0) << "\nattractgore=" << (attractGore ? 1 : 0) << "\nupdatecheck=" << (updateCheck ? 1 : 0) << "\nlastversion=" << lastVersion << "\nholdskip=" << (holdSkip ? 1 : 0)
+      << "\naspect=" << aspect << "\nwiden2d=" << widen2d << "\nfullscreen=" << ((util::fullscreenLive() >= 0 ? util::fullscreenLive() != 0 : fullscreen) ? 1 : 0) <<"\nautoreload=" << (autoReload ? 1 : 0) << "\nedgereload=" << (edgeReload ? 1 : 0) << "\nvrdual=" << vrDual << "\nvrlaser=" << vrLaser << "\nvrcrosshair=" << vrCrosshair << "\nvrmenuhands=" << vrMenuHands << "\nvrgunhand=" << vrGunHand << "\ncutcross=" << cutCross << "\nvrview=" << vrView << "\nvrscreendist=" << vrScreenDist << "\nvrscreensize=" << vrScreenSize << "\nvrcutscenes=" << vrCutscenes << "\nvrvignette=" << vrVignette <<"\nscoredisplay=" << (scoreDisplay ? 1 : 0) << "\nbossnames=" << (bossCodenames ? 1 : 0) << "\nattractgore=" << (attractGore ? 1 : 0) << "\nupdatecheck=" << (updateCheck ? 1 : 0) << "\nlastversion=" << lastVersion << "\nholdskip=" << (holdSkip ? 1 : 0)
       << "\ndisplaymode=" << ((util::fullscreenLive() >= 0 ? util::fullscreenLive() != 0 : fullscreen) ? (exclusive ? 2 : 1) : 0)
       << "\nexclusive=" << (exclusive ? 1 : 0)
       << "\nresolution_fullscreen=" << util::sizeKey({resFullW, resFullH}) << "\nresolution_window=" << util::sizeKey({resWinW, resWinH})
       << "\ngamespeed=" << (gameSpeed < 0 ? "auto" : gameSpeed == 1 ? "60" : "arcade") << "\ncontinues=" << continues << "\nfreeplay=" << (freePlay ? 1 : 0) << "\nframerate=" << (frameRate == 0 ? std::string("display") : frameRate < 0 ? std::string("unlimited") : frameRate == kFrameRateArcade ? std::string("arcade") : std::to_string(frameRate))
-      << "\nvsync=" << (vsync ? 1 : 0) << "\nrenderer=" << (renderer == 1 ? "gl" : renderer == 2 ? "angle" : "auto") << "\nsmooth=" << (smooth ? 1 : 0) << "\nhitsparks=" << (hitSparks ? 1 : 0) << "\nmuzzleflash=" << (muzzleFlash ? 1 : 0) << "\nshotflashsize=" << shotFlashSize << "\nshowcrosshairs=" << (showCrosshairs ? 1 : 0) << "\nbloodparticles=" << (bloodParticles ? 1 : 0) << "\nhitmarks=" << (clearMarks ? 1 : 0) << "\ntransparency=" << transparency << "\nnetname=" << netName << "\ndisplay=" << display << "\nnetinfo=" << netInfo << "\nnetstun=" << (netStun ? 1 : 0) << "\nstunservers=" << stunServers << "\nnetpcmode=" << (netPcMode ? 1 : 0) << "\nnetbossmode=" << netBossMode << "\nnetpcchar=" << netPcChar[0] << ',' << netPcChar[1] << "\nsonicmode=" << sonicKey(sonic) << "\nboss4p=" << boss4p << "\nenemy4p=" << enemy4p << "\nteamflash=" << teamFlash << "\ntrailer=" << (trailer ? 1 : 0) << "\nscene4p=" << scene4p
+      << "\nvsync=" << (vsync ? 1 : 0) << "\nrenderer=" << (renderer == 1 ? "gl" : renderer == 2 ? "angle" : "auto") << "\nsmooth=" << (smooth ? 1 : 0) << "\nhitsparks=" << (hitSparks ? 1 : 0) << "\nmuzzleflash=" << (muzzleFlash ? 1 : 0) << "\nshotflashsize=" << shotFlashSize << "\nshowcrosshairs=" << (showCrosshairs ? 1 : 0) << "\nbloodparticles=" << (bloodParticles ? 1 : 0) << "\nhitmarks=" << (clearMarks ? 1 : 0) << "\ntransparency=" << transparency << "\npcrenderer=" << (pcRenderer == 1 ? "d3d" : "software") << "\nnetname=" << netName << "\ndisplay=" << display << "\nnetinfo=" << netInfo << "\nnetstun=" << (netStun ? 1 : 0) << "\nstunservers=" << stunServers << "\nnetpcmode=" << (netPcMode ? 1 : 0) << "\nnetbossmode=" << netBossMode << "\nnetpcchar=" << netPcChar[0] << ',' << netPcChar[1] << "\nsonicmode=" << sonicKey(sonic) << "\nboss4p=" << boss4p << "\nenemy4p=" << enemy4p << "\nteamflash=" << teamFlash << "\ntrailer=" << (trailer ? 1 : 0) << "\nscene4p=" << scene4p
       << "\ncrt=" << crtPresetKey(crt.preset) << "\ncrt.scan=" << crt.scan << "\ncrt.mask=" << crt.mask << "\ncrt.masktype=" << crt.maskType
       << "\ncrt.curve=" << crt.curve << "\ncrt.bloom=" << crt.bloom << "\ncrt.bright=" << crt.bright
       << "\ncrt.crispsights=" << (crt.crispSights ? 1 : 0) << "\ncrt.shotfiltered=" << (crt.shotFiltered ? 1 : 0)

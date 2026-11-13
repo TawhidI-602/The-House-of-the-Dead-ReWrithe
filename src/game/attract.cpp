@@ -412,25 +412,21 @@ void Runtime::title_camera_task(uint32_t task, bool moving)
 }
 
 // mode 3, the attract demo (mode3_demo 0x23B40, table 0xAB0D0). demo_list 0xAB0E0 {chapter, event, frames}: (0, 5,
-// 1092), (0, 15, 1023), (1, 9, 1389); the third is Chapter 2 (not loaded by the teaser): skipped. The demo players
-// start through player_demo_start (PlStartInit set-up 4) and play the recorded input (SCNINIT: input_source 1).
+// 1092), (0, 15, 1023), (1, 9, 1389), -1 ends: back to the first. The demo players start through player_demo_start
+// (PlStartInit set-up 4) and play the recorded input (SCNINIT: input_source 1). fix141 (GitHub #84: "the attract is
+// missing its third gameplay demo"): the third, Chapter 2's, plays too (it was skipped since the Chapter 1 teaser)
 void Runtime::attract_demo()
 {
     if (mem.u32(G::game_submode) == 0) {   // 0x23B60 demo_start
         uint32_t idx = mem.u32(G::demo_index);
-        for (int tries = 0; tries < 8; ++tries) {
-            if (int32_t(mem.u32(0xAB0E0 + idx * 12)) == -1)
-                idx = 0;
-            if (mem.u32(0xAB0E0 + idx * 12) == 0)
-                break;
-            ++idx;   // not Chapter 1: skipped (teaser)
-        }
+        if (int32_t(mem.u32(0xAB0E0 + idx * 12)) == -1)
+            idx = 0;
         mem.set32(G::demo_index, idx);
         mem.set32(0x53DE94, 1);
-        const int event = int(mem.u32(0xAB0E4 + idx * 12));
+        const int chapter = int(mem.u32(0xAB0E0 + idx * 12)), event = int(mem.u32(0xAB0E4 + idx * 12));
         if (log)
-            log("attract demo " + std::to_string(idx) + ": Chapter 1 event " + std::to_string(event));
-        chapter_start(0, event, 0, 3);   // game_difficulty_set, chapter_load (mode 3, sub-mode 1)
+            log("attract demo " + std::to_string(idx) + ": Chapter " + std::to_string(chapter + 1) + " event " + std::to_string(event));
+        chapter_start(chapter, event, 0, 3);   // game_difficulty_set, chapter_load (mode 3, sub-mode 1)
         mem.set32(0x520714, 1);
         mem.set32(0x520718, 0);
         mem.set32(0x53DE90, mem.u32(0xAB0E8 + idx * 12));

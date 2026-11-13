@@ -78,7 +78,7 @@ void Runtime::hit_screen_shake()
             if (std::getenv("HOTD_TRACE_NOTICE") && log) log("notice seat " + std::to_string(p + 1) + " kind " + std::to_string(sn.kind));
         } else if (up && frameCount + 55 == sn.until) {
             const bool odd = (frameCount & 1) != 0;
-            sound_cue(p == 2 ? (odd ? 0xA01455 : 0xA01456) : (odd ? 0xA01458 : 0xA01459));
+            sound_cue(voice_cue(p, p == 2 ? (odd ? 0xA01455 : 0xA01456) : (odd ? 0xA01458 : 0xA01459)));   // (fix141 #88)
         }
     }
     port::Game<A>::hit_screen_shake();
