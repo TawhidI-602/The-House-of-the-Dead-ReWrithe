@@ -45,6 +45,11 @@ SteamVR) is the recommended way to play.
 - The attract's third demo (#84).
 - Sophie's body with PC models (#81).
 - Survival, Chapter 4's roof: the glitched creature textures.
+- PC Mode: the Researcher holds her gun in the cut-scenes, as on the 1998 PC (#90).
+- PC Mode with the arcade models: the worms' shadows on Chapter 1's bridge sit under them (#91).
+- The good ending: Sophie's "Thank you" plays again (#92).
+- Steam Deck / Linux: the main-menu music falls back to the arcade's song when the PC files give none, and CD images' files are found whatever their case; hotd.log says why (#94).
+- Mixed Models: the players in the opening car follow Players and humans.
 - Linux and macOS: build fixes.
 
 ## Known issues

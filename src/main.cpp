@@ -12103,6 +12103,30 @@ int main(int argc, char* argv[])
                     menuBoardPlay(0xA01000u + uint32_t(c - game::kArcadeSongCue));
                     return;
                 }
+                // deckmusic (GitHub #94, Steam Deck: no menu music, no log to tell why): a menu song cue (launcher.h
+                // menuSongs) always says what became of it in hotd.log, and every way it cannot play from a CD file ends
+                // on the arcade's own song
+                bool menuSong = false;
+                {
+                    int n = 0;
+                    const game::MenuSong* k = game::menuSongs(n);
+                    for (int i = 0; i < n; ++i)
+                        menuSong |= k[i].cue == c;
+                }
+                if (menuSong && !audioOn) {
+                    static bool said = false;
+                    if (!said) SDL_Log("menu music: no sound at all (the \"no sound:\" line above says why)");
+                    said = true;
+                    return;
+                }
+                // a THOTD.EXE whose cue table does not have the song there (another version / a patch: the cue table is
+                // read at the 1998 release's address): the arcade's song
+                if (menuSong && audio.cueType(c) != 3) {
+                    SDL_Log("menu music: THOTD.EXE's cue %d is not a song (type %d, another version of THOTD.EXE?): the arcade's song %#x",
+                            c, audio.cueType(c), 0xA01000u + unsigned(c - 8));
+                    menuBoardPlay(0xA01000u + uint32_t(c - 8));
+                    return;
+                }
                 // no CD file for a menu song (a PC copy without its music, user 2026-10-31): the arcade's own song on the
                 // sound board (the sound test's order: PC cues 8..22 = 0xA01000..0xA0100E)
                 if (audio.cueType(c) == 3 && c >= 8 && c <= 22 && !audio.hasMusicTrack(audio.cueValue(c))) {
@@ -12113,6 +12137,12 @@ int main(int argc, char* argv[])
                 if (audio.cueType(c) == 3 || audio.cueType(c) == 5)   // (another song, or the music / everything off)
                     menuBoardStop();
                 audio.pcCue(c);
+                // deckmusic: the CD file is there but did not open (unreadable, a format the build cannot decode; the
+                // "[sound] music: cannot ..." line above says which): the arcade's song
+                if (menuSong && audio.cueValue(c) != -1 && !audio.musicPlaying()) {
+                    SDL_Log("menu music: the CD file for track %d did not play: the arcade's song %#x", audio.cueValue(c), 0xA01000u + unsigned(c - 8));
+                    menuBoardPlay(0xA01000u + uint32_t(c - 8));
+                }
             };
             fe.onMainMenu = [&](int item) { feAction = item; };
             // PC Mode (docs/pcmode.md): the main menu's item opens screen 16, the character select; its Start -> feAction 16

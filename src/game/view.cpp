@@ -802,6 +802,11 @@ int GameView::mixCat(const Runtime& rt, const DrawModel& dm) const
         why = "sky";
     } else if (effectModel(id)) {   // (before the body: a body draws its blood bursts and gore too)
         c = kMixEffects, why = "effect";
+    } else if (id == 0x188 || id == 0x189 || (id >= 0x1D38 && id <= 0x1D3B)) {
+        // the opening car's seated players (player_char_props_draw: drive_1p / drive_2p, PC Mode's 0x1D38.. car models,
+        // port/game.h pm table): the character and its seat are one model, so the people's row (coordinator 2026-11-13:
+        // Rogan followed the World row)
+        c = kMixHumans, why = "car seat";
     } else if (dm.bossPart != 0) {
         c = kMixBosses, why = "boss part";
     } else if (dm.body != 0 && rt.mem.mapped(dm.body + 0xCC)) {

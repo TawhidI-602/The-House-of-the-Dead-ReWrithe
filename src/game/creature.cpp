@@ -253,7 +253,7 @@ void Runtime::body_part_draw_hook(uint32_t part)
         return;
     }
     const uint32_t k = uint32_t(int32_t(int16_t(uint16_t(type) - 2)) & 0xFFFF);
-    if ((k == 28 || k == 32) && body_hook_special(part, body, int32_t(k), cls))   // T1 (t1_bounds.cpp)
+    if ((k == 28 || k == 32 || (k == 24 && chars_on())) && body_hook_special(part, body, int32_t(k), cls))   // T1 (t1_bounds.cpp; k 24 fix142)
         return;
     {
         // ch4proof (the whole-game differential found type 55's +0x54 missing; read from the decompilation of

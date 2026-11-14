@@ -647,9 +647,21 @@ bool Runtime::prologue_routine(uint32_t routine, uint32_t o)
             task_exit();
         return true;
     }
-    case 0x58A60: sceneInit(0x58AC0); return true;   // scene_person
+    // fix142 (GitHub #92: the good ending's Sophie said nothing): both routines' ending case was missing. In the
+    // ending (chapter slot 6) with Sophie the scene's type (hit_type 0x51FDB4 == 0x22): the set-up sets +0x3C4 bit 7
+    // (0x58A80..0x58AA8), and each frame where her motion has ended (+0x3C5 bit 4) on sub-frame 1 (+0xF6) sends her
+    // voice 0xA01419 (0x58ADC..0x58B10, from the disassembly). That is event 5, the ending of route_choice 1
+    // (kind122_ending_score: a player on the top rank card), the only one with her standing
+    case 0x58A60:   // scene_person
+        sceneInit(0x58AC0);
+        if (mem.at<int8_t>(G::chapter) == 6 && mem.u32(G::hit_type) == 0x22)
+            mem.at<uint8_t>(o + 0x3C4) |= 0x80;
+        return true;
     case 0x58AC0:   // scene_person_frame
         if (mem.u32(G::palette_grey_on) == 0) enemy_frame_end(o); else object_draw(o);
+        if (mem.at<int8_t>(G::chapter) == 6 && mem.u32(G::hit_type) == 0x22 && ((mem.at<uint8_t>(o + 0x3C5) >> 4) & 1) &&
+            mem.at<int16_t>(o + 0xF6) == 1)
+            sound_cue(0xA01419);
         sceneEnd();
         return true;
     case 0x58B40: sceneInit(0x58B90); return true;   // scene_tom
