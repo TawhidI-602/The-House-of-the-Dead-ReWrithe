@@ -16111,7 +16111,8 @@ int main(int argc, char* argv[])
                     csAction = -1;
                     std::copy(csKeepPc, csKeepPc + 4, fe.pcChars);   // (PC Mode's own picks as they were)
                 } else if ((action == 0 || action == 6) && menu.cfg.charSelect && inputTestFile.empty() &&
-                           !gTotd && !gNet) {   // (--input-test: its menu walks start the game directly)
+                           !gTotd && !gNet && !gPcMode) {   // (--input-test: its menu walks start the game directly;
+                    // user 2026-11-13: never after PC Mode, which has its own character screen)
                     csAction = action;
                     std::copy(fe.pcChars, fe.pcChars + 4, csKeepPc);
                     for (int k = 0; k < 4; ++k)

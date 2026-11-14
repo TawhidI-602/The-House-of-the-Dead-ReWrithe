@@ -49,6 +49,7 @@ SteamVR) is the recommended way to play.
 - PC Mode with the arcade models: the worms' shadows on Chapter 1's bridge sit under them (#91).
 - The good ending: Sophie's "Thank you" plays again (#92).
 - Steam Deck / Linux: the main-menu music falls back to the arcade's song when the PC files give none, and CD images' files are found whatever their case; hotd.log says why (#94).
+- PC Mode: no Character Select after PC Mode's own character screen.
 - Mixed Models: the players in the opening car follow Players and humans.
 - Linux and macOS: build fixes.
 
