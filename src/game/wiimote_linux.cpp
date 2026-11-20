@@ -25,6 +25,11 @@
 #include <linux/hidraw.h>
 #include <SDL3/SDL.h>
 
+// Kernel headers older than 5.7 (Ubuntu 20.04, glibc 2.31 builds for handhelds) lack HIDIOCGRAWUNIQ: same ioctl number
+#ifndef HIDIOCGRAWUNIQ
+#define HIDIOCGRAWUNIQ(len) _IOC(_IOC_READ, 'H', 0x08, len)
+#endif
+
 namespace hotd::game::wii {
 namespace {
 using Clock=std::chrono::steady_clock;
