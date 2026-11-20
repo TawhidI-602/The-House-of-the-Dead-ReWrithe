@@ -12,37 +12,46 @@ jobs:
   build:
     runs-on: ubuntu-24.04-arm     # maquina ARM64 nativa (gratis en repositorios publicos)
     container: ${{ inputs.image }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Dependencias
         run: |
+          set -euo pipefail
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            git ca-certificates cmake ninja-build g++ pkg-config python3 \
+            git ca-certificates cmake ninja-build pkg-config python3 g++-12 gcc-12 \
             libdrm-dev libgbm-dev libegl-dev libgles-dev libudev-dev libasound2-dev libdbus-1-dev
+          g++-12 --version | head -1
 
       - uses: actions/checkout@v4
 
       - name: Configurar
+        # el proyecto necesita GCC 12 o mas nuevo (C++20); libstdc++ ya se enlaza estatica por defecto
         run: |
+          set -euo pipefail
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DHOTD_LINUX_GLES=ON -DHOTD_FETCH_SDL3=ON -DHOTD_FETCH_STB=ON \
+            -DCMAKE_C_COMPILER=gcc-12 -DCMAKE_CXX_COMPILER=g++-12 \
+            -DHOTD_LINUX_GLES=ON -DHOTD_FETCH_SDL3=ON -DHOTD_SDL3_TAG=release-3.2.10 -DHOTD_FETCH_STB=ON \
             -DHOTD_EXPERIMENTAL_MODES=OFF \
             -DSDL_KMSDRM=ON -DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_VULKAN=OFF \
+            -DSDL_UNIX_CONSOLE_BUILD=ON \
             -DCMAKE_C_FLAGS="-O3 -mcpu=cortex-a35" \
-            -DCMAKE_CXX_FLAGS="-O3 -mcpu=cortex-a35" \
-            -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
+            -DCMAKE_CXX_FLAGS="-O3 -mcpu=cortex-a35"
 
       - name: Compilar
-        run: cmake --build build --target hotd -j4
+        run: cmake --build build --target hotd --parallel 4
 
       - name: Reunir resultado
         run: |
-          ldd --version | head -1 | tee glibc.txt
+          set -euo pipefail
           mkdir -p out/bin out/libs
           cp "$(find build -maxdepth 2 -type f -name hotd | head -1)" out/bin/hotd
           cp -a $(find build -name 'libSDL3.so*' | head -5) out/libs/
           strip out/bin/hotd
-          cp glibc.txt out/
+          ldd --version | head -1 > out/glibc.txt
+          ldd out/bin/hotd | tee out/ldd.txt
           ls -lR out
 
       - uses: actions/upload-artifact@v4
