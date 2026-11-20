@@ -1,0 +1,51 @@
+name: R36S aarch64 build
+
+# Se ejecuta a mano: pestaña Actions -> "R36S aarch64 build" -> Run workflow
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Imagen de compilacion (su glibc debe ser igual o menor que la de la consola)"
+        default: "ubuntu:22.04"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm     # maquina ARM64 nativa (gratis en repositorios publicos)
+    container: ${{ inputs.image }}
+    steps:
+      - name: Dependencias
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git ca-certificates cmake ninja-build g++ pkg-config python3 \
+            libdrm-dev libgbm-dev libegl-dev libgles-dev libudev-dev libasound2-dev libdbus-1-dev
+
+      - uses: actions/checkout@v4
+
+      - name: Configurar
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DHOTD_LINUX_GLES=ON -DHOTD_FETCH_SDL3=ON -DHOTD_FETCH_STB=ON \
+            -DHOTD_EXPERIMENTAL_MODES=OFF \
+            -DSDL_KMSDRM=ON -DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_VULKAN=OFF \
+            -DCMAKE_C_FLAGS="-O3 -mcpu=cortex-a35" \
+            -DCMAKE_CXX_FLAGS="-O3 -mcpu=cortex-a35" \
+            -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
+
+      - name: Compilar
+        run: cmake --build build --target hotd -j4
+
+      - name: Reunir resultado
+        run: |
+          ldd --version | head -1 | tee glibc.txt
+          mkdir -p out/bin out/libs
+          cp "$(find build -maxdepth 2 -type f -name hotd | head -1)" out/bin/hotd
+          cp -a $(find build -name 'libSDL3.so*' | head -5) out/libs/
+          strip out/bin/hotd
+          cp glibc.txt out/
+          ls -lR out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hotd-r36s-aarch64
+          path: out/
