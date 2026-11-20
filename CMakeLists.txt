@@ -325,6 +325,12 @@ add_library(hotd_engine STATIC
     src/util/resolution.cpp)
 target_include_directories(hotd_engine PUBLIC src)
 target_link_libraries(hotd_engine PUBLIC SDL3::SDL3)
+# r36s: Linux handhelds with only OpenGL ES (R36S / RK3326 Mali, KMSDRM, ArkOS): draw through the device's own OpenGL ES 3
+# (render/gl_backend.cpp, the same ES layer as the Quest build and ANGLE); HOTD_GLES=0 at run time goes back to desktop GL
+option(HOTD_LINUX_GLES "Linux: use the device's OpenGL ES 3 through EGL instead of desktop OpenGL 3.3 (R36S and similar)" OFF)
+if(HOTD_LINUX_GLES AND UNIX AND NOT APPLE AND NOT ANDROID)
+    target_compile_definitions(hotd_engine PUBLIC HOTD_GLES_NATIVE)
+endif()
 if(MSVC)
     target_compile_definitions(hotd_engine PUBLIC _CRT_SECURE_NO_WARNINGS)
 endif()
