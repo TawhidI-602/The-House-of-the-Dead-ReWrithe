@@ -1,12 +1,13 @@
 name: R36S aarch64 build
 
 # Se ejecuta a mano: pestaña Actions -> "R36S aarch64 build" -> Run workflow
+# La imagen decide la glibc del binario: ubuntu:20.04 = glibc 2.31 (corre en sistemas con glibc >= 2.31).
 on:
   workflow_dispatch:
     inputs:
       image:
         description: "Imagen de compilacion (su glibc debe ser igual o menor que la de la consola)"
-        default: "ubuntu:22.04"
+        default: "ubuntu:20.04"
 
 jobs:
   build:
@@ -19,16 +20,25 @@ jobs:
       - name: Dependencias
         run: |
           set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
           apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            git ca-certificates cmake ninja-build pkg-config python3 g++-12 gcc-12 \
+          apt-get install -y --no-install-recommends \
+            git ca-certificates software-properties-common gnupg \
+            python3 python3-pip ninja-build pkg-config binutils \
             libdrm-dev libgbm-dev libegl-dev libgles-dev libudev-dev libasound2-dev libdbus-1-dev
+          # GCC 12 (el proyecto necesita C++20) desde el PPA de toolchains
+          add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          apt-get update
+          apt-get install -y --no-install-recommends gcc-12 g++-12
+          # el proyecto pide CMake >= 3.21 y esta imagen trae 3.16
+          pip3 install --upgrade cmake
           g++-12 --version | head -1
+          cmake --version | head -1
+          ldd --version | head -1
 
       - uses: actions/checkout@v4
 
       - name: Configurar
-        # el proyecto necesita GCC 12 o mas nuevo (C++20); libstdc++ ya se enlaza estatica por defecto
         run: |
           set -euo pipefail
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -52,6 +62,9 @@ jobs:
           strip out/bin/hotd
           ldd --version | head -1 > out/glibc.txt
           ldd out/bin/hotd | tee out/ldd.txt
+          # la glibc MINIMA que necesita el binario en la consola (la mas alta de estas)
+          { echo "hotd:"; objdump -T out/bin/hotd | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -3
+            echo "libSDL3:"; objdump -T out/libs/libSDL3.so.0 | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -3; } | tee out/glibc_needed.txt
           ls -lR out
 
       - uses: actions/upload-artifact@v4
