@@ -234,6 +234,16 @@ SDL_Window* recreateWindow(SDL_Window* old)
 
 void setShaderCacheFile(const std::string& path) { gBlobFile = path; }
 
+#if defined(HOTD_GLES_NATIVE)
+// r36s: the build was made for OpenGL ES handhelds (CMake HOTD_LINUX_GLES); the environment variable HOTD_GLES=0 (for a
+// run on a desktop PC with Mesa) still picks desktop OpenGL 3.3
+static bool nativeESWanted()
+{
+    const char* e = std::getenv("HOTD_GLES");
+    return !(e && e[0] == '0');
+}
+#endif
+
 void prepareWindow(int backend)
 {
 #if defined(__ANDROID__)
@@ -248,6 +258,22 @@ void prepareWindow(int backend)
     SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
     return;
+#endif
+#if defined(HOTD_GLES_NATIVE)
+    // r36s: a Linux handheld (R36S, ArkOS: KMSDRM, a Mali with only OpenGL ES): the driver's own OpenGL ES 3 through
+    // EGL, the ES layer (loadES) as on the Quest and on ANGLE; HOTD_GLES=0 goes back to desktop OpenGL 3.3
+    if (nativeESWanted()) {
+        (void)backend;
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
+        SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
+        SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+        SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+        SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
+        return;
+    }
 #endif
     if (backend == kBackendAngle && angleAvailable()) {
         setupES();
@@ -310,6 +336,26 @@ SDL_GLContext createContext(SDL_Window*& window, int backend, std::string& err)
     }
     gInUse = "OpenGL ES";
     return es;
+#endif
+#if defined(HOTD_GLES_NATIVE)
+    if (nativeESWanted()) {   // r36s: the device's OpenGL ES 3 through EGL (prepareWindow's attributes), as the Quest
+        (void)backend;
+        SDL_GLContext es = SDL_GL_CreateContext(window);
+        if (!es) {
+            err = std::string("OpenGL ES 3: ") + SDL_GetError();
+            return nullptr;
+        }
+        gES = true;
+        if (const char* missing = load()) {
+            err = std::string("OpenGL ES function missing: ") + missing;
+            SDL_GL_MakeCurrent(window, nullptr);
+            SDL_GL_DestroyContext(es);
+            gES = false;
+            return nullptr;
+        }
+        gInUse = "OpenGL ES";
+        return es;
+    }
 #endif
     if (backend == kBackendAngle) {
         if (angleAvailable()) return tryAngle(window, err);
